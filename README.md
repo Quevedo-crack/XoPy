@@ -1,23 +1,24 @@
 # XoPy
 
-XoPy es un gestor gratuito de copias para Windows, pensado inicialmente para uso personal. Proyecto en desarrollo.
+XoPy es un gestor de copias y movimientos para Windows, pensado inicialmente para uso personal.
 
-## Incluido en esta versión
+## Funciones
 
-- Añadir múltiples archivos y carpetas, también mediante arrastrar y soltar.
-- Copiar o mover elementos a una carpeta de destino elegida.
-- Cola ordenable al pulsar las cabeceras y reordenamiento manual con Subir/Bajar.
-- Pausar, reanudar y cancelar transferencias.
-- Política de conflictos configurable: renombrar, sobrescribir u omitir.
+- Añadir archivos y carpetas desde los diálogos o arrastrándolos a la cola.
+- Copiar o mover trabajos a una carpeta de destino.
+- Cola ordenable, multiselección, reordenamiento manual y eliminación de elementos.
+- Reintentar trabajos fallidos o cancelados y limpiar los finalizados.
+- Pausar, cancelar y continuar una transferencia; al cancelar se conserva el parcial para reanudar cuando coincidan el origen y el destino.
+- Política de conflictos configurable: cambiar nombre, sobrescribir u omitir.
 - Verificación SHA-256 opcional, activada por defecto.
-- Copia a un archivo temporal y publicación en destino al terminar; conserva fechas de creación y modificación.
-- Guardar y cargar la cola como JSON.
-- Minimizar a la bandeja del sistema y mostrar el porcentaje general en el texto del icono.
+- Guardar y cargar colas JSON; los trabajos que estaban activos al guardar vuelven a pendientes al cargarse.
+- Indicador de progreso general y minimización a la bandeja del sistema.
+- Protección contra destinos de carpeta dentro del origen y destinos iguales al archivo de origen.
 
-## Requisitos y ejecución
+## Ejecutar y compilar
 
 - Windows 10/11
 - .NET 8 SDK o Visual Studio 2022 con la carga de trabajo de escritorio .NET
 - Abrir `XoPy.sln` y ejecutar el proyecto `XoPy`.
 
-La aplicación está en desarrollo; la reanudación exacta de archivos parciales, transferencias simultáneas y otras funciones avanzadas todavía no están implementadas.
+La aplicación está en desarrollo. La reanudación parcial solo se conserva al cancelar una transferencia y es válida mientras el archivo de origen no cambie. La compilación y las pruebas funcionales siguen pendientes.

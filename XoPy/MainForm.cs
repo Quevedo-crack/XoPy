@@ -27,12 +27,15 @@ public partial class MainForm : Form
         QueueListView.Columns.Add("Origen", 240);
         QueueListView.Columns.Add("Destino", 240);
         QueueListView.Columns.Add("Tamaño", 90);
-        QueueListView.Columns.Add("Estado", 100);
+        QueueListView.Columns.Add("Estado", 120);
         QueueListView.Columns.Add("Progreso", 90);
         QueueListView.View = View.Details;
         QueueListView.FullRowSelect = true;
+        QueueListView.MultiSelect = true;
         QueueListView.GridLines = true;
+        QueueListView.HideSelection = false;
         QueueListView.ColumnClick += QueueListView_ColumnClick;
+        QueueListView.KeyDown += QueueListView_KeyDown;
         QueueListView.AllowDrop = true;
         QueueListView.DragEnter += (_, e) => e.Effect = e.Data?.GetDataPresent(DataFormats.FileDrop) == true ? DragDropEffects.Copy : DragDropEffects.None;
         QueueListView.DragDrop += QueueListView_DragDrop;
@@ -79,24 +82,22 @@ public partial class MainForm : Form
     private void StartButton_Click(object? sender, EventArgs e)
     {
         if (_engine.IsRunning) return;
-        if (!Directory.Exists(DestinationTextBox.Text))
-        {
-            try { Directory.CreateDirectory(DestinationTextBox.Text); }
-            catch (Exception ex) { ShowError($"No se pudo crear el destino: {ex.Message}"); return; }
-        }
+        var destination = DestinationTextBox.Text.Trim();
+        if (string.IsNullOrWhiteSpace(destination)) { ShowError("Elige una carpeta de destino."); return; }
+        try { Directory.CreateDirectory(destination); }
+        catch (Exception ex) { ShowError($"No se pudo crear el destino: {ex.Message}"); return; }
 
         var pending = _jobs.Where(j => j.State is TransferState.Pending or TransferState.Cancelled or TransferState.Failed).ToList();
         if (pending.Count == 0) { StatusLabel.Text = "No hay transferencias pendientes."; return; }
         foreach (var job in pending)
         {
-            job.DestinationPath = DestinationTextBox.Text;
+            job.DestinationPath = destination;
             job.Operation = OperationComboBox.SelectedIndex == 1 ? OperationType.Move : OperationType.Copy;
             job.State = TransferState.Pending;
-            job.CurrentBytes = 0;
-            job.ProgressPercent = 0;
             job.ErrorMessage = null;
         }
         _isPaused = false;
+        PauseButton.Text = "Pausar";
         _engine.Start(pending, VerifyCheckBox.Checked, GetConflictResolution());
         StatusLabel.Text = "Transferencia iniciada";
         RefreshQueue();
@@ -121,8 +122,9 @@ public partial class MainForm : Form
 
     private void StopButton_Click(object? sender, EventArgs e)
     {
+        if (!_engine.IsRunning) return;
         _engine.Cancel();
-        StatusLabel.Text = "Cancelando…";
+        StatusLabel.Text = "Cancelando… Se conservará el progreso parcial para reanudar.";
     }
 
     private void MoveUpButton_Click(object? sender, EventArgs e) => MoveSelected(-1);
@@ -137,6 +139,46 @@ public partial class MainForm : Form
         (_jobs[index], _jobs[target]) = (_jobs[target], _jobs[index]);
         RefreshQueue();
         QueueListView.Items[target].Selected = true;
+        QueueListView.Items[target].Focused = true;
+    }
+
+    private void RemoveSelectedButton_Click(object? sender, EventArgs e)
+    {
+        if (_engine.IsRunning) return;
+        var selectedJobs = QueueListView.SelectedItems.Cast<ListViewItem>().Select(item => item.Tag as TransferJob).Where(job => job is not null).ToHashSet();
+        if (selectedJobs.Count == 0) { StatusLabel.Text = "Selecciona uno o más elementos para quitar."; return; }
+        _jobs.RemoveAll(job => selectedJobs.Contains(job));
+        RefreshQueue();
+        StatusLabel.Text = $"Se quitaron {selectedJobs.Count} elemento(s) de la cola.";
+    }
+
+    private void ClearCompletedButton_Click(object? sender, EventArgs e)
+    {
+        if (_engine.IsRunning) return;
+        var removed = _jobs.RemoveAll(job => job.State == TransferState.Completed);
+        RefreshQueue();
+        StatusLabel.Text = removed == 0 ? "No hay transferencias finalizadas para quitar." : $"Se quitaron {removed} transferencia(s) finalizada(s).";
+    }
+
+    private void RetryFailedButton_Click(object? sender, EventArgs e)
+    {
+        if (_engine.IsRunning) return;
+        var retried = 0;
+        foreach (var job in _jobs.Where(job => job.State is TransferState.Failed or TransferState.Cancelled))
+        {
+            job.State = TransferState.Pending;
+            job.ErrorMessage = null;
+            retried++;
+        }
+        RefreshQueue();
+        StatusLabel.Text = retried == 0 ? "No hay transferencias fallidas o canceladas." : $"{retried} transferencia(s) lista(s) para reintentar.";
+    }
+
+    private void QueueListView_KeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.KeyCode != Keys.Delete || _engine.IsRunning) return;
+        RemoveSelectedButton_Click(sender, EventArgs.Empty);
+        e.Handled = true;
     }
 
     private void SaveQueueButton_Click(object? sender, EventArgs e)
@@ -159,15 +201,17 @@ public partial class MainForm : Form
             var jobs = JsonSerializer.Deserialize<List<TransferJob>>(File.ReadAllText(_loadQueueDialog.FileName));
             if (jobs is null) { ShowError("El archivo de cola no contiene una lista válida."); return; }
             _jobs.Clear();
-            _jobs.AddRange(jobs.Where(j => !string.IsNullOrWhiteSpace(j.SourcePath)).Select(j =>
+            foreach (var job in jobs.Where(job => !string.IsNullOrWhiteSpace(job.SourcePath)))
             {
-                // A paused state is only meaningful while the current process is running.
-                // After loading, make it runnable again just like an interrupted job.
-                if (j.State is TransferState.Running or TransferState.Paused) j.State = TransferState.Pending;
-                return j;
-            }));
+                if (job.State is TransferState.Running or TransferState.Paused)
+                {
+                    job.State = TransferState.Pending;
+                    job.ErrorMessage = null;
+                }
+                _jobs.Add(job);
+            }
             RefreshQueue();
-            StatusLabel.Text = "Cola cargada";
+            StatusLabel.Text = $"Cola cargada: {_jobs.Count} elemento(s).";
         }
         catch (Exception ex) { ShowError($"No se pudo cargar la cola: {ex.Message}"); }
     }
@@ -175,17 +219,23 @@ public partial class MainForm : Form
     private void AddJob(string sourcePath)
     {
         if (string.IsNullOrWhiteSpace(sourcePath) || (!File.Exists(sourcePath) && !Directory.Exists(sourcePath))) return;
+        var fullPath = Path.GetFullPath(sourcePath);
+        if (_jobs.Any(job => string.Equals(Path.GetFullPath(job.SourcePath), fullPath, StringComparison.OrdinalIgnoreCase)))
+        {
+            StatusLabel.Text = $"Ya está en la cola: {Path.GetFileName(fullPath)}";
+            return;
+        }
         var job = new TransferJob
         {
-            SourcePath = sourcePath,
+            SourcePath = fullPath,
             DestinationPath = DestinationTextBox.Text,
             Operation = OperationComboBox.SelectedIndex == 1 ? OperationType.Move : OperationType.Copy,
             State = TransferState.Pending,
-            Name = Path.GetFileName(Path.TrimEndingDirectorySeparator(sourcePath))
+            Name = Path.GetFileName(Path.TrimEndingDirectorySeparator(fullPath))
         };
         try
         {
-            job.SizeBytes = File.Exists(sourcePath) ? new FileInfo(sourcePath).Length : Directory.EnumerateFiles(sourcePath, "*", SearchOption.AllDirectories).Sum(GetLengthSafely);
+            job.SizeBytes = File.Exists(fullPath) ? new FileInfo(fullPath).Length : Directory.EnumerateFiles(fullPath, "*", SearchOption.AllDirectories).Sum(GetLengthSafely);
         }
         catch (Exception ex) { job.ErrorMessage = ex.Message; }
         _jobs.Add(job);
@@ -204,12 +254,12 @@ public partial class MainForm : Form
         else { _sortColumn = e.Column; _sortAscending = true; }
         Func<TransferJob, object> key = e.Column switch
         {
-            0 => j => j.Name,
-            1 => j => j.SourcePath,
-            2 => j => j.DestinationPath,
-            3 => j => j.SizeBytes,
-            4 => j => j.State.ToString(),
-            _ => j => j.ProgressPercent
+            0 => job => job.Name,
+            1 => job => job.SourcePath,
+            2 => job => job.DestinationPath,
+            3 => job => job.SizeBytes,
+            4 => job => job.State.ToString(),
+            _ => job => job.ProgressPercent
         };
         var sorted = _sortAscending ? _jobs.OrderBy(key).ToList() : _jobs.OrderByDescending(key).ToList();
         _jobs.Clear();
@@ -226,16 +276,18 @@ public partial class MainForm : Form
 
     private void RefreshQueue()
     {
+        var selectedIds = QueueListView.Items.Cast<ListViewItem>().Where(item => item.Selected).Select(item => (item.Tag as TransferJob)?.Id).Where(id => id.HasValue).Select(id => id!.Value).ToHashSet();
         QueueListView.BeginUpdate();
         QueueListView.Items.Clear();
         foreach (var job in _jobs)
         {
-            var item = new ListViewItem(job.Name) { Tag = job };
+            var item = new ListViewItem(job.Name) { Tag = job, ToolTipText = job.ErrorMessage ?? job.SourcePath };
             item.SubItems.Add(job.SourcePath);
             item.SubItems.Add(job.DestinationPath);
             item.SubItems.Add(FormatBytes(job.SizeBytes));
             item.SubItems.Add(job.ErrorMessage is null ? job.State.ToString() : $"{job.State}: {job.ErrorMessage}");
             item.SubItems.Add($"{job.ProgressPercent:0.##}%");
+            item.Selected = selectedIds.Contains(job.Id);
             QueueListView.Items.Add(item);
         }
         QueueListView.EndUpdate();
@@ -258,7 +310,7 @@ public partial class MainForm : Form
         {
             BeginInvoke(() =>
             {
-                var job = _jobs.FirstOrDefault(x => x.Id == e.JobId);
+                var job = _jobs.FirstOrDefault(item => item.Id == e.JobId);
                 if (job is null) return;
                 job.State = e.State;
                 job.ProgressPercent = e.ProgressPercent;
@@ -279,8 +331,9 @@ public partial class MainForm : Form
             {
                 _isPaused = false;
                 PauseButton.Text = "Pausar";
-                var failed = _jobs.Count(j => j.State == TransferState.Failed);
-                StatusLabel.Text = failed == 0 ? "Transferencia finalizada" : $"Finalizada con {failed} error(es)";
+                var failed = _jobs.Count(job => job.State == TransferState.Failed);
+                var cancelled = _jobs.Count(job => job.State == TransferState.Cancelled);
+                StatusLabel.Text = failed > 0 ? $"Finalizada con {failed} error(es)" : cancelled > 0 ? $"Cancelada; {cancelled} transferencia(s) pendiente(s)" : "Transferencia finalizada";
                 RefreshQueue();
                 UpdateTrayProgress();
             });
@@ -290,9 +343,9 @@ public partial class MainForm : Form
 
     private void UpdateProgressControls()
     {
-        var total = _jobs.Sum(j => j.SizeBytes);
-        var copied = _jobs.Sum(j => Math.Min(j.CurrentBytes, j.SizeBytes));
-        OverallProgressBar.Value = total <= 0 ? (_jobs.Count > 0 && _jobs.All(j => j.State == TransferState.Completed) ? 100 : 0) : (int)Math.Clamp(copied * 100d / total, 0, 100);
+        var total = _jobs.Sum(job => job.SizeBytes);
+        var copied = _jobs.Sum(job => Math.Min(job.CurrentBytes, job.SizeBytes));
+        OverallProgressBar.Value = total <= 0 ? (_jobs.Count > 0 && _jobs.All(job => job.State == TransferState.Completed) ? 100 : 0) : (int)Math.Clamp(copied * 100d / total, 0, 100);
     }
 
     private void UpdateTrayProgress()

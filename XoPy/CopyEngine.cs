@@ -1,4 +1,6 @@
 using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 
 namespace XoPy;
 
@@ -30,6 +32,8 @@ public sealed class TransferProgressEventArgs(Guid jobId, TransferState state, d
 
 public sealed class CopyEngine
 {
+    private sealed record PartialMetadata(string SourcePath, string TargetPath, long SourceLength, long SourceLastWriteUtcTicks);
+
     private CancellationTokenSource? _cancellation;
     private volatile bool _paused;
     private int _isRunning;
@@ -60,6 +64,8 @@ public sealed class CopyEngine
                 job.State = TransferState.Running;
                 job.CurrentBytes = 0;
                 job.ProgressPercent = 0;
+                job.ErrorMessage = null;
+                Report(job);
                 try
                 {
                     await ProcessJobAsync(job, verify, conflictResolution, token);
@@ -158,16 +164,26 @@ public sealed class CopyEngine
         if (PathsEqual(source, target))
             throw new IOException("El archivo de destino coincide con el origen; se canceló para evitar sobrescribirlo o borrarlo.");
 
-        var temp = Path.Combine(Path.GetDirectoryName(target)!, $".xopy-{Guid.NewGuid():N}.partial");
+        var sourceInfo = new FileInfo(source);
+        var partial = GetPartialPath(source, target);
+        var metadataPath = partial + ".json";
+        var metadata = new PartialMetadata(Path.GetFullPath(source), Path.GetFullPath(target), sourceInfo.Length, sourceInfo.LastWriteTimeUtc.Ticks);
+        var offset = GetValidPartialLength(partial, metadataPath, metadata);
+        var preservePartial = false;
+
         try
         {
-            var sourceInfo = new FileInfo(source);
+            File.WriteAllText(metadataPath, JsonSerializer.Serialize(metadata));
             await using (var input = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.Read, 1024 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan))
-            await using (var output = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None, 1024 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan))
+            await using (var output = new FileStream(partial, offset == 0 ? FileMode.Create : FileMode.Append, FileAccess.Write, FileShare.None, 1024 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan))
             {
+                input.Seek(offset, SeekOrigin.Begin);
                 var buffer = new byte[1024 * 1024];
                 int read;
-                long fileBytes = 0;
+                long fileBytes = offset;
+                job.CurrentBytes = completedBytes + offset;
+                job.ProgressPercent = job.SizeBytes <= 0 ? 0 : Math.Min(100, job.CurrentBytes * 100d / job.SizeBytes);
+                Report(job);
                 while ((read = await input.ReadAsync(buffer.AsMemory(), token)) > 0)
                 {
                     await WaitIfPausedAsync(token);
@@ -180,19 +196,69 @@ public sealed class CopyEngine
                 await output.FlushAsync(token);
             }
 
-            File.SetLastWriteTime(temp, sourceInfo.LastWriteTime);
-            File.SetCreationTime(temp, sourceInfo.CreationTime);
-            if (verify && !await FilesMatchAsync(source, temp, token)) throw new IOException($"La verificación SHA-256 falló: {sourceInfo.Name}");
+            File.SetLastWriteTime(partial, sourceInfo.LastWriteTime);
+            File.SetCreationTime(partial, sourceInfo.CreationTime);
+            if (verify && !await FilesMatchAsync(source, partial, token)) throw new IOException($"La verificación SHA-256 falló: {sourceInfo.Name}");
 
-            // Never replace a file in Rename mode: another process may have created the
-            // candidate after our name check. Failing is safer than silently overwriting it.
-            File.Move(temp, target, resolution == ConflictResolution.Overwrite);
+            // File.Move without overwrite for Rename mode also protects against a race
+            // where another process creates the candidate after we selected its name.
+            File.Move(partial, target, resolution == ConflictResolution.Overwrite);
+            TryDelete(metadataPath);
             if (job.Operation == OperationType.Move) File.Delete(source);
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            preservePartial = true;
+            throw;
         }
         finally
         {
-            try { if (File.Exists(temp)) File.Delete(temp); } catch { }
+            if (!preservePartial)
+            {
+                TryDelete(partial);
+                TryDelete(metadataPath);
+            }
         }
+    }
+
+    private static long GetValidPartialLength(string partial, string metadataPath, PartialMetadata expected)
+    {
+        try
+        {
+            if (!File.Exists(partial) || !File.Exists(metadataPath))
+            {
+                TryDelete(partial);
+                TryDelete(metadataPath);
+                return 0;
+            }
+
+            var saved = JsonSerializer.Deserialize<PartialMetadata>(File.ReadAllText(metadataPath));
+            var info = new FileInfo(partial);
+            var matches = saved is not null
+                && string.Equals(saved.SourcePath, expected.SourcePath, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(saved.TargetPath, expected.TargetPath, StringComparison.OrdinalIgnoreCase)
+                && saved.SourceLength == expected.SourceLength
+                && saved.SourceLastWriteUtcTicks == expected.SourceLastWriteUtcTicks
+                && info.Length <= expected.SourceLength;
+            if (matches) return info.Length;
+        }
+        catch { }
+
+        TryDelete(partial);
+        TryDelete(metadataPath);
+        return 0;
+    }
+
+    private static string GetPartialPath(string source, string target)
+    {
+        var identity = Encoding.UTF8.GetBytes(Path.GetFullPath(source) + "\0" + Path.GetFullPath(target));
+        var hash = Convert.ToHexString(SHA256.HashData(identity));
+        return Path.Combine(Path.GetDirectoryName(target)!, $".xopy-{hash}.partial");
+    }
+
+    private static void TryDelete(string path)
+    {
+        try { if (File.Exists(path)) File.Delete(path); } catch { }
     }
 
     private static bool IsSameOrChildPath(string candidate, string parent)

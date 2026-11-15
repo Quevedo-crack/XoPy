@@ -9,6 +9,9 @@ partial class MainForm
     private Button StopButton = null!;
     private Button MoveUpButton = null!;
     private Button MoveDownButton = null!;
+    private Button RemoveSelectedButton = null!;
+    private Button ClearCompletedButton = null!;
+    private Button RetryFailedButton = null!;
     private Button SaveQueueButton = null!;
     private Button LoadQueueButton = null!;
     private Button BrowseDestinationButton = null!;
@@ -32,6 +35,9 @@ partial class MainForm
         StopButton = new Button { Text = "Cancelar", AutoSize = true };
         MoveUpButton = new Button { Text = "Subir", AutoSize = true };
         MoveDownButton = new Button { Text = "Bajar", AutoSize = true };
+        RemoveSelectedButton = new Button { Text = "Quitar seleccionados", AutoSize = true };
+        ClearCompletedButton = new Button { Text = "Limpiar finalizadas", AutoSize = true };
+        RetryFailedButton = new Button { Text = "Reintentar fallidas", AutoSize = true };
         SaveQueueButton = new Button { Text = "Guardar cola", AutoSize = true };
         LoadQueueButton = new Button { Text = "Cargar cola", AutoSize = true };
         BrowseDestinationButton = new Button { Text = "Examinar…", AutoSize = true };
@@ -52,10 +58,13 @@ partial class MainForm
         StopButton.Click += StopButton_Click;
         MoveUpButton.Click += MoveUpButton_Click;
         MoveDownButton.Click += MoveDownButton_Click;
+        RemoveSelectedButton.Click += RemoveSelectedButton_Click;
+        ClearCompletedButton.Click += ClearCompletedButton_Click;
+        RetryFailedButton.Click += RetryFailedButton_Click;
         SaveQueueButton.Click += SaveQueueButton_Click;
         LoadQueueButton.Click += LoadQueueButton_Click;
 
-        var destinationPanel = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, WrapContents = false };
+        var destinationPanel = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, WrapContents = true, Padding = new Padding(0, 0, 0, 4) };
         destinationPanel.Controls.Add(new Label { Text = "Destino:", AutoSize = true, Padding = new Padding(0, 7, 0, 0) });
         destinationPanel.Controls.Add(DestinationTextBox);
         destinationPanel.Controls.Add(BrowseDestinationButton);
@@ -65,8 +74,8 @@ partial class MainForm
         destinationPanel.Controls.Add(ConflictComboBox);
         destinationPanel.Controls.Add(VerifyCheckBox);
 
-        var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, WrapContents = true };
-        buttons.Controls.AddRange(new Control[] { AddFilesButton, AddFolderButton, StartButton, PauseButton, StopButton, MoveUpButton, MoveDownButton, SaveQueueButton, LoadQueueButton });
+        var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, WrapContents = true, Padding = new Padding(0, 0, 0, 4) };
+        buttons.Controls.AddRange(new Control[] { AddFilesButton, AddFolderButton, StartButton, PauseButton, StopButton, MoveUpButton, MoveDownButton, RemoveSelectedButton, ClearCompletedButton, RetryFailedButton, SaveQueueButton, LoadQueueButton });
 
         var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4, Padding = new Padding(10) };
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -84,8 +93,8 @@ partial class MainForm
         layout.Controls.Add(footer, 0, 3);
 
         Text = "XoPy — Gestor de copias";
-        MinimumSize = new Size(900, 520);
-        Size = new Size(1200, 700);
+        MinimumSize = new Size(900, 560);
+        Size = new Size(1200, 760);
         StartPosition = FormStartPosition.CenterScreen;
         Controls.Add(layout);
     }
