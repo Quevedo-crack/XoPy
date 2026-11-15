@@ -7,9 +7,5 @@
     <Nullable>enable</Nullable>
     <RootNamespace>XoPy</RootNamespace>
     <AssemblyName>XoPy</AssemblyName>
-    <ApplicationIcon>Assets\xopy.ico</ApplicationIcon>
   </PropertyGroup>
-  <ItemGroup>
-    <Content Include="Assets\xopy.ico" CopyToOutputDirectory="PreserveNewest" />
-  </ItemGroup>
 </Project>
