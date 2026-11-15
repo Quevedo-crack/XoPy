@@ -161,7 +161,9 @@ public partial class MainForm : Form
             _jobs.Clear();
             _jobs.AddRange(jobs.Where(j => !string.IsNullOrWhiteSpace(j.SourcePath)).Select(j =>
             {
-                if (j.State == TransferState.Running) j.State = TransferState.Pending;
+                // A paused state is only meaningful while the current process is running.
+                // After loading, make it runnable again just like an interrupted job.
+                if (j.State is TransferState.Running or TransferState.Paused) j.State = TransferState.Pending;
                 return j;
             }));
             RefreshQueue();
