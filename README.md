@@ -2,10 +2,10 @@
 
 XoPy es un gestor de transferencias para Windows con una interfaz WinForms original y un motor implementado en C#.
 
-## Funciones implementadas en el código
+## Funciones
 
 - Añadir múltiples archivos y carpetas con diálogos o arrastrándolos a la ventana/cola.
-- Copiar o mover en una cola secuencial.
+- Copiar o mover trabajos en una cola secuencial.
 - Pausar, cancelar y continuar archivos parciales cuando se mantiene el mismo origen, destino y el origen no cambia.
 - Elegir tratamiento de conflictos: cambiar nombre, sobrescribir u omitir.
 - Verificación SHA-256 opcional.
@@ -21,8 +21,10 @@ XoPy es un gestor de transferencias para Windows con una interfaz WinForms origi
 
 Abrir `XoPy.sln` y ejecutar el proyecto `XoPy`.
 
-## UltraCopier y licencias
+## Referencias visuales y licencias
 
-UltraCopier es un proyecto independiente escrito en C++/Qt y publicado bajo GPLv3: https://github.com/alphaonex86/Ultracopier. Su motor no se integra directamente en este proyecto C#/WinForms; XoPy mantiene una implementación C# propia y no contiene código fuente de UltraCopier. La apariencia de XoPy es una composición original, no una copia de sus imágenes. El archivo `README.sources` de UltraCopier indica que varias imágenes proceden de Oxygen/KDE, por lo que no se incorporan sin verificar los términos específicos de cada recurso.
+La paleta azul y verde de XoPy es una interpretación propia de una interfaz para transferencias, no una copia exacta de TeraCopy. El icono de XoPy es original. No se incluyen logotipos, iconos ni recursos gráficos de TeraCopy.
 
-La aplicación todavía necesita compilación y pruebas funcionales antes de considerarse estable. El motor trabaja en serie; no implementa ejecución paralela, limitador de velocidad ni la integración con el sistema de archivos de UltraCopier.
+UltraCopier (https://github.com/alphaonex86/Ultracopier) es un programa C++/Qt publicado bajo GPLv3. Este repositorio no incorpora su motor ni su código fuente; XoPy tiene una implementación C# independiente. La documentación de UltraCopier informa que parte de sus imágenes procede de Oxygen/KDE, así que no se reutilizan recursos de terceros sin verificar su licencia particular.
+
+La aplicación necesita compilación y pruebas funcionales antes de considerarse estable. El motor trabaja en serie; no implementa ejecución paralela, limitador de velocidad ni integración de sistema de archivos.
