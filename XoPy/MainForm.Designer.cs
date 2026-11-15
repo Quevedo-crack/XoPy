@@ -29,10 +29,10 @@ partial class MainForm
     private void InitializeComponent()
     {
         components = new System.ComponentModel.Container();
+
         var dark = Color.FromArgb(18, 24, 31);
         var panel = Color.FromArgb(27, 35, 44);
         var panelAlt = Color.FromArgb(36, 45, 56);
-        var line = Color.FromArgb(56, 70, 84);
         var text = Color.FromArgb(235, 240, 245);
         var muted = Color.FromArgb(160, 170, 180);
         var accent = Color.FromArgb(31, 131, 224);
@@ -159,7 +159,7 @@ partial class MainForm
         queueMenu.DropDownItems.Add("Bajar", null, MoveDownButton_Click);
 
         var helpMenu = new ToolStripMenuItem("Ayuda");
-        helpMenu.DropDownItems.Add("Acerca de XoPy", null, (_, _) => MessageBox.Show(this, "XoPy\n\nGestor gratuito y accesible de transferencias para Windows.", "Acerca de XoPy", MessageBoxButtons.OK, MessageBoxIcon.Information));
+        helpMenu.DropDownItems.Add("Acerca de XoPy", null, (_, _) => MessageBox.Show(this, "XoPy\n\nGestor gratuito de transferencias para Windows.", "Acerca de XoPy", MessageBoxButtons.OK, MessageBoxIcon.Information));
 
         menu.Items.AddRange(new ToolStripItem[] { fileMenu, transferMenu, queueMenu, helpMenu });
 
@@ -196,7 +196,7 @@ partial class MainForm
         queueActions.Controls.AddRange(new Control[] { MoveUpButton, MoveDownButton, RemoveSelectedButton, ClearCompletedButton, RetryFailedButton, SaveQueueButton, LoadQueueButton });
 
         var queueTitle = new Label { Text = "Cola de transferencias", AutoSize = true, ForeColor = text, Font = new Font("Segoe UI", 11, FontStyle.Bold), Margin = new Padding(0, 0, 0, 2) };
-        var queueHint = new Label { Text = "Arrastra archivos o carpetas • Ordena por columnas • Reintenta fallidas sin restricciones", AutoSize = true, ForeColor = muted, Font = new Font("Segoe UI", 8), Margin = new Padding(0, 0, 0, 8) };
+        var queueHint = new Label { Text = "Arrastra archivos o carpetas • Ordena por columnas • Reintenta fallidas", AutoSize = true, ForeColor = muted, Font = new Font("Segoe UI", 8), Margin = new Padding(0, 0, 0, 8) };
         var queueHeader = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2, AutoSize = true, BackColor = panel, Padding = new Padding(12, 10, 12, 0) };
         queueHeader.Controls.Add(queueTitle, 0, 0);
         queueHeader.Controls.Add(queueHint, 0, 1);
