@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -36,17 +37,19 @@ public sealed class CopyEngine
     private CancellationTokenSource? _cancellation;
     private volatile bool _paused;
     private int _isRunning;
+    private long _speedLimitBytesPerSecond;
 
     public bool IsRunning => Volatile.Read(ref _isRunning) != 0;
     public event EventHandler<TransferProgressEventArgs>? ProgressChanged;
     public event EventHandler? Completed;
 
-    public void Start(IReadOnlyCollection<TransferJob> jobs, bool verify, ConflictResolution conflictResolution)
+    public void Start(IReadOnlyCollection<TransferJob> jobs, bool verify, ConflictResolution conflictResolution, long speedLimitBytesPerSecond = 0)
     {
         if (Interlocked.CompareExchange(ref _isRunning, 1, 0) != 0) return;
         _cancellation?.Dispose();
         _cancellation = new CancellationTokenSource();
         _paused = false;
+        Interlocked.Exchange(ref _speedLimitBytesPerSecond, Math.Max(0, speedLimitBytesPerSecond));
         _ = RunAsync(jobs.ToList(), verify, conflictResolution, _cancellation.Token);
     }
 
@@ -91,13 +94,11 @@ public sealed class CopyEngine
             }
 
             if (token.IsCancellationRequested)
-            {
                 foreach (var job in jobs.Where(job => job.State == TransferState.Pending))
                 {
                     job.State = TransferState.Cancelled;
                     Report(job);
                 }
-            }
         }
         finally
         {
@@ -110,24 +111,17 @@ public sealed class CopyEngine
     {
         var isDirectory = Directory.Exists(job.SourcePath);
         if (!isDirectory && !File.Exists(job.SourcePath)) throw new FileNotFoundException("No se encontró el origen.", job.SourcePath);
-
         var sourceRoot = Path.GetFullPath(job.SourcePath);
         var destinationRoot = Path.GetFullPath(job.DestinationPath);
-        if (isDirectory && IsSameOrChild(destinationRoot, sourceRoot))
-            throw new IOException("El destino no puede ser la misma carpeta de origen ni estar dentro de ella.");
+        if (isDirectory && IsSameOrChild(destinationRoot, sourceRoot)) throw new IOException("El destino no puede ser la misma carpeta de origen ni estar dentro de ella.");
 
-        string[] files = isDirectory
-            ? Directory.EnumerateFiles(sourceRoot, "*", SearchOption.AllDirectories).ToArray()
-            : [sourceRoot];
+        string[] files = isDirectory ? Directory.EnumerateFiles(sourceRoot, "*", SearchOption.AllDirectories).ToArray() : [sourceRoot];
         if (isDirectory)
-        {
             foreach (var sourceDirectory in Directory.EnumerateDirectories(sourceRoot, "*", SearchOption.AllDirectories))
             {
                 token.ThrowIfCancellationRequested();
-                var relativeDirectory = Path.GetRelativePath(sourceRoot, sourceDirectory);
-                Directory.CreateDirectory(Path.Combine(destinationRoot, relativeDirectory));
+                Directory.CreateDirectory(Path.Combine(destinationRoot, Path.GetRelativePath(sourceRoot, sourceDirectory)));
             }
-        }
         Directory.CreateDirectory(destinationRoot);
 
         long completedBytes = 0;
@@ -140,30 +134,27 @@ public sealed class CopyEngine
             var target = Path.Combine(destinationRoot, relative);
             if (PathsEqual(source, target)) throw new IOException("El destino coincide con el origen; se canceló para proteger el archivo.");
             Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-            var copied = await CopyOneFileAsync(source, target, job, verify, resolution, completedBytes, token);
+            await CopyOneFileAsync(source, target, job, verify, resolution, completedBytes, token);
             completedBytes += info.Length;
             job.CurrentBytes = completedBytes;
             job.ProgressPercent = job.SizeBytes <= 0 ? 100 : Math.Min(100, completedBytes * 100d / job.SizeBytes);
             Report(job);
-            if (!copied) continue;
         }
 
         if (isDirectory && job.Operation == OperationType.Move && !token.IsCancellationRequested)
         {
             foreach (var directory in Directory.EnumerateDirectories(sourceRoot, "*", SearchOption.AllDirectories).OrderByDescending(path => path.Length))
-            {
                 if (!Directory.EnumerateFileSystemEntries(directory).Any()) Directory.Delete(directory);
-            }
             if (!Directory.EnumerateFileSystemEntries(sourceRoot).Any()) Directory.Delete(sourceRoot);
         }
     }
 
-    private async Task<bool> CopyOneFileAsync(string source, string requestedTarget, TransferJob job, bool verify, ConflictResolution resolution, long completedBytes, CancellationToken token)
+    private async Task CopyOneFileAsync(string source, string requestedTarget, TransferJob job, bool verify, ConflictResolution resolution, long completedBytes, CancellationToken token)
     {
         var target = requestedTarget;
         if (File.Exists(target) || Directory.Exists(target))
         {
-            if (resolution == ConflictResolution.Skip) return false;
+            if (resolution == ConflictResolution.Skip) return;
             if (resolution == ConflictResolution.Rename) target = GetNonConflictingPath(target);
             else if (Directory.Exists(target)) throw new IOException($"No se puede sobrescribir una carpeta: {target}");
         }
@@ -175,7 +166,6 @@ public sealed class CopyEngine
         var expected = new PartialMetadata(Path.GetFullPath(source), Path.GetFullPath(target), sourceInfo.Length, sourceInfo.LastWriteTimeUtc.Ticks);
         var offset = GetValidPartialLength(partial, metadataPath, expected);
         var preservePartial = false;
-
         try
         {
             File.WriteAllText(metadataPath, JsonSerializer.Serialize(expected));
@@ -185,13 +175,17 @@ public sealed class CopyEngine
                 input.Seek(offset, SeekOrigin.Begin);
                 var buffer = new byte[1024 * 1024];
                 long fileBytes = offset;
+                long bytesWrittenThisRun = 0;
+                var throttleClock = Stopwatch.StartNew();
                 job.CurrentBytes = completedBytes + offset;
                 UpdateProgress(job);
                 int read;
                 while ((read = await input.ReadAsync(buffer.AsMemory(), token)) > 0)
                 {
                     await WaitIfPausedAsync(job, token);
+                    await ThrottleAsync(read, bytesWrittenThisRun, throttleClock, token);
                     await output.WriteAsync(buffer.AsMemory(0, read), token);
+                    bytesWrittenThisRun += read;
                     fileBytes += read;
                     job.CurrentBytes = completedBytes + fileBytes;
                     UpdateProgress(job);
@@ -205,7 +199,6 @@ public sealed class CopyEngine
             File.Move(partial, target, resolution == ConflictResolution.Overwrite);
             TryDelete(metadataPath);
             if (job.Operation == OperationType.Move) File.Delete(source);
-            return true;
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
@@ -222,6 +215,15 @@ public sealed class CopyEngine
         }
     }
 
+    private async Task ThrottleAsync(int nextBytes, long bytesWritten, Stopwatch clock, CancellationToken token)
+    {
+        var limit = Interlocked.Read(ref _speedLimitBytesPerSecond);
+        if (limit <= 0) return;
+        var requiredSeconds = (bytesWritten + nextBytes) / (double)limit;
+        var delay = requiredSeconds - clock.Elapsed.TotalSeconds;
+        if (delay > 0.01) await Task.Delay(TimeSpan.FromSeconds(Math.Min(delay, 2)), token);
+    }
+
     private static long GetValidPartialLength(string partial, string metadataPath, PartialMetadata expected)
     {
         try
@@ -229,12 +231,9 @@ public sealed class CopyEngine
             if (!File.Exists(partial) || !File.Exists(metadataPath)) throw new IOException();
             var saved = JsonSerializer.Deserialize<PartialMetadata>(File.ReadAllText(metadataPath));
             var partialInfo = new FileInfo(partial);
-            if (saved is not null
-                && string.Equals(saved.SourcePath, expected.SourcePath, StringComparison.OrdinalIgnoreCase)
+            if (saved is not null && string.Equals(saved.SourcePath, expected.SourcePath, StringComparison.OrdinalIgnoreCase)
                 && string.Equals(saved.TargetPath, expected.TargetPath, StringComparison.OrdinalIgnoreCase)
-                && saved.Length == expected.Length
-                && saved.LastWriteUtcTicks == expected.LastWriteUtcTicks
-                && partialInfo.Length <= expected.Length)
+                && saved.Length == expected.Length && saved.LastWriteUtcTicks == expected.LastWriteUtcTicks && partialInfo.Length <= expected.Length)
                 return partialInfo.Length;
         }
         catch { }
