@@ -74,6 +74,7 @@ public sealed class CopyEngine
                 catch (OperationCanceledException) when (token.IsCancellationRequested)
                 {
                     job.State = TransferState.Cancelled;
+                    Report(job);
                     break;
                 }
                 catch (Exception ex)
@@ -85,7 +86,11 @@ public sealed class CopyEngine
             }
             if (token.IsCancellationRequested)
             {
-                foreach (var job in jobs.Where(j => j.State == TransferState.Pending)) job.State = TransferState.Cancelled;
+                foreach (var job in jobs.Where(j => j.State == TransferState.Pending))
+                {
+                    job.State = TransferState.Cancelled;
+                    Report(job);
+                }
             }
         }
         finally
@@ -99,10 +104,16 @@ public sealed class CopyEngine
     {
         var sourceIsDirectory = Directory.Exists(job.SourcePath);
         if (!sourceIsDirectory && !File.Exists(job.SourcePath)) throw new FileNotFoundException("No se encontró el origen.", job.SourcePath);
+
+        var sourceFullPath = Path.GetFullPath(job.SourcePath);
+        var destinationFullPath = Path.GetFullPath(job.DestinationPath);
+        if (sourceIsDirectory && IsSameOrChildPath(destinationFullPath, sourceFullPath))
+            throw new IOException("El destino de una carpeta no puede ser la misma carpeta de origen ni estar dentro de ella.");
+
         var files = sourceIsDirectory
-            ? Directory.EnumerateFiles(job.SourcePath, "*", SearchOption.AllDirectories).ToArray()
-            : new[] { job.SourcePath };
-        Directory.CreateDirectory(job.DestinationPath);
+            ? Directory.EnumerateFiles(sourceFullPath, "*", SearchOption.AllDirectories).ToArray()
+            : new[] { sourceFullPath };
+        Directory.CreateDirectory(destinationFullPath);
         var completedBytes = 0L;
 
         foreach (var source in files)
@@ -110,35 +121,42 @@ public sealed class CopyEngine
             token.ThrowIfCancellationRequested();
             await WaitIfPausedAsync(token);
             var sourceInfo = new FileInfo(source);
-            var relative = sourceIsDirectory ? Path.GetRelativePath(job.SourcePath, source) : Path.GetFileName(source);
-            var target = Path.Combine(job.DestinationPath, relative);
+            var relative = sourceIsDirectory ? Path.GetRelativePath(sourceFullPath, source) : Path.GetFileName(source);
+            var target = Path.Combine(destinationFullPath, relative);
+            if (PathsEqual(source, target))
+                throw new IOException("El archivo de destino coincide con el origen; se canceló para evitar sobrescribirlo o borrarlo.");
             Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-            var copied = await CopyOneFileAsync(source, target, job, verify, resolution, completedBytes, token);
+            await CopyOneFileAsync(source, target, job, verify, resolution, completedBytes, token);
             completedBytes += sourceInfo.Length;
             job.CurrentBytes = completedBytes;
             job.ProgressPercent = job.SizeBytes <= 0 ? 100 : Math.Min(100, completedBytes * 100d / job.SizeBytes);
             Report(job);
-            if (!copied && job.Operation == OperationType.Move) continue;
         }
 
         if (sourceIsDirectory && job.Operation == OperationType.Move && !token.IsCancellationRequested)
         {
-            foreach (var directory in Directory.EnumerateDirectories(job.SourcePath, "*", SearchOption.AllDirectories).OrderByDescending(p => p.Length))
+            foreach (var directory in Directory.EnumerateDirectories(sourceFullPath, "*", SearchOption.AllDirectories).OrderByDescending(p => p.Length))
             {
                 try { if (!Directory.EnumerateFileSystemEntries(directory).Any()) Directory.Delete(directory); } catch { }
             }
-            try { if (!Directory.EnumerateFileSystemEntries(job.SourcePath).Any()) Directory.Delete(job.SourcePath); } catch { }
+            try { if (!Directory.EnumerateFileSystemEntries(sourceFullPath).Any()) Directory.Delete(sourceFullPath); } catch { }
         }
     }
 
-    private async Task<bool> CopyOneFileAsync(string source, string requestedTarget, TransferJob job, bool verify, ConflictResolution resolution, long completedBytes, CancellationToken token)
+    private async Task CopyOneFileAsync(string source, string requestedTarget, TransferJob job, bool verify, ConflictResolution resolution, long completedBytes, CancellationToken token)
     {
         var target = requestedTarget;
-        if (File.Exists(target))
+        var targetIsFile = File.Exists(target);
+        var targetIsDirectory = Directory.Exists(target);
+        if (targetIsFile || targetIsDirectory)
         {
-            if (resolution == ConflictResolution.Skip) return false;
+            if (resolution == ConflictResolution.Skip) return;
             if (resolution == ConflictResolution.Rename) target = GetNonConflictingPath(target);
+            else if (targetIsDirectory) throw new IOException($"No se puede sobrescribir el destino porque es una carpeta: {target}");
         }
+
+        if (PathsEqual(source, target))
+            throw new IOException("El archivo de destino coincide con el origen; se canceló para evitar sobrescribirlo o borrarlo.");
 
         var temp = Path.Combine(Path.GetDirectoryName(target)!, $".xopy-{Guid.NewGuid():N}.partial");
         try
@@ -165,15 +183,30 @@ public sealed class CopyEngine
             File.SetLastWriteTime(temp, sourceInfo.LastWriteTime);
             File.SetCreationTime(temp, sourceInfo.CreationTime);
             if (verify && !await FilesMatchAsync(source, temp, token)) throw new IOException($"La verificación SHA-256 falló: {sourceInfo.Name}");
+
+            // Never replace a file in Rename mode: another process may have created the
+            // candidate after our name check. Failing is safer than silently overwriting it.
             File.Move(temp, target, resolution == ConflictResolution.Overwrite);
             if (job.Operation == OperationType.Move) File.Delete(source);
-            return true;
         }
         finally
         {
             try { if (File.Exists(temp)) File.Delete(temp); } catch { }
         }
     }
+
+    private static bool IsSameOrChildPath(string candidate, string parent)
+    {
+        var normalizedParent = Path.TrimEndingDirectorySeparator(Path.GetFullPath(parent));
+        var normalizedCandidate = Path.TrimEndingDirectorySeparator(Path.GetFullPath(candidate));
+        return normalizedCandidate.Equals(normalizedParent, StringComparison.OrdinalIgnoreCase)
+            || normalizedCandidate.StartsWith(normalizedParent + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+            || normalizedCandidate.StartsWith(normalizedParent + Path.AltDirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool PathsEqual(string first, string second) =>
+        Path.TrimEndingDirectorySeparator(Path.GetFullPath(first)).Equals(
+            Path.TrimEndingDirectorySeparator(Path.GetFullPath(second)), StringComparison.OrdinalIgnoreCase);
 
     private static string GetNonConflictingPath(string path)
     {
