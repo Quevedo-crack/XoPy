@@ -2,115 +2,91 @@ namespace XoPy;
 
 partial class MainForm
 {
-    private System.Windows.Forms.Button AddFilesButton;
-    private System.Windows.Forms.Button AddFolderButton;
-    private System.Windows.Forms.Button StartButton;
-    private System.Windows.Forms.Button PauseButton;
-    private System.Windows.Forms.Button StopButton;
-    private System.Windows.Forms.Button MoveUpButton;
-    private System.Windows.Forms.Button MoveDownButton;
-    private System.Windows.Forms.Button SaveQueueButton;
-    private System.Windows.Forms.Button LoadQueueButton;
-    private System.Windows.Forms.ListView QueueListView;
-    private System.Windows.Forms.ProgressBar OverallProgressBar;
-    private System.Windows.Forms.Label StatusLabel;
-    private System.Windows.Forms.NotifyIcon TrayIcon;
-
-    private System.ComponentModel.IContainer components = null;
+    private Button AddFilesButton = null!;
+    private Button AddFolderButton = null!;
+    private Button StartButton = null!;
+    private Button PauseButton = null!;
+    private Button StopButton = null!;
+    private Button MoveUpButton = null!;
+    private Button MoveDownButton = null!;
+    private Button SaveQueueButton = null!;
+    private Button LoadQueueButton = null!;
+    private Button BrowseDestinationButton = null!;
+    private ListView QueueListView = null!;
+    private ProgressBar OverallProgressBar = null!;
+    private Label StatusLabel = null!;
+    private NotifyIcon TrayIcon = null!;
+    private TextBox DestinationTextBox = null!;
+    private ComboBox OperationComboBox = null!;
+    private ComboBox ConflictComboBox = null!;
+    private CheckBox VerifyCheckBox = null!;
+    private System.ComponentModel.IContainer? components;
 
     private void InitializeComponent()
     {
-        this.components = new System.ComponentModel.Container();
-        this.AddFilesButton = new System.Windows.Forms.Button();
-        this.AddFolderButton = new System.Windows.Forms.Button();
-        this.StartButton = new System.Windows.Forms.Button();
-        this.PauseButton = new System.Windows.Forms.Button();
-        this.StopButton = new System.Windows.Forms.Button();
-        this.MoveUpButton = new System.Windows.Forms.Button();
-        this.MoveDownButton = new System.Windows.Forms.Button();
-        this.SaveQueueButton = new System.Windows.Forms.Button();
-        this.LoadQueueButton = new System.Windows.Forms.Button();
-        this.QueueListView = new System.Windows.Forms.ListView();
-        this.OverallProgressBar = new System.Windows.Forms.ProgressBar();
-        this.StatusLabel = new System.Windows.Forms.Label();
-        this.TrayIcon = new System.Windows.Forms.NotifyIcon(this.components);
+        components = new System.ComponentModel.Container();
+        AddFilesButton = new Button { Text = "Añadir archivos", AutoSize = true };
+        AddFolderButton = new Button { Text = "Añadir carpeta", AutoSize = true };
+        StartButton = new Button { Text = "Iniciar", AutoSize = true };
+        PauseButton = new Button { Text = "Pausar", AutoSize = true };
+        StopButton = new Button { Text = "Cancelar", AutoSize = true };
+        MoveUpButton = new Button { Text = "Subir", AutoSize = true };
+        MoveDownButton = new Button { Text = "Bajar", AutoSize = true };
+        SaveQueueButton = new Button { Text = "Guardar cola", AutoSize = true };
+        LoadQueueButton = new Button { Text = "Cargar cola", AutoSize = true };
+        BrowseDestinationButton = new Button { Text = "Examinar…", AutoSize = true };
+        DestinationTextBox = new TextBox { Width = 330, Anchor = AnchorStyles.Left | AnchorStyles.Right };
+        OperationComboBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 100 };
+        ConflictComboBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 150 };
+        VerifyCheckBox = new CheckBox { Text = "Verificar con SHA-256", AutoSize = true, Checked = true };
+        QueueListView = new ListView { Dock = DockStyle.Fill };
+        OverallProgressBar = new ProgressBar { Dock = DockStyle.Fill, Minimum = 0, Maximum = 100 };
+        StatusLabel = new Label { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, AutoEllipsis = true };
+        TrayIcon = new NotifyIcon(components) { Text = "XoPy", Visible = true };
 
-        this.SuspendLayout();
+        AddFilesButton.Click += AddFilesButton_Click;
+        AddFolderButton.Click += AddFolderButton_Click;
+        BrowseDestinationButton.Click += BrowseDestinationButton_Click;
+        StartButton.Click += StartButton_Click;
+        PauseButton.Click += PauseButton_Click;
+        StopButton.Click += StopButton_Click;
+        MoveUpButton.Click += MoveUpButton_Click;
+        MoveDownButton.Click += MoveDownButton_Click;
+        SaveQueueButton.Click += SaveQueueButton_Click;
+        LoadQueueButton.Click += LoadQueueButton_Click;
 
-        this.AddFilesButton.Text = "Añadir archivos";
-        this.AddFilesButton.Location = new System.Drawing.Point(12, 12);
-        this.AddFilesButton.Size = new System.Drawing.Size(120, 32);
-        this.AddFilesButton.Click += new System.EventHandler(this.AddFilesButton_Click);
+        var destinationPanel = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, WrapContents = false };
+        destinationPanel.Controls.Add(new Label { Text = "Destino:", AutoSize = true, Padding = new Padding(0, 7, 0, 0) });
+        destinationPanel.Controls.Add(DestinationTextBox);
+        destinationPanel.Controls.Add(BrowseDestinationButton);
+        destinationPanel.Controls.Add(new Label { Text = "Operación:", AutoSize = true, Padding = new Padding(8, 7, 0, 0) });
+        destinationPanel.Controls.Add(OperationComboBox);
+        destinationPanel.Controls.Add(new Label { Text = "Si existe:", AutoSize = true, Padding = new Padding(8, 7, 0, 0) });
+        destinationPanel.Controls.Add(ConflictComboBox);
+        destinationPanel.Controls.Add(VerifyCheckBox);
 
-        this.AddFolderButton.Text = "Añadir carpeta";
-        this.AddFolderButton.Location = new System.Drawing.Point(138, 12);
-        this.AddFolderButton.Size = new System.Drawing.Size(120, 32);
-        this.AddFolderButton.Click += new System.EventHandler(this.AddFolderButton_Click);
+        var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, WrapContents = true };
+        buttons.Controls.AddRange(new Control[] { AddFilesButton, AddFolderButton, StartButton, PauseButton, StopButton, MoveUpButton, MoveDownButton, SaveQueueButton, LoadQueueButton });
 
-        this.StartButton.Text = "Iniciar";
-        this.StartButton.Location = new System.Drawing.Point(264, 12);
-        this.StartButton.Size = new System.Drawing.Size(100, 32);
-        this.StartButton.Click += new System.EventHandler(this.StartButton_Click);
+        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4, Padding = new Padding(10) };
+        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        layout.Controls.Add(destinationPanel, 0, 0);
+        layout.Controls.Add(buttons, 0, 1);
+        layout.Controls.Add(QueueListView, 0, 2);
+        var footer = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2, Height = 48 };
+        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
+        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
+        footer.Controls.Add(OverallProgressBar, 0, 0);
+        footer.Controls.Add(StatusLabel, 0, 1);
+        layout.Controls.Add(footer, 0, 3);
 
-        this.PauseButton.Text = "Pausar";
-        this.PauseButton.Location = new System.Drawing.Point(370, 12);
-        this.PauseButton.Size = new System.Drawing.Size(100, 32);
-        this.PauseButton.Click += new System.EventHandler(this.PauseButton_Click);
-
-        this.StopButton.Text = "Cancelar";
-        this.StopButton.Location = new System.Drawing.Point(476, 12);
-        this.StopButton.Size = new System.Drawing.Size(100, 32);
-        this.StopButton.Click += new System.EventHandler(this.StopButton_Click);
-
-        this.MoveUpButton.Text = "Subir";
-        this.MoveUpButton.Location = new System.Drawing.Point(582, 12);
-        this.MoveUpButton.Size = new System.Drawing.Size(90, 32);
-        this.MoveUpButton.Click += new System.EventHandler(this.MoveUpButton_Click);
-
-        this.MoveDownButton.Text = "Bajar";
-        this.MoveDownButton.Location = new System.Drawing.Point(678, 12);
-        this.MoveDownButton.Size = new System.Drawing.Size(90, 32);
-        this.MoveDownButton.Click += new System.EventHandler(this.MoveDownButton_Click);
-
-        this.SaveQueueButton.Text = "Guardar cola";
-        this.SaveQueueButton.Location = new System.Drawing.Point(774, 12);
-        this.SaveQueueButton.Size = new System.Drawing.Size(110, 32);
-        this.SaveQueueButton.Click += new System.EventHandler(this.SaveQueueButton_Click);
-
-        this.LoadQueueButton.Text = "Cargar cola";
-        this.LoadQueueButton.Location = new System.Drawing.Point(890, 12);
-        this.LoadQueueButton.Size = new System.Drawing.Size(110, 32);
-        this.LoadQueueButton.Click += new System.EventHandler(this.LoadQueueButton_Click);
-
-        this.QueueListView.Location = new System.Drawing.Point(12, 60);
-        this.QueueListView.Size = new System.Drawing.Size(988, 440);
-
-        this.OverallProgressBar.Location = new System.Drawing.Point(12, 510);
-        this.OverallProgressBar.Size = new System.Drawing.Size(988, 25);
-
-        this.StatusLabel.Location = new System.Drawing.Point(12, 545);
-        this.StatusLabel.Size = new System.Drawing.Size(988, 18);
-        this.StatusLabel.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
-
-        this.TrayIcon.Text = "XoPy";
-        this.TrayIcon.Visible = true;
-
-        this.Text = "XoPy";
-        this.MinimumSize = new System.Drawing.Size(1020, 620);
-        this.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;
-        this.Controls.Add(this.AddFilesButton);
-        this.Controls.Add(this.AddFolderButton);
-        this.Controls.Add(this.StartButton);
-        this.Controls.Add(this.PauseButton);
-        this.Controls.Add(this.StopButton);
-        this.Controls.Add(this.MoveUpButton);
-        this.Controls.Add(this.MoveDownButton);
-        this.Controls.Add(this.SaveQueueButton);
-        this.Controls.Add(this.LoadQueueButton);
-        this.Controls.Add(this.QueueListView);
-        this.Controls.Add(this.OverallProgressBar);
-        this.Controls.Add(this.StatusLabel);
-
-        this.ResumeLayout(false);
+        Text = "XoPy — Gestor de copias";
+        MinimumSize = new Size(900, 520);
+        Size = new Size(1200, 700);
+        StartPosition = FormStartPosition.CenterScreen;
+        Controls.Add(layout);
     }
 }

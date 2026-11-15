@@ -1,320 +1,338 @@
-using System;
-using System.Collections.Generic;
 using System.ComponentModel;
 using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
-using System.Threading.Tasks;
-using System.Windows.Forms;
 
 namespace XoPy;
 
 public partial class MainForm : Form
 {
     private readonly List<TransferJob> _jobs = new();
-    private readonly CopyEngine _engine;
-    private bool _isPaused;
-    private readonly OpenFileDialog _openFilesDialog = new();
+    private readonly CopyEngine _engine = new();
+    private readonly OpenFileDialog _openFilesDialog = new() { Multiselect = true, Filter = "Todos los archivos (*.*)|*.*" };
     private readonly FolderBrowserDialog _folderDialog = new();
-    private readonly SaveFileDialog _saveQueueDialog = new();
-    private readonly OpenFileDialog _loadQueueDialog = new();
+    private readonly FolderBrowserDialog _destinationDialog = new();
+    private readonly SaveFileDialog _saveQueueDialog = new() { Filter = "Archivos JSON (*.json)|*.json", DefaultExt = "json", FileName = "xopy-queue.json" };
+    private readonly OpenFileDialog _loadQueueDialog = new() { Filter = "Archivos JSON (*.json)|*.json", DefaultExt = "json" };
+    private readonly ContextMenuStrip _trayMenu = new();
+    private bool _isPaused;
+    private int _sortColumn = -1;
+    private bool _sortAscending = true;
 
     public MainForm()
     {
         InitializeComponent();
-
-        _engine = new CopyEngine();
-        _engine.ProgressChanged += Engine_ProgressChanged;
-        _engine.Completed += Engine_Completed;
-
-        QueueListView.Columns.Add("Name", 250);
-        QueueListView.Columns.Add("Origen", 220);
-        QueueListView.Columns.Add("Destino", 220);
+        QueueListView.Columns.Add("Nombre", 180);
+        QueueListView.Columns.Add("Origen", 240);
+        QueueListView.Columns.Add("Destino", 240);
         QueueListView.Columns.Add("Tamaño", 90);
-        QueueListView.Columns.Add("Estado", 90);
-        QueueListView.Columns.Add("Progreso", 100);
+        QueueListView.Columns.Add("Estado", 100);
+        QueueListView.Columns.Add("Progreso", 90);
         QueueListView.View = View.Details;
         QueueListView.FullRowSelect = true;
         QueueListView.GridLines = true;
+        QueueListView.ColumnClick += QueueListView_ColumnClick;
+        QueueListView.AllowDrop = true;
+        QueueListView.DragEnter += (_, e) => e.Effect = e.Data?.GetDataPresent(DataFormats.FileDrop) == true ? DragDropEffects.Copy : DragDropEffects.None;
+        QueueListView.DragDrop += QueueListView_DragDrop;
 
-        _openFilesDialog.Multiselect = true;
-        _openFilesDialog.Filter = "Todos los archivos (*.*)|*.*";
+        DestinationTextBox.Text = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "XoPy_Transfers");
+        OperationComboBox.Items.AddRange(new object[] { "Copiar", "Mover" });
+        OperationComboBox.SelectedIndex = 0;
+        ConflictComboBox.Items.AddRange(new object[] { "Cambiar nombre", "Sobrescribir", "Omitir" });
+        ConflictComboBox.SelectedIndex = 0;
 
-        _saveQueueDialog.Filter = "Archivos JSON (*.json)|*.json";
-        _saveQueueDialog.DefaultExt = "json";
-        _saveQueueDialog.FileName = "xopy-queue.json";
-
-        _loadQueueDialog.Filter = "Archivos JSON (*.json)|*.json";
-        _loadQueueDialog.DefaultExt = "json";
-
+        _engine.ProgressChanged += Engine_ProgressChanged;
+        _engine.Completed += Engine_Completed;
+        TrayIcon.Icon = SystemIcons.Application;
+        TrayIcon.Text = "XoPy - Listo";
+        TrayIcon.ContextMenuStrip = _trayMenu;
+        TrayIcon.DoubleClick += (_, _) => RestoreFromTray();
+        _trayMenu.Items.Add("Abrir XoPy", null, (_, _) => RestoreFromTray());
+        _trayMenu.Items.Add("Pausar / reanudar", null, (_, _) => PauseButton_Click(this, EventArgs.Empty));
+        _trayMenu.Items.Add("Salir", null, (_, _) => Close());
         StatusLabel.Text = "Listo";
-        OverallProgressBar.Minimum = 0;
-        OverallProgressBar.Maximum = 100;
-        OverallProgressBar.Value = 0;
-    }
-
-    private void AddFilesButton_Click(object sender, EventArgs e)
-    {
-        if (_openFilesDialog.ShowDialog(this) != DialogResult.OK)
-        {
-            return;
-        }
-
-        foreach (var file in _openFilesDialog.FileNames)
-        {
-            AddJob(file, GetDefaultDestination(), OperationType.Copy);
-        }
-
         RefreshQueue();
     }
 
-    private void AddFolderButton_Click(object sender, EventArgs e)
+    private void AddFilesButton_Click(object? sender, EventArgs e)
     {
-        if (_folderDialog.ShowDialog(this) != DialogResult.OK)
-        {
-            return;
-        }
-
-        AddJob(_folderDialog.SelectedPath, GetDefaultDestination(), OperationType.Copy);
+        if (_openFilesDialog.ShowDialog(this) != DialogResult.OK) return;
+        foreach (var file in _openFilesDialog.FileNames) AddJob(file);
         RefreshQueue();
     }
 
-    private void StartButton_Click(object sender, EventArgs e)
+    private void AddFolderButton_Click(object? sender, EventArgs e)
     {
-        if (_engine.IsRunning)
+        if (_folderDialog.ShowDialog(this) != DialogResult.OK) return;
+        AddJob(_folderDialog.SelectedPath);
+        RefreshQueue();
+    }
+
+    private void BrowseDestinationButton_Click(object? sender, EventArgs e)
+    {
+        if (Directory.Exists(DestinationTextBox.Text)) _destinationDialog.SelectedPath = DestinationTextBox.Text;
+        if (_destinationDialog.ShowDialog(this) == DialogResult.OK) DestinationTextBox.Text = _destinationDialog.SelectedPath;
+    }
+
+    private void StartButton_Click(object? sender, EventArgs e)
+    {
+        if (_engine.IsRunning) return;
+        if (!Directory.Exists(DestinationTextBox.Text))
         {
-            StatusLabel.Text = "La copia ya está en ejecución.";
-            return;
+            try { Directory.CreateDirectory(DestinationTextBox.Text); }
+            catch (Exception ex) { ShowError($"No se pudo crear el destino: {ex.Message}"); return; }
         }
 
-        if (_jobs.Count == 0)
+        var pending = _jobs.Where(j => j.State is TransferState.Pending or TransferState.Cancelled or TransferState.Failed).ToList();
+        if (pending.Count == 0) { StatusLabel.Text = "No hay transferencias pendientes."; return; }
+        foreach (var job in pending)
         {
-            StatusLabel.Text = "No hay trabajos en la cola.";
-            return;
+            job.DestinationPath = DestinationTextBox.Text;
+            job.Operation = OperationComboBox.SelectedIndex == 1 ? OperationType.Move : OperationType.Copy;
+            job.State = TransferState.Pending;
+            job.CurrentBytes = 0;
+            job.ProgressPercent = 0;
+            job.ErrorMessage = null;
         }
-
         _isPaused = false;
-        _engine.Start(_jobs);
+        _engine.Start(pending, VerifyCheckBox.Checked, GetConflictResolution());
         StatusLabel.Text = "Transferencia iniciada";
+        RefreshQueue();
     }
 
-    private void PauseButton_Click(object sender, EventArgs e)
+    private ConflictResolution GetConflictResolution() => ConflictComboBox.SelectedIndex switch
     {
-        if (!_engine.IsRunning)
-        {
-            return;
-        }
+        1 => ConflictResolution.Overwrite,
+        2 => ConflictResolution.Skip,
+        _ => ConflictResolution.Rename
+    };
 
+    private void PauseButton_Click(object? sender, EventArgs e)
+    {
+        if (!_engine.IsRunning) return;
         _isPaused = !_isPaused;
         _engine.SetPaused(_isPaused);
+        PauseButton.Text = _isPaused ? "Reanudar" : "Pausar";
         StatusLabel.Text = _isPaused ? "Transferencia pausada" : "Transferencia reanudada";
+        UpdateTrayProgress();
     }
 
-    private void StopButton_Click(object sender, EventArgs e)
+    private void StopButton_Click(object? sender, EventArgs e)
     {
         _engine.Cancel();
-        StatusLabel.Text = "Transferencia cancelada";
+        StatusLabel.Text = "Cancelando…";
     }
 
-    private void MoveUpButton_Click(object sender, EventArgs e)
-    {
-        if (QueueListView.SelectedIndices.Count != 1)
-        {
-            return;
-        }
+    private void MoveUpButton_Click(object? sender, EventArgs e) => MoveSelected(-1);
+    private void MoveDownButton_Click(object? sender, EventArgs e) => MoveSelected(1);
 
+    private void MoveSelected(int direction)
+    {
+        if (_engine.IsRunning || QueueListView.SelectedIndices.Count != 1) return;
         var index = QueueListView.SelectedIndices[0];
-        if (index <= 0)
-        {
-            return;
-        }
-
-        var item = _jobs[index];
-        _jobs.RemoveAt(index);
-        _jobs.Insert(index - 1, item);
+        var target = index + direction;
+        if (target < 0 || target >= _jobs.Count) return;
+        (_jobs[index], _jobs[target]) = (_jobs[target], _jobs[index]);
         RefreshQueue();
+        QueueListView.Items[target].Selected = true;
     }
 
-    private void MoveDownButton_Click(object sender, EventArgs e)
+    private void SaveQueueButton_Click(object? sender, EventArgs e)
     {
-        if (QueueListView.SelectedIndices.Count != 1)
+        if (_saveQueueDialog.ShowDialog(this) != DialogResult.OK) return;
+        try
         {
-            return;
+            File.WriteAllText(_saveQueueDialog.FileName, JsonSerializer.Serialize(_jobs, new JsonSerializerOptions { WriteIndented = true }));
+            StatusLabel.Text = "Cola guardada";
         }
-
-        var index = QueueListView.SelectedIndices[0];
-        if (index >= _jobs.Count - 1)
-        {
-            return;
-        }
-
-        var item = _jobs[index];
-        _jobs.RemoveAt(index);
-        _jobs.Insert(index + 1, item);
-        RefreshQueue();
+        catch (Exception ex) { ShowError($"No se pudo guardar la cola: {ex.Message}"); }
     }
 
-    private void SaveQueueButton_Click(object sender, EventArgs e)
+    private void LoadQueueButton_Click(object? sender, EventArgs e)
     {
-        if (_saveQueueDialog.ShowDialog(this) != DialogResult.OK)
+        if (_engine.IsRunning) { StatusLabel.Text = "Detén la transferencia antes de cargar una cola."; return; }
+        if (_loadQueueDialog.ShowDialog(this) != DialogResult.OK) return;
+        try
         {
-            return;
+            var jobs = JsonSerializer.Deserialize<List<TransferJob>>(File.ReadAllText(_loadQueueDialog.FileName));
+            if (jobs is null) { ShowError("El archivo de cola no contiene una lista válida."); return; }
+            _jobs.Clear();
+            _jobs.AddRange(jobs.Where(j => !string.IsNullOrWhiteSpace(j.SourcePath)).Select(j =>
+            {
+                if (j.State == TransferState.Running) j.State = TransferState.Pending;
+                return j;
+            }));
+            RefreshQueue();
+            StatusLabel.Text = "Cola cargada";
         }
-
-        var json = JsonSerializer.Serialize(_jobs, new JsonSerializerOptions { WriteIndented = true });
-        File.WriteAllText(_saveQueueDialog.FileName, json);
-        StatusLabel.Text = "Cola guardada";
+        catch (Exception ex) { ShowError($"No se pudo cargar la cola: {ex.Message}"); }
     }
 
-    private void LoadQueueButton_Click(object sender, EventArgs e)
+    private void AddJob(string sourcePath)
     {
-        if (_loadQueueDialog.ShowDialog(this) != DialogResult.OK)
-        {
-            return;
-        }
-
-        if (!File.Exists(_loadQueueDialog.FileName))
-        {
-            return;
-        }
-
-        var json = File.ReadAllText(_loadQueueDialog.FileName);
-        var jobs = JsonSerializer.Deserialize<List<TransferJob>>(json);
-
-        if (jobs is null)
-        {
-            return;
-        }
-
-        _jobs.Clear();
-        _jobs.AddRange(jobs);
-        RefreshQueue();
-        StatusLabel.Text = "Cola cargada";
-    }
-
-    private void AddJob(string sourcePath, string destinationPath, OperationType operation)
-    {
-        if (string.IsNullOrWhiteSpace(sourcePath))
-        {
-            return;
-        }
-
+        if (string.IsNullOrWhiteSpace(sourcePath) || (!File.Exists(sourcePath) && !Directory.Exists(sourcePath))) return;
         var job = new TransferJob
         {
             SourcePath = sourcePath,
-            DestinationPath = destinationPath,
-            Operation = operation,
+            DestinationPath = DestinationTextBox.Text,
+            Operation = OperationComboBox.SelectedIndex == 1 ? OperationType.Move : OperationType.Copy,
             State = TransferState.Pending,
-            Name = Path.GetFileName(sourcePath)
+            Name = Path.GetFileName(Path.TrimEndingDirectorySeparator(sourcePath))
         };
-
-        if (Directory.Exists(sourcePath))
+        try
         {
-            job.SizeBytes = Directory.GetFiles(sourcePath, "*", SearchOption.AllDirectories).Sum(FileInfoExtensions.GetLengthFast);
+            job.SizeBytes = File.Exists(sourcePath) ? new FileInfo(sourcePath).Length : Directory.EnumerateFiles(sourcePath, "*", SearchOption.AllDirectories).Sum(GetLengthSafely);
         }
-        else if (File.Exists(sourcePath))
-        {
-            job.SizeBytes = new FileInfo(sourcePath).Length;
-        }
-
+        catch (Exception ex) { job.ErrorMessage = ex.Message; }
         _jobs.Add(job);
     }
 
-    private string GetDefaultDestination()
+    private static long GetLengthSafely(string path)
     {
-        var desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
-        var target = Path.Combine(desktop, "XoPy_Transfers");
-        Directory.CreateDirectory(target);
-        return target;
+        try { return new FileInfo(path).Length; }
+        catch { return 0; }
+    }
+
+    private void QueueListView_ColumnClick(object? sender, ColumnClickEventArgs e)
+    {
+        if (_engine.IsRunning) return;
+        if (_sortColumn == e.Column) _sortAscending = !_sortAscending;
+        else { _sortColumn = e.Column; _sortAscending = true; }
+        Func<TransferJob, object> key = e.Column switch
+        {
+            0 => j => j.Name,
+            1 => j => j.SourcePath,
+            2 => j => j.DestinationPath,
+            3 => j => j.SizeBytes,
+            4 => j => j.State.ToString(),
+            _ => j => j.ProgressPercent
+        };
+        var sorted = _sortAscending ? _jobs.OrderBy(key).ToList() : _jobs.OrderByDescending(key).ToList();
+        _jobs.Clear();
+        _jobs.AddRange(sorted);
+        RefreshQueue();
+    }
+
+    private void QueueListView_DragDrop(object? sender, DragEventArgs e)
+    {
+        if (_engine.IsRunning || e.Data?.GetData(DataFormats.FileDrop) is not string[] paths) return;
+        foreach (var path in paths) AddJob(path);
+        RefreshQueue();
     }
 
     private void RefreshQueue()
     {
+        QueueListView.BeginUpdate();
         QueueListView.Items.Clear();
-
         foreach (var job in _jobs)
         {
-            var item = new ListViewItem(job.Name)
-            {
-                Tag = job
-            };
-
+            var item = new ListViewItem(job.Name) { Tag = job };
             item.SubItems.Add(job.SourcePath);
             item.SubItems.Add(job.DestinationPath);
             item.SubItems.Add(FormatBytes(job.SizeBytes));
-            item.SubItems.Add(job.State.ToString());
-            item.SubItems.Add(job.ProgressPercent.ToString("0.##") + "%");
+            item.SubItems.Add(job.ErrorMessage is null ? job.State.ToString() : $"{job.State}: {job.ErrorMessage}");
+            item.SubItems.Add($"{job.ProgressPercent:0.##}%");
             QueueListView.Items.Add(item);
         }
+        QueueListView.EndUpdate();
+        UpdateProgressControls();
     }
 
     private static string FormatBytes(long bytes)
     {
-        string[] suffixes = { "B", "KB", "MB", "GB", "TB" };
-        double value = bytes;
-        int i = 0;
-
-        while (value >= 1024 && i < suffixes.Length - 1)
-        {
-            value /= 1024;
-            i++;
-        }
-
-        return $"{value:0.##} {suffixes[i]}";
+        string[] units = { "B", "KB", "MB", "GB", "TB" };
+        double value = Math.Max(0, bytes);
+        var unit = 0;
+        while (value >= 1024 && unit < units.Length - 1) { value /= 1024; unit++; }
+        return $"{value:0.##} {units[unit]}";
     }
 
     private void Engine_ProgressChanged(object? sender, TransferProgressEventArgs e)
     {
-        var job = _jobs.FirstOrDefault(x => x.Id == e.JobId);
-        if (job is null)
+        if (IsDisposed || !IsHandleCreated) return;
+        try
         {
-            return;
+            BeginInvoke(() =>
+            {
+                var job = _jobs.FirstOrDefault(x => x.Id == e.JobId);
+                if (job is null) return;
+                job.State = e.State;
+                job.ProgressPercent = e.ProgressPercent;
+                job.CurrentBytes = e.CurrentBytes;
+                RefreshQueue();
+                UpdateTrayProgress();
+            });
         }
-
-        job.State = e.State;
-        job.ProgressPercent = e.ProgressPercent;
-        job.CurrentBytes = e.CurrentBytes;
-
-        UpdateProgressControls();
-        RefreshQueue();
+        catch (InvalidOperationException) { }
     }
 
     private void Engine_Completed(object? sender, EventArgs e)
     {
-        StatusLabel.Text = "Transferencia finalizada";
-        OverallProgressBar.Value = 100;
-        RefreshQueue();
+        if (IsDisposed || !IsHandleCreated) return;
+        try
+        {
+            BeginInvoke(() =>
+            {
+                _isPaused = false;
+                PauseButton.Text = "Pausar";
+                var failed = _jobs.Count(j => j.State == TransferState.Failed);
+                StatusLabel.Text = failed == 0 ? "Transferencia finalizada" : $"Finalizada con {failed} error(es)";
+                RefreshQueue();
+                UpdateTrayProgress();
+            });
+        }
+        catch (InvalidOperationException) { }
     }
 
     private void UpdateProgressControls()
     {
-        var total = _jobs.Count > 0 ? _jobs.Sum(x => x.SizeBytes) : 0L;
-        var transferred = _jobs.Sum(x => x.CurrentBytes);
+        var total = _jobs.Sum(j => j.SizeBytes);
+        var copied = _jobs.Sum(j => Math.Min(j.CurrentBytes, j.SizeBytes));
+        OverallProgressBar.Value = total <= 0 ? (_jobs.Count > 0 && _jobs.All(j => j.State == TransferState.Completed) ? 100 : 0) : (int)Math.Clamp(copied * 100d / total, 0, 100);
+    }
 
-        if (total > 0)
+    private void UpdateTrayProgress()
+    {
+        var percent = OverallProgressBar.Value;
+        var state = _engine.IsRunning ? (_isPaused ? "Pausado" : "Copiando") : "Listo";
+        TrayIcon.Text = $"XoPy - {state}: {percent}%";
+    }
+
+    private void RestoreFromTray()
+    {
+        Show();
+        WindowState = FormWindowState.Normal;
+        ShowInTaskbar = true;
+        Activate();
+    }
+
+    protected override void OnResize(EventArgs e)
+    {
+        base.OnResize(e);
+        if (WindowState == FormWindowState.Minimized)
         {
-            var value = (int)((transferred * 100d) / total);
-            OverallProgressBar.Value = Math.Clamp(value, 0, 100);
-        }
-        else
-        {
-            OverallProgressBar.Value = 0;
+            Hide();
+            ShowInTaskbar = false;
+            TrayIcon.ShowBalloonTip(1000, "XoPy", "XoPy sigue ejecutándose en segundo plano.", ToolTipIcon.Info);
         }
     }
-}
 
-internal static class FileInfoExtensions
-{
-    public static long GetLengthFast(string path)
+    private void ShowError(string message)
     {
-        try
+        StatusLabel.Text = message;
+        MessageBox.Show(this, message, "XoPy", MessageBoxButtons.OK, MessageBoxIcon.Error);
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
         {
-            return new FileInfo(path).Length;
+            TrayIcon.Visible = false;
+            _trayMenu.Dispose();
+            components?.Dispose();
         }
-        catch
-        {
-            return 0;
-        }
+        base.Dispose(disposing);
     }
 }

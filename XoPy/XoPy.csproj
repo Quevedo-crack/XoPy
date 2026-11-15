@@ -7,9 +7,5 @@
     <Nullable>enable</Nullable>
     <RootNamespace>XoPy</RootNamespace>
     <AssemblyName>XoPy</AssemblyName>
-    <ApplicationIcon>app.ico</ApplicationIcon>
   </PropertyGroup>
-  <ItemGroup>
-    <PackageReference Include="System.Text.Json" Version="8.0.5" />
-  </ItemGroup>
 </Project>
