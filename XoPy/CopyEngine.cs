@@ -16,6 +16,11 @@ public sealed class TransferJob
     public string Name { get; set; } = string.Empty;
     public string SourcePath { get; set; } = string.Empty;
     public string DestinationPath { get; set; } = string.Empty;
+    public string RelativePath { get; set; } = string.Empty;
+    public Guid? GroupId { get; set; }
+    public bool IsFolderGroup { get; set; }
+    public bool IsDirectoryEntry { get; set; }
+    public bool IsExpanded { get; set; } = true;
     public OperationType Operation { get; set; }
     public TransferState State { get; set; }
     public long SizeBytes { get; set; }
@@ -36,24 +41,28 @@ public sealed class CopyEngine
 {
     private sealed record PartialMetadata(string SourcePath, string TargetPath, long Length, long LastWriteUtcTicks);
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _targetLocks = new(StringComparer.OrdinalIgnoreCase);
-    private readonly ConcurrentDictionary<Guid, long> _lastReportedAt = new();
+    private readonly ConcurrentDictionary<Guid, long> _lastReported = new();
     private CancellationTokenSource? _cancellation;
     private volatile bool _paused;
-    private int _isRunning;
+    private int _running;
+    private int _bufferSize = 1024 * 1024;
+    private int _parallelism = 3;
     private long _speedLimitBytesPerSecond;
 
-    public bool IsRunning => Volatile.Read(ref _isRunning) != 0;
+    public bool IsRunning => Volatile.Read(ref _running) != 0;
     public event EventHandler<TransferProgressEventArgs>? ProgressChanged;
     public event EventHandler? Completed;
 
-    public void Start(IReadOnlyCollection<TransferJob> jobs, bool verify, ConflictResolution conflictResolution, long speedLimitBytesPerSecond = 0)
+    public void Start(IReadOnlyCollection<TransferJob> jobs, bool verify, ConflictResolution resolution, long speedLimitBytesPerSecond = 0, int parallelism = 3, int bufferSize = 1024 * 1024)
     {
-        if (Interlocked.CompareExchange(ref _isRunning, 1, 0) != 0) return;
+        if (Interlocked.CompareExchange(ref _running, 1, 0) != 0) return;
         _cancellation?.Dispose();
         _cancellation = new CancellationTokenSource();
         _paused = false;
+        _parallelism = Math.Clamp(parallelism, 1, 16);
+        _bufferSize = Math.Clamp(bufferSize, 64 * 1024, 8 * 1024 * 1024);
         Interlocked.Exchange(ref _speedLimitBytesPerSecond, Math.Max(0, speedLimitBytesPerSecond));
-        _ = RunAsync(jobs.ToList(), verify, conflictResolution, _cancellation.Token);
+        _ = RunAsync(jobs.ToList(), verify, resolution, _cancellation.Token);
     }
 
     public void SetPaused(bool paused) => _paused = paused;
@@ -63,212 +72,201 @@ public sealed class CopyEngine
     {
         try
         {
-            await Parallel.ForEachAsync(jobs, new ParallelOptions
+            await Parallel.ForEachAsync(jobs, new ParallelOptions { MaxDegreeOfParallelism = _parallelism, CancellationToken = token }, async (job, ct) =>
             {
-                MaxDegreeOfParallelism = 3,
-                CancellationToken = token
-            }, async (job, cancellationToken) =>
-            {
-                job.State = TransferState.Running;
-                job.CurrentBytes = 0;
-                job.ProgressPercent = 0;
-                job.ErrorMessage = null;
-                Report(job, force: true);
+                job.State = TransferState.Running; job.CurrentBytes = 0; job.ProgressPercent = 0; job.ErrorMessage = null;
+                Report(job, true);
                 try
                 {
-                    await ProcessJobAsync(job, verify, resolution, cancellationToken);
-                    job.State = cancellationToken.IsCancellationRequested ? TransferState.Cancelled : TransferState.Completed;
-                    if (job.State == TransferState.Completed)
-                    {
-                        job.CurrentBytes = job.SizeBytes;
-                        job.ProgressPercent = 100;
-                    }
+                    await ProcessJobAsync(job, verify, resolution, ct);
+                    if (ct.IsCancellationRequested) job.State = TransferState.Cancelled;
+                    else { job.State = TransferState.Completed; job.CurrentBytes = job.SizeBytes; job.ProgressPercent = 100; }
                 }
-                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-                {
-                    job.State = TransferState.Cancelled;
-                }
-                catch (Exception ex)
-                {
-                    job.State = TransferState.Failed;
-                    job.ErrorMessage = ex.Message;
-                }
-                Report(job, force: true);
+                catch (OperationCanceledException) when (ct.IsCancellationRequested) { job.State = TransferState.Cancelled; }
+                catch (Exception ex) { job.State = TransferState.Failed; job.ErrorMessage = ex.Message; }
+                Report(job, true);
             });
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         finally
         {
             if (token.IsCancellationRequested)
-            {
-                foreach (var job in jobs.Where(job => job.State == TransferState.Pending))
-                {
-                    job.State = TransferState.Cancelled;
-                    Report(job, force: true);
-                }
-            }
-            Volatile.Write(ref _isRunning, 0);
+                foreach (var job in jobs.Where(j => j.State == TransferState.Pending)) { job.State = TransferState.Cancelled; Report(job, true); }
+            Volatile.Write(ref _running, 0);
             Completed?.Invoke(this, EventArgs.Empty);
         }
     }
 
     private async Task ProcessJobAsync(TransferJob job, bool verify, ConflictResolution resolution, CancellationToken token)
     {
+        token.ThrowIfCancellationRequested();
+        if (job.IsDirectoryEntry)
+        {
+            var root = Path.GetFullPath(job.SourcePath);
+            var parent = job.GroupId.HasValue ? jobsafeParent(job) : string.Empty;
+            _ = parent;
+            var destinationRoot = GetDirectoryDestination(job);
+            Directory.CreateDirectory(destinationRoot);
+            return;
+        }
+
         var isDirectory = Directory.Exists(job.SourcePath);
         if (!isDirectory && !File.Exists(job.SourcePath)) throw new FileNotFoundException("No se encontró el origen.", job.SourcePath);
-
-        var sourceRoot = Path.GetFullPath(job.SourcePath);
-        var destinationBase = Path.GetFullPath(job.DestinationPath);
-        // Put a selected directory inside a same-named destination folder, retaining its root and tree.
-        var destinationRoot = isDirectory
-            ? Path.Combine(destinationBase, Path.GetFileName(Path.TrimEndingDirectorySeparator(sourceRoot)))
-            : destinationBase;
-        if (isDirectory && IsSameOrChild(destinationRoot, sourceRoot))
-            throw new IOException("El destino no puede ser la misma carpeta de origen ni estar dentro de ella.");
-
-        string[] files = isDirectory
-            ? Directory.EnumerateFiles(sourceRoot, "*", SearchOption.AllDirectories).ToArray()
-            : [sourceRoot];
-
-        Directory.CreateDirectory(destinationRoot);
+        var source = Path.GetFullPath(job.SourcePath);
         if (isDirectory)
         {
-            foreach (var sourceDirectory in Directory.EnumerateDirectories(sourceRoot, "*", SearchOption.AllDirectories))
+            var destination = Path.GetFullPath(job.DestinationPath);
+            if (IsSameOrChild(destination, source)) throw new IOException("El destino no puede estar dentro de la carpeta de origen.");
+            var files = EnumerateFiles(source).ToArray();
+            var rootDestination = Path.Combine(destination, Path.GetFileName(Path.TrimEndingDirectorySeparator(source)));
+            Directory.CreateDirectory(rootDestination);
+            foreach (var directory in EnumerateDirectories(source))
+                Directory.CreateDirectory(Path.Combine(rootDestination, Path.GetRelativePath(source, directory)));
+            long completed = 0;
+            foreach (var file in files)
             {
                 token.ThrowIfCancellationRequested();
-                var relativeDirectory = Path.GetRelativePath(sourceRoot, sourceDirectory);
-                Directory.CreateDirectory(Path.Combine(destinationRoot, relativeDirectory));
+                var info = new FileInfo(file);
+                var target = Path.Combine(rootDestination, Path.GetRelativePath(source, file));
+                await CopyOneFileAsync(file, target, job, verify, resolution, completed, token);
+                completed += info.Length;
             }
+            return;
         }
 
-        long completedBytes = 0;
-        foreach (var source in files)
+        var targetPath = string.IsNullOrWhiteSpace(job.RelativePath)
+            ? Path.Combine(job.DestinationPath, Path.GetFileName(source))
+            : Path.Combine(job.DestinationPath, job.RelativePath);
+        var destinationRootPath = GetDirectoryDestination(job);
+        if (job.GroupId.HasValue)
         {
-            token.ThrowIfCancellationRequested();
-            await WaitIfPausedAsync(job, token);
-            var info = new FileInfo(source);
-            var relative = isDirectory ? Path.GetRelativePath(sourceRoot, source) : Path.GetFileName(source);
-            var target = Path.Combine(destinationRoot, relative);
-            if (PathsEqual(source, target)) throw new IOException("El destino coincide con el origen; se canceló para proteger el archivo.");
-            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-            await CopyOneFileAsync(source, target, job, verify, resolution, completedBytes, token);
-            completedBytes += info.Length;
-            job.CurrentBytes = completedBytes;
-            job.ProgressPercent = job.SizeBytes <= 0 ? 100 : Math.Min(100, completedBytes * 100d / job.SizeBytes);
-            Report(job);
+            var folderName = Path.GetFileName(Path.TrimEndingDirectorySeparator(job.DestinationPath == string.Empty ? Path.GetDirectoryName(source)! : FindGroupSourceRoot(job)));
+            destinationRootPath = Path.Combine(job.DestinationPath, folderName);
+            targetPath = Path.Combine(destinationRootPath, job.RelativePath);
         }
-
-        if (isDirectory && job.Operation == OperationType.Move && !token.IsCancellationRequested)
-        {
-            foreach (var directory in Directory.EnumerateDirectories(sourceRoot, "*", SearchOption.AllDirectories).OrderByDescending(path => path.Length))
-            {
-                if (!Directory.EnumerateFileSystemEntries(directory).Any()) Directory.Delete(directory);
-            }
-            if (!Directory.EnumerateFileSystemEntries(sourceRoot).Any()) Directory.Delete(sourceRoot);
-        }
+        Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
+        await CopyOneFileAsync(source, targetPath, job, verify, resolution, 0, token);
     }
 
-    private async Task CopyOneFileAsync(string source, string requestedTarget, TransferJob job, bool verify, ConflictResolution resolution, long completedBytes, CancellationToken token)
+    // Group directory path is encoded in RelativePath's destination prefix by the GUI's parent group.
+    private static string FindGroupSourceRoot(TransferJob job)
     {
-        // Serialize conflict checks for the same destination only, so independent files/jobs can copy concurrently.
-        var targetLock = _targetLocks.GetOrAdd(Path.GetFullPath(requestedTarget), _ => new SemaphoreSlim(1, 1));
-        await targetLock.WaitAsync(token);
+        var source = Path.GetFullPath(job.SourcePath);
+        var parts = job.RelativePath.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var root = source;
+        for (var i = 0; i < parts.Length; i++) root = Path.GetDirectoryName(root)!;
+        return root;
+    }
+
+    private static string jobsafeParent(TransferJob job) => Path.GetDirectoryName(job.SourcePath) ?? string.Empty;
+    private static string GetDirectoryDestination(TransferJob job) => Path.Combine(job.DestinationPath, Path.GetFileName(Path.TrimEndingDirectorySeparator(jobsafeParent(job))));
+
+    private async Task CopyOneFileAsync(string source, string requestedTarget, TransferJob job, bool verify, ConflictResolution resolution, long alreadyDone, CancellationToken token)
+    {
+        var gate = _targetLocks.GetOrAdd(Path.GetFullPath(requestedTarget), _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(token);
         try
         {
             var target = requestedTarget;
             if (File.Exists(target) || Directory.Exists(target))
             {
-                if (resolution == ConflictResolution.Skip) return;
+                if (resolution == ConflictResolution.Skip) { job.CurrentBytes = job.SizeBytes; job.ProgressPercent = 100; return; }
                 if (resolution == ConflictResolution.Rename) target = GetNonConflictingPath(target);
                 else if (Directory.Exists(target)) throw new IOException($"No se puede sobrescribir una carpeta: {target}");
             }
-            if (PathsEqual(source, target)) throw new IOException("El destino coincide con el origen; se canceló para proteger el archivo.");
-
-            var sourceInfo = new FileInfo(source);
+            var info = new FileInfo(source);
             var partial = GetPartialPath(source, target);
             var metadataPath = partial + ".json";
-            var expected = new PartialMetadata(Path.GetFullPath(source), Path.GetFullPath(target), sourceInfo.Length, sourceInfo.LastWriteTimeUtc.Ticks);
-            var offset = GetValidPartialLength(partial, metadataPath, expected);
-            var preservePartial = false;
+            var metadata = new PartialMetadata(Path.GetFullPath(source), Path.GetFullPath(target), info.Length, info.LastWriteTimeUtc.Ticks);
+            var offset = GetValidPartialLength(partial, metadataPath, metadata);
+            var keep = false;
             try
             {
-                File.WriteAllText(metadataPath, JsonSerializer.Serialize(expected));
-                await using (var input = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.Read, 1024 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan))
-                await using (var output = new FileStream(partial, offset == 0 ? FileMode.Create : FileMode.Append, FileAccess.Write, FileShare.None, 1024 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan))
+                File.WriteAllText(metadataPath, JsonSerializer.Serialize(metadata));
+                await using (var input = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.Read, _bufferSize, FileOptions.Asynchronous | FileOptions.SequentialScan))
+                await using (var output = new FileStream(partial, offset == 0 ? FileMode.Create : FileMode.Append, FileAccess.Write, FileShare.None, _bufferSize, FileOptions.Asynchronous | FileOptions.SequentialScan))
                 {
                     input.Seek(offset, SeekOrigin.Begin);
-                    var buffer = new byte[1024 * 1024];
-                    long fileBytes = offset;
-                    long bytesWrittenThisRun = 0;
+                    var buffer = new byte[_bufferSize];
+                    long copied = offset;
+                    long thisRun = 0;
                     var throttleClock = Stopwatch.StartNew();
-                    job.CurrentBytes = completedBytes + offset;
-                    UpdateProgress(job);
+                    job.CurrentBytes = alreadyDone + offset;
                     int read;
                     while ((read = await input.ReadAsync(buffer.AsMemory(), token)) > 0)
                     {
                         await WaitIfPausedAsync(job, token);
-                        await ThrottleAsync(bytesWrittenThisRun, token, throttleClock);
+                        await ThrottleAsync(thisRun, read, throttleClock, token);
                         await output.WriteAsync(buffer.AsMemory(0, read), token);
-                        bytesWrittenThisRun += read;
-                        fileBytes += read;
-                        job.CurrentBytes = completedBytes + fileBytes;
-                        UpdateProgress(job);
+                        copied += read; thisRun += read;
+                        job.CurrentBytes = alreadyDone + copied;
+                        job.ProgressPercent = job.SizeBytes == 0 ? 0 : Math.Min(99.9, job.CurrentBytes * 100d / job.SizeBytes);
+                        Report(job);
                     }
                     await output.FlushAsync(token);
                 }
-
-                File.SetLastWriteTime(partial, sourceInfo.LastWriteTime);
-                File.SetCreationTime(partial, sourceInfo.CreationTime);
-                if (verify && !await FilesMatchAsync(source, partial, token)) throw new IOException($"La verificación SHA-256 falló: {sourceInfo.Name}");
+                File.SetLastWriteTime(partial, info.LastWriteTime);
+                if (verify && !await FilesMatchAsync(source, partial, token)) throw new IOException($"La verificación SHA-256 falló: {info.Name}");
                 File.Move(partial, target, resolution == ConflictResolution.Overwrite);
                 TryDelete(metadataPath);
                 if (job.Operation == OperationType.Move) File.Delete(source);
             }
-            catch (OperationCanceledException) when (token.IsCancellationRequested)
-            {
-                preservePartial = true;
-                throw;
-            }
-            finally
-            {
-                if (!preservePartial)
-                {
-                    TryDelete(partial);
-                    TryDelete(metadataPath);
-                }
-            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested) { keep = true; throw; }
+            finally { if (!keep) { TryDelete(partial); TryDelete(metadataPath); } }
         }
-        finally { targetLock.Release(); }
+        finally { gate.Release(); }
     }
 
-    private async Task ThrottleAsync(long bytesWritten, CancellationToken token, Stopwatch clock)
+    private async Task ThrottleAsync(long written, int next, Stopwatch clock, CancellationToken token)
     {
-        var limit = Interlocked.Read(ref _speedLimitBytesPerSecond);
-        if (limit <= 0) return;
-        var requiredSeconds = bytesWritten / (double)limit;
-        var delay = requiredSeconds - clock.Elapsed.TotalSeconds;
-        if (delay > 0.01) await Task.Delay(TimeSpan.FromSeconds(Math.Min(delay, 2)), token);
+        var globalLimit = Interlocked.Read(ref _speedLimitBytesPerSecond);
+        if (globalLimit <= 0) return;
+        var perJobLimit = Math.Max(1, globalLimit / _parallelism);
+        var delay = (written + next) / (double)perJobLimit - clock.Elapsed.TotalSeconds;
+        if (delay > .01) await Task.Delay(TimeSpan.FromSeconds(Math.Min(delay, 2)), token);
     }
 
-    private static long GetValidPartialLength(string partial, string metadataPath, PartialMetadata expected)
+    private async Task WaitIfPausedAsync(TransferJob job, CancellationToken token)
+    {
+        if (_paused && job.State != TransferState.Paused) { job.State = TransferState.Paused; Report(job, true); }
+        while (_paused) { token.ThrowIfCancellationRequested(); await Task.Delay(150, token); }
+        if (job.State == TransferState.Paused) { job.State = TransferState.Running; Report(job, true); }
+    }
+
+    private static IEnumerable<string> EnumerateFiles(string root)
+    {
+        var dirs = new Stack<string>(); dirs.Push(root);
+        while (dirs.Count > 0)
+        {
+            var dir = dirs.Pop();
+            foreach (var file in Directory.EnumerateFiles(dir)) if ((File.GetAttributes(file) & FileAttributes.ReparsePoint) == 0) yield return file;
+            foreach (var child in Directory.EnumerateDirectories(dir)) if ((File.GetAttributes(child) & FileAttributes.ReparsePoint) == 0) dirs.Push(child);
+        }
+    }
+
+    private static IEnumerable<string> EnumerateDirectories(string root)
+    {
+        var dirs = new Stack<string>(); dirs.Push(root);
+        while (dirs.Count > 0)
+        {
+            var dir = dirs.Pop();
+            foreach (var child in Directory.EnumerateDirectories(dir))
+                if ((File.GetAttributes(child) & FileAttributes.ReparsePoint) == 0) { yield return child; dirs.Push(child); }
+        }
+    }
+
+    private static long GetValidPartialLength(string part, string metaPath, PartialMetadata expected)
     {
         try
         {
-            if (!File.Exists(partial) || !File.Exists(metadataPath)) throw new IOException();
-            var saved = JsonSerializer.Deserialize<PartialMetadata>(File.ReadAllText(metadataPath));
-            var partialInfo = new FileInfo(partial);
-            if (saved is not null
-                && string.Equals(saved.SourcePath, expected.SourcePath, StringComparison.OrdinalIgnoreCase)
-                && string.Equals(saved.TargetPath, expected.TargetPath, StringComparison.OrdinalIgnoreCase)
-                && saved.Length == expected.Length
-                && saved.LastWriteUtcTicks == expected.LastWriteUtcTicks
-                && partialInfo.Length <= expected.Length)
-                return partialInfo.Length;
+            var saved = JsonSerializer.Deserialize<PartialMetadata>(File.ReadAllText(metaPath));
+            var info = new FileInfo(part);
+            if (saved is not null && File.Exists(part) && saved.SourcePath.Equals(expected.SourcePath, StringComparison.OrdinalIgnoreCase)
+                && saved.TargetPath.Equals(expected.TargetPath, StringComparison.OrdinalIgnoreCase) && saved.Length == expected.Length
+                && saved.LastWriteUtcTicks == expected.LastWriteUtcTicks && info.Length <= expected.Length) return info.Length;
         }
         catch { }
-        TryDelete(partial);
-        TryDelete(metadataPath);
-        return 0;
+        TryDelete(part); TryDelete(metaPath); return 0;
     }
 
     private static string GetPartialPath(string source, string target)
@@ -277,79 +275,33 @@ public sealed class CopyEngine
         return Path.Combine(Path.GetDirectoryName(target)!, $".xopy-{Convert.ToHexString(SHA256.HashData(identity))}.partial");
     }
 
+    private static string GetNonConflictingPath(string path)
+    {
+        var dir = Path.GetDirectoryName(path)!; var name = Path.GetFileNameWithoutExtension(path); var ext = Path.GetExtension(path);
+        for (var i = 1; ; i++) { var candidate = Path.Combine(dir, $"{name} ({i}){ext}"); if (!File.Exists(candidate) && !Directory.Exists(candidate)) return candidate; }
+    }
+
     private static bool IsSameOrChild(string path, string parent)
     {
         var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(parent));
         var candidate = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
-        return candidate.Equals(root, StringComparison.OrdinalIgnoreCase)
-            || candidate.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
-            || candidate.StartsWith(root + Path.AltDirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+        return candidate.Equals(root, StringComparison.OrdinalIgnoreCase) || candidate.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static bool PathsEqual(string first, string second) =>
-        Path.TrimEndingDirectorySeparator(Path.GetFullPath(first)).Equals(Path.TrimEndingDirectorySeparator(Path.GetFullPath(second)), StringComparison.OrdinalIgnoreCase);
-
-    private static string GetNonConflictingPath(string path)
+    private static async Task<bool> FilesMatchAsync(string source, string target, CancellationToken token)
     {
-        var directory = Path.GetDirectoryName(path)!;
-        var name = Path.GetFileNameWithoutExtension(path);
-        var extension = Path.GetExtension(path);
-        for (var index = 1; ; index++)
-        {
-            var candidate = Path.Combine(directory, $"{name} ({index}){extension}");
-            if (!File.Exists(candidate) && !Directory.Exists(candidate)) return candidate;
-        }
+        await using var a = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.Read, _bufferSize, FileOptions.Asynchronous | FileOptions.SequentialScan);
+        await using var b = new FileStream(target, FileMode.Open, FileAccess.Read, FileShare.Read, _bufferSize, FileOptions.Asynchronous | FileOptions.SequentialScan);
+        return CryptographicOperations.FixedTimeEquals(await SHA256.HashDataAsync(a, token), await SHA256.HashDataAsync(b, token));
     }
 
-    private static async Task<bool> FilesMatchAsync(string source, string destination, CancellationToken token)
-    {
-        await using var a = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.Read, 1024 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan);
-        await using var b = new FileStream(destination, FileMode.Open, FileAccess.Read, FileShare.Read, 1024 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan);
-        var hashA = await SHA256.HashDataAsync(a, token);
-        var hashB = await SHA256.HashDataAsync(b, token);
-        return CryptographicOperations.FixedTimeEquals(hashA, hashB);
-    }
-
-    private async Task WaitIfPausedAsync(TransferJob job, CancellationToken token)
-    {
-        if (_paused && job.State != TransferState.Paused)
-        {
-            job.State = TransferState.Paused;
-            Report(job, force: true);
-        }
-        while (_paused)
-        {
-            token.ThrowIfCancellationRequested();
-            await Task.Delay(150, token);
-        }
-        if (job.State == TransferState.Paused)
-        {
-            job.State = TransferState.Running;
-            Report(job, force: true);
-        }
-    }
-
-    private void UpdateProgress(TransferJob job)
-    {
-        job.ProgressPercent = job.SizeBytes <= 0 ? 0 : Math.Min(100, job.CurrentBytes * 100d / job.SizeBytes);
-        Report(job);
-    }
-
-    // Coalesce high-frequency I/O progress so WinForms doesn't repaint the whole queue on every read.
     private void Report(TransferJob job, bool force = false)
     {
         var now = Stopwatch.GetTimestamp();
-        if (!force)
-        {
-            var previous = _lastReportedAt.GetOrAdd(job.Id, 0);
-            if (Stopwatch.GetElapsedTime(previous, now) < TimeSpan.FromMilliseconds(250)) return;
-        }
-        _lastReportedAt[job.Id] = now;
+        if (!force && _lastReported.TryGetValue(job.Id, out var previous) && Stopwatch.GetElapsedTime(previous, now) < TimeSpan.FromMilliseconds(250)) return;
+        _lastReported[job.Id] = now;
         ProgressChanged?.Invoke(this, new TransferProgressEventArgs(job.Id, job.State, job.ProgressPercent, job.CurrentBytes));
     }
 
-    private static void TryDelete(string path)
-    {
-        try { if (File.Exists(path)) File.Delete(path); } catch { }
-    }
+    private static void TryDelete(string path) { try { if (File.Exists(path)) File.Delete(path); } catch { } }
 }
