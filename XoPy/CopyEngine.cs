@@ -288,11 +288,13 @@ public sealed class CopyEngine
         return candidate.Equals(root, StringComparison.OrdinalIgnoreCase) || candidate.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static async Task<bool> FilesMatchAsync(string source, string target, CancellationToken token)
+    private async Task<bool> FilesMatchAsync(string source, string target, CancellationToken token)
     {
         await using var a = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.Read, _bufferSize, FileOptions.Asynchronous | FileOptions.SequentialScan);
         await using var b = new FileStream(target, FileMode.Open, FileAccess.Read, FileShare.Read, _bufferSize, FileOptions.Asynchronous | FileOptions.SequentialScan);
-        return CryptographicOperations.FixedTimeEquals(await SHA256.HashDataAsync(a, token), await SHA256.HashDataAsync(b, token));
+        var sourceHash = await SHA256.HashDataAsync(a, token);
+        var targetHash = await SHA256.HashDataAsync(b, token);
+        return CryptographicOperations.FixedTimeEquals(sourceHash, targetHash);
     }
 
     private void Report(TransferJob job, bool force = false)

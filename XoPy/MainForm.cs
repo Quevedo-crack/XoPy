@@ -1,7 +1,9 @@
 using System.Diagnostics;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 
 namespace XoPy;
@@ -24,9 +26,12 @@ public partial class MainForm : Form
     private readonly string _appData = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "XoPy");
     private readonly Dictionary<Guid, TransferProgressEventArgs> _latestProgress = new();
     private List<TransferJob> _activeJobs = new();
+    private Icon? _trayProgressIcon;
     private bool _paused;
     private int _sortColumn = -1;
     private bool _sortAscending = true;
+    private int _lastTrayPercent = -1;
+    private string _lastTrayState = string.Empty;
     private int _parallelJobs = Math.Clamp(Environment.ProcessorCount / 2, 2, 4);
     private int _bufferKiB = 1024;
     private int _speedLimitMiB;
@@ -269,12 +274,24 @@ public partial class MainForm : Form
     private void MoveSelected(int direction)
     {
         if (_engine.IsRunning || QueueListView.SelectedIndices.Count != 1) return;
-        var index = QueueListView.SelectedIndices[0];
+        if (QueueListView.SelectedItems[0].Tag is not TransferJob selected) return;
+        var siblings = _jobs.Where(job => job.GroupId == selected.GroupId).ToList();
+        var index = siblings.IndexOf(selected);
         var target = index + direction;
-        if (target < 0 || target >= _jobs.Count) return;
-        (_jobs[index], _jobs[target]) = (_jobs[target], _jobs[index]);
+        if (index < 0 || target < 0 || target >= siblings.Count) return;
+        (siblings[index], siblings[target]) = (siblings[target], siblings[index]);
+
+        var order = siblings.Select((job, position) => (job.Id, position))
+            .ToDictionary(item => item.Id, item => item.position);
+        RebuildQueueOrder((left, right) =>
+            order.TryGetValue(left.Id, out var leftPosition) &&
+            order.TryGetValue(right.Id, out var rightPosition)
+                ? leftPosition.CompareTo(rightPosition)
+                : 0);
         RefreshQueue();
-        if (target < QueueListView.Items.Count) QueueListView.Items[target].Selected = true;
+        var selectedItem = QueueListView.Items.Cast<ListViewItem>()
+            .FirstOrDefault(item => item.Tag is TransferJob job && job.Id == selected.Id);
+        if (selectedItem is not null) selectedItem.Selected = true;
     }
 
     private void RemoveSelectedButton_Click(object? sender, EventArgs e)
@@ -330,7 +347,22 @@ public partial class MainForm : Form
     private void SaveQueueButton_Click(object? sender, EventArgs e)
     {
         if (_saveQueueDialog.ShowDialog(this) != DialogResult.OK) return;
-        try { File.WriteAllText(_saveQueueDialog.FileName, JsonSerializer.Serialize(_jobs, new JsonSerializerOptions { WriteIndented = true })); StatusLabel.Text = "Cola guardada."; }
+        try
+        {
+            var snapshot = new QueueSnapshot
+            {
+                Destination = DestinationTextBox.Text,
+                Operation = OperationComboBox.SelectedIndex,
+                Conflict = ConflictComboBox.SelectedIndex,
+                Verify = VerifyCheckBox.Checked,
+                SpeedLimitMiB = _speedLimitMiB,
+                ParallelJobs = _parallelJobs,
+                BufferKiB = _bufferKiB,
+                Jobs = _jobs
+            };
+            File.WriteAllText(_saveQueueDialog.FileName, JsonSerializer.Serialize(snapshot, new JsonSerializerOptions { WriteIndented = true }));
+            StatusLabel.Text = "Cola y preferencias guardadas.";
+        }
         catch (Exception ex) { ShowError($"No se pudo guardar la cola: {ex.Message}"); }
     }
 
@@ -340,7 +372,18 @@ public partial class MainForm : Form
         if (_loadQueueDialog.ShowDialog(this) != DialogResult.OK) return;
         try
         {
-            var loaded = JsonSerializer.Deserialize<List<TransferJob>>(File.ReadAllText(_loadQueueDialog.FileName));
+            using var document = JsonDocument.Parse(File.ReadAllText(_loadQueueDialog.FileName));
+            QueueSnapshot? snapshot = null;
+            List<TransferJob>? loaded;
+            if (document.RootElement.ValueKind == JsonValueKind.Array)
+            {
+                loaded = document.RootElement.Deserialize<List<TransferJob>>();
+            }
+            else
+            {
+                snapshot = document.RootElement.Deserialize<QueueSnapshot>();
+                loaded = snapshot?.Jobs;
+            }
             if (loaded is null) { ShowError("El archivo no contiene una cola válida."); return; }
             _jobs.Clear();
             foreach (var job in loaded)
@@ -348,8 +391,20 @@ public partial class MainForm : Form
                 if (job.State is TransferState.Running or TransferState.Paused) job.State = TransferState.Pending;
                 _jobs.Add(job);
             }
+            if (snapshot is not null)
+            {
+                if (!string.IsNullOrWhiteSpace(snapshot.Destination))
+                    DestinationTextBox.Text = snapshot.Destination;
+                OperationComboBox.SelectedIndex = Math.Clamp(snapshot.Operation, 0, 1);
+                ConflictComboBox.SelectedIndex = Math.Clamp(snapshot.Conflict, 0, 2);
+                VerifyCheckBox.Checked = snapshot.Verify;
+                _speedLimitMiB = Math.Clamp(snapshot.SpeedLimitMiB, 0, 1024 * 1024);
+                _parallelJobs = Math.Clamp(snapshot.ParallelJobs, 1, 16);
+                _bufferKiB = Math.Clamp(snapshot.BufferKiB, 64, 8192);
+                SaveSettings();
+            }
             RefreshQueue();
-            StatusLabel.Text = $"Cola cargada: {_jobs.Count} elemento(s).";
+            StatusLabel.Text = $"Cola cargada: {_jobs.Count} elemento(s); inicia para reanudar los parciales.";
         }
         catch (Exception ex) { ShowError($"No se pudo cargar la cola: {ex.Message}"); }
     }
@@ -367,18 +422,55 @@ public partial class MainForm : Form
 
     private void QueueListView_ColumnClick(object? sender, ColumnClickEventArgs e)
     {
-        if (_engine.IsRunning || e.Column == 0) return;
+        if (_engine.IsRunning) return;
         if (_sortColumn == e.Column) _sortAscending = !_sortAscending; else { _sortColumn = e.Column; _sortAscending = true; }
-        Func<TransferJob, object> key = e.Column switch
+        Comparison<TransferJob> comparison = (left, right) => e.Column switch
         {
-            1 => j => j.SourcePath,
-            2 => j => j.RelativePath,
-            3 => j => j.SizeBytes,
-            4 => j => j.State.ToString(),
-            _ => j => j.ProgressPercent
+            0 => StringComparer.OrdinalIgnoreCase.Compare(left.Name, right.Name),
+            1 => StringComparer.OrdinalIgnoreCase.Compare(left.SourcePath, right.SourcePath),
+            2 => StringComparer.OrdinalIgnoreCase.Compare(left.RelativePath, right.RelativePath),
+            3 => left.SizeBytes.CompareTo(right.SizeBytes),
+            4 => StringComparer.OrdinalIgnoreCase.Compare(left.State.ToString(), right.State.ToString()),
+            _ => left.ProgressPercent.CompareTo(right.ProgressPercent)
         };
-        var sorted = _sortAscending ? _jobs.OrderBy(key).ToList() : _jobs.OrderByDescending(key).ToList();
-        _jobs.Clear(); _jobs.AddRange(sorted); RefreshQueue();
+        if (!_sortAscending)
+        {
+            var ascendingComparison = comparison;
+            comparison = (left, right) => -ascendingComparison(left, right);
+        }
+        RebuildQueueOrder(comparison);
+        RefreshQueue();
+    }
+
+    private void RebuildQueueOrder(Comparison<TransferJob>? comparison = null)
+    {
+        var originalOrder = _jobs.Select((job, index) => (job.Id, index))
+            .ToDictionary(item => item.Id, item => item.index);
+        var childrenByGroup = _jobs
+            .Where(job => job.GroupId.HasValue)
+            .GroupBy(job => job.GroupId!.Value)
+            .ToDictionary(group => group.Key, group => group.ToList());
+        var flattened = new List<TransferJob>(_jobs.Count);
+
+        void AddSiblings(IEnumerable<TransferJob> siblings)
+        {
+            var ordered = siblings.ToList();
+            ordered.Sort((left, right) =>
+            {
+                var result = comparison?.Invoke(left, right) ?? 0;
+                return result != 0 ? result : originalOrder[left.Id].CompareTo(originalOrder[right.Id]);
+            });
+            foreach (var job in ordered)
+            {
+                flattened.Add(job);
+                if (job.IsFolderGroup && childrenByGroup.TryGetValue(job.Id, out var children))
+                    AddSiblings(children);
+            }
+        }
+
+        AddSiblings(_jobs.Where(job => !job.GroupId.HasValue));
+        _jobs.Clear();
+        _jobs.AddRange(flattened);
     }
 
     private void RefreshQueue()
@@ -543,13 +635,57 @@ public partial class MainForm : Form
         var total = work.Sum(j => j.SizeBytes);
         var copied = work.Sum(j => Math.Min(j.CurrentBytes, j.SizeBytes));
         OverallProgressBar.Value = total <= 0 ? (work.Count > 0 && work.All(j => j.State == TransferState.Completed) ? 100 : 0) : (int)Math.Clamp(copied * 100d / total, 0, 100);
+        StatusProgressBar.Value = OverallProgressBar.Value;
     }
 
     private void UpdateTrayProgress()
     {
+        var percent = OverallProgressBar.Value;
         var state = _engine.IsRunning ? (_paused ? "Pausado" : "Copiando") : "Listo";
-        TrayIcon.Text = $"XoPy - {state}: {OverallProgressBar.Value}%";
+        TrayIcon.Text = $"XoPy - {state}: {percent}%";
+        if (percent == _lastTrayPercent && state == _lastTrayState) return;
+        _lastTrayPercent = percent;
+        _lastTrayState = state;
+        var newIcon = CreateProgressIcon(percent);
+        var oldIcon = _trayProgressIcon;
+        _trayProgressIcon = newIcon;
+        TrayIcon.Icon = newIcon;
+        oldIcon?.Dispose();
     }
+
+    private static Icon CreateProgressIcon(int percent)
+    {
+        using var bitmap = new Bitmap(32, 32);
+        using (var graphics = Graphics.FromImage(bitmap))
+        using (var track = new Pen(Color.FromArgb(110, 110, 110), 3))
+        using (var progress = new Pen(Color.FromArgb(70, 200, 100), 3))
+        using (var textBrush = new SolidBrush(Color.White))
+        using (var background = new SolidBrush(Color.FromArgb(35, 45, 55)))
+        using (var font = new Font("Arial", 8, FontStyle.Bold, GraphicsUnit.Pixel))
+        using (var format = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
+        {
+            graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            graphics.Clear(Color.Transparent);
+            graphics.FillEllipse(background, 1, 1, 30, 30);
+            graphics.DrawArc(track, 3, 3, 26, 26, -90, 360);
+            if (percent > 0) graphics.DrawArc(progress, 3, 3, 26, 26, -90, 360 * percent / 100f);
+            graphics.DrawString(percent.ToString(), font, textBrush, new RectangleF(2, 2, 28, 28), format);
+        }
+
+        var handle = bitmap.GetHicon();
+        try
+        {
+            using var borrowedIcon = Icon.FromHandle(handle);
+            return (Icon)borrowedIcon.Clone();
+        }
+        finally
+        {
+            DestroyIcon(handle);
+        }
+    }
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool DestroyIcon(IntPtr handle);
 
     private void SaveHistory(string outcome)
     {
@@ -628,10 +764,25 @@ public partial class MainForm : Form
         if (disposing)
         {
             _uiTimer.Stop(); _uiTimer.Dispose();
+            _trayProgressIcon?.Dispose();
             TrayIcon.Visible = false; _trayMenu.Dispose(); components?.Dispose();
         }
         base.Dispose(disposing);
     }
+}
+
+internal sealed class QueueSnapshot
+{
+    public QueueSnapshot() { }
+
+    public string Destination { get; set; } = string.Empty;
+    public int Operation { get; set; }
+    public int Conflict { get; set; }
+    public bool Verify { get; set; } = true;
+    public int SpeedLimitMiB { get; set; }
+    public int ParallelJobs { get; set; } = 3;
+    public int BufferKiB { get; set; } = 1024;
+    public List<TransferJob>? Jobs { get; set; }
 }
 
 internal sealed class OptionsDialog : Form

@@ -18,6 +18,7 @@ partial class MainForm
     private Button OptionsButton = null!;
     private ListView QueueListView = null!;
     private ProgressBar OverallProgressBar = null!;
+    private ProgressBar StatusProgressBar = null!;
     private Label StatusLabel = null!;
     private NotifyIcon TrayIcon = null!;
     private TextBox DestinationTextBox = null!;
@@ -257,11 +258,10 @@ partial class MainForm
         statusLayout.Controls.Add(CreatePageHeading("Estado de la transferencia", "Supervisa el avance global de la cola."), 0, 0);
         var progressPanel = new TableLayoutPanel { Dock = DockStyle.Top, ColumnCount = 1, RowCount = 2, BackColor = surface, Padding = new Padding(22), AutoSize = true };
         progressPanel.Controls.Add(new Label { Text = "PROGRESO GLOBAL", AutoSize = true, ForeColor = secondary, Font = new Font("Segoe UI", 8, FontStyle.Bold), Margin = new Padding(0, 0, 0, 7) }, 0, 0);
-        var statusProgress = new ProgressBar { Dock = DockStyle.Top, Minimum = 0, Maximum = 100, Height = 12, Style = ProgressBarStyle.Continuous };
-        progressPanel.Controls.Add(statusProgress, 0, 1);
+        StatusProgressBar = new ProgressBar { Dock = DockStyle.Top, Minimum = 0, Maximum = 100, Height = 12, Style = ProgressBarStyle.Continuous };
+        progressPanel.Controls.Add(StatusProgressBar, 0, 1);
         statusPage.Controls.Add(statusLayout);
         statusLayout.Controls.Add(progressPanel, 0, 1);
-        OverallProgressBar.ValueChanged += (_, _) => statusProgress.Value = OverallProgressBar.Value;
 
         var logLayout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2, BackColor = surface };
         logLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
