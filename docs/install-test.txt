@@ -1,0 +1,10 @@
+inicio 2026-11-21T20:37:50.7467856+00:00
+instalador_exit=0
+exe_instalado=True
+menu_copiar="C:\Program Files\XoPy\XoPy.exe" --copy "%1"
+menu_pegar="C:\Program Files\XoPy\XoPy.exe" --paste --to "%V"
+enviar_a=True
+captura_instalada=True
+desinstalador=True
+sigue_instalado=False
+OK
