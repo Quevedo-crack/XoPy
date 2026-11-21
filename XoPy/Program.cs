@@ -90,11 +90,28 @@ internal static class Program
             File.AppendAllText(log, $"ventana creada {form.Size}{Environment.NewLine}");
             form.Show();
             File.AppendAllText(log, $"ventana mostrada {form.ClientSize}{Environment.NewLine}");
+            var watchdog = new Thread(() =>
+            {
+                for (var i = 0; i < 25; i++)
+                {
+                    Thread.Sleep(1000);
+                    try
+                    {
+                        var title = System.Diagnostics.Process.GetCurrentProcess().MainWindowTitle;
+                        File.AppendAllText(log, $"watchdog {i}: {title}{Environment.NewLine}");
+                    }
+                    catch { }
+                }
+            }) { IsBackground = true };
+            watchdog.Start();
+
             var deadline = DateTime.UtcNow.AddSeconds(8);
+            var tick = 0;
             while (DateTime.UtcNow < deadline)
             {
                 Application.DoEvents();
                 Thread.Sleep(40);
+                if (++tick % 25 == 0) File.AppendAllText(log, $"tick {tick}{Environment.NewLine}");
             }
             File.AppendAllText(log, $"pump ok {form.ClientSize}{Environment.NewLine}");
 
