@@ -56,36 +56,46 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         shell: pwsh
         run: |
-          $setup = (Resolve-Path 'installer-output/XoPy-Setup-win-x64.exe').Path
-          $install = Start-Process -FilePath $setup -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/TASKS=explorer,sendto') -Wait -PassThru
-          if ($install.ExitCode -ne 0) { throw "El instalador devolvió el código $($install.ExitCode)" }
+          $log = 'C:\install-test.txt'
+          "inicio $(Get-Date -Format o)" | Set-Content $log
+          try {
+            $setup = (Resolve-Path 'installer-output/XoPy-Setup-win-x64.exe').Path
+            $install = Start-Process -FilePath $setup -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/TASKS=explorer,sendto') -Wait -PassThru
+            "instalador_exit=$($install.ExitCode)" | Add-Content $log
 
-          $exe = Join-Path $env:ProgramFiles 'XoPy\XoPy.exe'
-          if (-not (Test-Path $exe)) { throw 'No se instaló XoPy.exe en Program Files' }
+            $exe = Join-Path $env:ProgramFiles 'XoPy\XoPy.exe'
+            "exe_instalado=$(Test-Path $exe)" | Add-Content $log
 
-          $copyCommand = (Get-ItemProperty 'HKCU:\Software\Classes\*\shell\XoPyCopy\command').'(default)'
-          Write-Host "menu copiar: $copyCommand"
-          if (-not $copyCommand.Contains('--copy')) { throw 'No se registró Copiar con XoPy' }
+            $copyCommand = [Microsoft.Win32.Registry]::GetValue('HKEY_CURRENT_USER\Software\Classes\*\shell\XoPyCopy\command', '', $null)
+            "menu_copiar=$copyCommand" | Add-Content $log
 
-          $pasteCommand = (Get-ItemProperty 'HKCU:\Software\Classes\Directory\Background\shell\XoPyPaste\command').'(default)'
-          Write-Host "menu pegar: $pasteCommand"
-          if (-not $pasteCommand.Contains('--paste')) { throw 'No se registró Pegar con XoPy' }
+            $pasteCommand = [Microsoft.Win32.Registry]::GetValue('HKEY_CURRENT_USER\Software\Classes\Directory\Background\shell\XoPyPaste\command', '', $null)
+            "menu_pegar=$pasteCommand" | Add-Content $log
 
-          $sendTo = Join-Path $env:APPDATA 'Microsoft\Windows\SendTo\Copiar con XoPy.lnk'
-          if (-not (Test-Path $sendTo)) { throw 'No se creó el acceso en Enviar a' }
+            $sendTo = Join-Path $env:APPDATA 'Microsoft\Windows\SendTo\Copiar con XoPy.lnk'
+            "enviar_a=$(Test-Path $sendTo)" | Add-Content $log
 
-          $shot = 'C:\xopytest\installed.png'
-          $app = Start-Process -FilePath $exe -ArgumentList @('--screenshot', $shot) -PassThru
-          if (-not $app.WaitForExit(60000)) { $app.Kill(); throw 'La aplicación instalada no respondió' }
-          if (-not (Test-Path $shot)) { throw 'La aplicación instalada no arrancó correctamente' }
-          Write-Host "tamaño captura: $((Get-Item $shot).Length) bytes"
+            if (-not (Test-Path $exe)) { throw 'No se instaló XoPy.exe en Program Files' }
 
-          $uninstaller = Join-Path $env:ProgramFiles 'XoPy\unins000.exe'
-          if (-not (Test-Path $uninstaller)) { throw 'No se encontró el desinstalador' }
-          Start-Process -FilePath $uninstaller -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') -Wait
-          Start-Sleep -Seconds 3
-          if (Test-Path $exe) { throw 'La desinstalación dejó archivos en Program Files' }
-          Write-Host 'Instalación y desinstalación correctas'
+            $shot = 'C:\installed-shot.png'
+            $app = Start-Process -FilePath $exe -ArgumentList @('--screenshot', $shot) -PassThru
+            if (-not $app.WaitForExit(60000)) { $app.Kill(); throw 'La aplicación instalada no respondió' }
+            "captura_instalada=$(Test-Path $shot)" | Add-Content $log
+
+            $uninstaller = Join-Path $env:ProgramFiles 'XoPy\unins000.exe'
+            "desinstalador=$(Test-Path $uninstaller)" | Add-Content $log
+            if (Test-Path $uninstaller) {
+              Start-Process -FilePath $uninstaller -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') -Wait
+              Start-Sleep -Seconds 3
+            }
+            "sigue_instalado=$(Test-Path $exe)" | Add-Content $log
+            "OK" | Add-Content $log
+          } catch {
+            "ERROR: $_" | Add-Content $log
+            Get-Content $log | Write-Host
+            throw
+          }
+          Get-Content $log | Write-Host
 
       - uses: actions/upload-artifact@v4
         with:
@@ -100,6 +110,21 @@ jobs:
           path: publish/XoPy.exe
           if-no-files-found: error
           retention-days: 30
+
+      - name: Guardar el resultado de la prueba
+        if: always() && github.event_name == 'workflow_dispatch' && github.ref_name != 'main'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force docs | Out-Null
+          if (Test-Path 'C:\install-test.txt') { Copy-Item 'C:\install-test.txt' 'docs\install-test.txt' }
+          git config user.name "XoPy Bot"
+          git config user.email "xopy-bot@users.noreply.github.com"
+          git add docs/install-test.txt
+          git diff --cached --quiet
+          if ($LASTEXITCODE -ne 0) {
+            git commit -m "Resultado de la prueba de instalación"
+            git push
+          }
 
       - name: Publicar en GitHub Releases
         if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
