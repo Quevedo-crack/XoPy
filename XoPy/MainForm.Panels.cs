@@ -110,6 +110,7 @@ public sealed partial class MainForm
         hint.Dock = DockStyle.Fill;
         hint.AutoSize = false;
         hint.TextAlign = ContentAlignment.MiddleLeft;
+        hint.Margin = new Padding(0, 4, 0, 0);
 
         page.Controls.Add(title, 0, 0);
         page.Controls.Add(_targetPathLabel, 0, 1);
@@ -563,7 +564,7 @@ public sealed partial class MainForm
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 11,
+            RowCount = 10,
             BackColor = _palette.Surface,
             Padding = new Padding(16, 10, 16, 8)
         };
@@ -574,10 +575,9 @@ public sealed partial class MainForm
         page.RowStyles.Add(new RowStyle(SizeType.Absolute, 20));
         page.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));
         page.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
-        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
         page.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 100));
-        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 20));
+        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 110));
+        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
 
         var title = Ui.Label("Estado de la transferencia", _palette, 11f, true);
         title.Anchor = AnchorStyles.Left;
@@ -637,6 +637,7 @@ public sealed partial class MainForm
         hint.AutoSize = false;
         hint.AutoEllipsis = true;
         hint.TextAlign = ContentAlignment.MiddleLeft;
+        hint.Margin = new Padding(0, 4, 0, 0);
 
         page.Controls.Add(title, 0, 0);
         page.Controls.Add(_stOperation, 0, 1);
@@ -645,10 +646,9 @@ public sealed partial class MainForm
         page.Controls.Add(_stTotals, 0, 4);
         page.Controls.Add(progressRow, 0, 5);
         page.Controls.Add(speedRow, 0, 6);
-        page.Controls.Add(_stErrors, 0, 7);
-        page.Controls.Add(_graph, 0, 8);
-        page.Controls.Add(categories, 0, 9);
-        page.Controls.Add(hint, 0, 10);
+        page.Controls.Add(_graph, 0, 7);
+        page.Controls.Add(categories, 0, 8);
+        page.Controls.Add(hint, 0, 9);
         return page;
     }
 
@@ -816,7 +816,8 @@ public sealed partial class MainForm
         var first = _items.FirstOrDefault(item => item.Kind is ItemKind.File);
         _stSource.Text = "Origen: " + (first?.SourcePath ?? "—");
         _stTarget.Text = "Destino: " + (string.IsNullOrWhiteSpace(_destination.Text) ? "—" : _destination.Text.Trim());
-        _stTotals.Text = $"Total: {Format.Bytes(done)} de {Format.Bytes(total)}  ·  {percent:0.0} %";
+        var errorCount = _items.Count(item => item.State == ItemState.Failed);
+        _stTotals.Text = $"Total: {Format.Bytes(done)} de {Format.Bytes(total)}  ·  {percent:0.0} %  ·  {errorCount} error(es)";
         _stProgress.Value = percent;
         _stPercent.Text = $"{percent:0.0} %";
         _stProgress.FillColor = _items.Any(item => item.State == ItemState.Failed) && !running ? _palette.Warning : _palette.Accent;
@@ -829,7 +830,7 @@ public sealed partial class MainForm
             _stSpeed.Text = $"Velocidad: {(speed > 0 ? Format.Speed(speed) : "calculando…")}"
                 + (_engine.IsPaused ? "  ·  en pausa" : string.Empty);
             _stEta.Text = "Tiempo restante: " + (remaining > TimeSpan.Zero ? Format.Duration(remaining) : "—");
-            _stErrors.Text = "Errores: " + _items.Count(item => item.State == ItemState.Failed);
+            _stErrors.Text = string.Empty;
         }
         else
         {
@@ -837,7 +838,7 @@ public sealed partial class MainForm
                 ? $"Última transferencia: {Format.Speed(_sessionBytes / Math.Max(0.1, _sessionElapsed.TotalSeconds))}  ·  {Format.Duration(_sessionElapsed)}"
                 : "Velocidad: —";
             _stEta.Text = "Tiempo restante: —";
-            _stErrors.Text = "Errores: " + _items.Count(item => item.State == ItemState.Failed);
+            _stErrors.Text = string.Empty;
         }
     }
 
