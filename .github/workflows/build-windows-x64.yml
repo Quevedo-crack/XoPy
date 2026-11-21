@@ -2,13 +2,19 @@ name: Build Windows x64
 
 on:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Publicar una release con esta etiqueta (ej. v2.0.0). Dejar vacío para solo compilar."
+        required: false
+        default: ""
   pull_request:
     branches: [main]
   push:
     branches: [main]
+    tags: ["v*"]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -21,7 +27,11 @@ jobs:
           dotnet-version: 8.0.x
 
       - name: Publicar aplicación autocontenida
-        run: dotnet publish XoPy/XoPy.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o publish
+        run: >
+          dotnet publish XoPy/XoPy.csproj -c Release -r win-x64 --self-contained true
+          -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:EnableCompressionInSingleFile=true -p:DebugType=none -p:DebugSymbols=false
+          -o publish
 
       - name: Instalar Inno Setup
         run: choco install innosetup --yes --no-progress
@@ -35,9 +45,100 @@ jobs:
           & $compiler /Qp installer/XoPy.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Comprobar el resultado
+        shell: pwsh
+        run: |
+          if (-not (Test-Path 'installer-output/XoPy-Setup-win-x64.exe')) { throw 'No se generó el instalador' }
+          Get-ChildItem publish | Select-Object Name, Length
+          Get-ChildItem installer-output | Select-Object Name, Length
+
+      - name: Probar el instalador
+        if: github.event_name == 'workflow_dispatch'
+        shell: pwsh
+        run: |
+          $log = 'C:\install-test.txt'
+          "inicio $(Get-Date -Format o)" | Set-Content $log
+          try {
+            $setup = (Resolve-Path 'installer-output/XoPy-Setup-win-x64.exe').Path
+            $install = Start-Process -FilePath $setup -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/TASKS=explorer,sendto') -Wait -PassThru
+            "instalador_exit=$($install.ExitCode)" | Add-Content $log
+
+            $exe = Join-Path $env:ProgramFiles 'XoPy\XoPy.exe'
+            "exe_instalado=$(Test-Path $exe)" | Add-Content $log
+
+            $copyCommand = [Microsoft.Win32.Registry]::GetValue('HKEY_CURRENT_USER\Software\Classes\*\shell\XoPyCopy\command', '', $null)
+            "menu_copiar=$copyCommand" | Add-Content $log
+
+            $pasteCommand = [Microsoft.Win32.Registry]::GetValue('HKEY_CURRENT_USER\Software\Classes\Directory\Background\shell\XoPyPaste\command', '', $null)
+            "menu_pegar=$pasteCommand" | Add-Content $log
+
+            $sendTo = Join-Path $env:APPDATA 'Microsoft\Windows\SendTo\Copiar con XoPy.lnk'
+            "enviar_a=$(Test-Path $sendTo)" | Add-Content $log
+
+            if (-not (Test-Path $exe)) { throw 'No se instaló XoPy.exe en Program Files' }
+
+            $shot = 'C:\installed-shot.png'
+            $app = Start-Process -FilePath $exe -ArgumentList @('--screenshot', $shot) -PassThru
+            if (-not $app.WaitForExit(60000)) { $app.Kill(); throw 'La aplicación instalada no respondió' }
+            "captura_instalada=$(Test-Path $shot)" | Add-Content $log
+
+            $uninstaller = Join-Path $env:ProgramFiles 'XoPy\unins000.exe'
+            "desinstalador=$(Test-Path $uninstaller)" | Add-Content $log
+            if (Test-Path $uninstaller) {
+              Start-Process -FilePath $uninstaller -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') -Wait
+              Start-Sleep -Seconds 3
+            }
+            "sigue_instalado=$(Test-Path $exe)" | Add-Content $log
+            "OK" | Add-Content $log
+          } catch {
+            "ERROR: $_" | Add-Content $log
+            Get-Content $log | Write-Host
+            throw
+          }
+          Get-Content $log | Write-Host
+
       - uses: actions/upload-artifact@v4
         with:
           name: XoPy-Setup-win-x64
           path: installer-output/XoPy-Setup-win-x64.exe
           if-no-files-found: error
           retention-days: 30
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: XoPy-Portable-win-x64
+          path: publish/XoPy.exe
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Guardar el resultado de la prueba si falla
+        if: failure() && github.event_name == 'workflow_dispatch' && github.ref_name != 'main'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force docs | Out-Null
+          if (Test-Path 'C:\install-test.txt') { Copy-Item 'C:\install-test.txt' 'docs\install-test.txt' }
+          git config user.name "XoPy Bot"
+          git config user.email "xopy-bot@users.noreply.github.com"
+          git add docs/install-test.txt
+          git diff --cached --quiet
+          if ($LASTEXITCODE -ne 0) {
+            git commit -m "Resultado de la prueba de instalación"
+            git push
+          }
+
+      - name: Publicar en GitHub Releases
+        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+          RELEASE_TARGET: ${{ github.sha }}
+        run: |
+          $tag = $env:RELEASE_TAG
+          $assets = @('installer-output/XoPy-Setup-win-x64.exe', 'publish/XoPy.exe')
+          gh release view $tag 2>$null | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag $assets --target $env:RELEASE_TARGET --title "XoPy $tag" --generate-notes
+          } else {
+            gh release upload $tag $assets --clobber
+          }

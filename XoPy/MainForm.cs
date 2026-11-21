@@ -1,844 +1,1611 @@
 using System.Diagnostics;
 using System.Drawing;
+using System.Runtime.InteropServices;
 using System.Drawing.Drawing2D;
 using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices;
+using System.Media;
 using System.Text.Json;
+using System.Windows.Forms;
 
 namespace XoPy;
 
-public partial class MainForm : Form
+public sealed class MainForm : Form
 {
-    private sealed record HistoryEntry(DateTime FinishedAt, string Result, int FileCount, long BytesCopied, TimeSpan Elapsed, double AverageBytesPerSecond);
-    private sealed record AppSettings(string Destination, int Operation, int Conflict, bool Verify, int SpeedLimitMiB, int ParallelJobs, int BufferKiB);
-
-    private readonly List<TransferJob> _jobs = new();
+    private readonly AppSettings _settings;
+    private readonly SettingsStore _store = new();
+    private readonly Palette _palette;
+    private readonly List<TransferItem> _items = new();
+    private readonly Dictionary<Guid, ListViewItem> _rows = new();
     private readonly CopyEngine _engine = new();
-    private readonly OpenFileDialog _filesDialog = new() { Multiselect = true, Filter = "Todos los archivos (*.*)|*.*" };
-    private readonly FolderBrowserDialog _folderDialog = new();
-    private readonly FolderBrowserDialog _destinationDialog = new();
-    private readonly SaveFileDialog _saveQueueDialog = new() { Filter = "Colas XoPy (*.json)|*.json", DefaultExt = "json", FileName = "xopy-queue.json" };
-    private readonly OpenFileDialog _loadQueueDialog = new() { Filter = "Colas XoPy (*.json)|*.json", DefaultExt = "json" };
+    private readonly System.Windows.Forms.Timer _timer = new() { Interval = 350 };
+    private readonly NotifyIcon _tray = new();
     private readonly ContextMenuStrip _trayMenu = new();
-    private readonly System.Windows.Forms.Timer _uiTimer = new() { Interval = 350 };
-    private readonly Stopwatch _clock = new();
-    private readonly string _appData = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "XoPy");
-    private readonly Dictionary<Guid, TransferProgressEventArgs> _latestProgress = new();
-    private List<TransferJob> _activeJobs = new();
-    private Icon? _trayProgressIcon;
-    private bool _paused;
+    private ToolStripMenuItem _trayPauseItem = null!;
+    private readonly StartupRequest _startupRequest;
+    private readonly OpenFileDialog _openFiles = new() { Multiselect = true, Title = "Añadir archivos", Filter = "Todos los archivos (*.*)|*.*" };
+    private readonly FolderBrowserDialog _pickFolder = new() { Description = "Selecciona la carpeta que quieres añadir" };
+    private readonly FolderBrowserDialog _pickDestination = new() { Description = "Selecciona la carpeta de destino" };
+    private readonly SaveFileDialog _saveQueue = new() { Title = "Guardar cola", Filter = "Cola de XoPy (*.xopyq)|*.xopyq|JSON (*.json)|*.json", FileName = "xopy-cola.xopyq" };
+    private readonly OpenFileDialog _loadQueue = new() { Title = "Abrir cola", Filter = "Cola de XoPy (*.xopyq)|*.xopyq|JSON (*.json)|*.json" };
+
+    private ListView _list = null!;
+    private TextBox _destination = null!;
+    private Button _favoritesButton = null!;
+    private readonly ContextMenuStrip _favoritesMenu = new();
+    private CheckBox _verifyCheck = null!;
+    private Button _addFilesButton = null!;
+    private Button _addFolderButton = null!;
+    private Button _copyButton = null!;
+    private Button _moveButton = null!;
+    private Button _deleteButton = null!;
+    private Button _testButton = null!;
+    private Button _pauseButton = null!;
+    private Button _stopButton = null!;
+    private Button _optionsButton = null!;
+    private Button _browseButton = null!;
+    private Button _removeButton = null!;
+    private Button _clearButton = null!;
+    private Label _statusLabel = null!;
+    private Label _summaryLabel = null!;
+    private Label _speedLabel = null!;
+    private Label _countLabel = null!;
+    private ProgressStrip _progress = null!;
+    private ContextMenuStrip _listMenu = null!;
+    private Icon? _trayIcon;
+    private Font _headerFont = null!;
+    private Font _glyphFont = null!;
+    private Font _percentFont = null!;
+    private bool _wasRunning;
+    private bool _exitRequested;
+    private int _trayPercent = -1;
     private int _sortColumn = -1;
     private bool _sortAscending = true;
-    private int _lastTrayPercent = -1;
-    private string _lastTrayState = string.Empty;
-    private int _parallelJobs = Math.Clamp(Environment.ProcessorCount / 2, 2, 4);
-    private int _bufferKiB = 1024;
-    private int _speedLimitMiB;
-    private long _lastSampleBytes;
-    private DateTime _lastSampleAt = DateTime.UtcNow;
-    private double _currentSpeed;
+    private OperationType _lastOperation = OperationType.Copy;
 
-    private string SettingsFile => Path.Combine(_appData, "settings.json");
-    private string HistoryFile => Path.Combine(_appData, "history.json");
-
-    public MainForm()
+    public MainForm(StartupRequest request)
     {
-        InitializeComponent();
-        QueueListView.Columns.Add("Nombre", 240);
-        QueueListView.Columns.Add("Origen", 300);
-        QueueListView.Columns.Add("Destino relativo", 240);
-        QueueListView.Columns.Add("Tamaño", 100);
-        QueueListView.Columns.Add("Estado", 150);
-        QueueListView.Columns.Add("Progreso", 100);
-        QueueListView.ColumnClick += QueueListView_ColumnClick;
-        QueueListView.KeyDown += QueueListView_KeyDown;
-        QueueListView.DoubleClick += QueueListView_DoubleClick;
-        QueueListView.AllowDrop = true;
-        QueueListView.DragEnter += (_, e) => e.Effect = e.Data?.GetDataPresent(DataFormats.FileDrop) == true ? DragDropEffects.Copy : DragDropEffects.None;
-        QueueListView.DragDrop += (_, e) => AddDroppedPaths(e);
+        _startupRequest = request;
+        _settings = _store.Load();
+        _palette = Palette.For(_settings.DarkTheme);
+
+        BuildUi();
+        LoadSettingsIntoUi();
+        WireEngine();
+        BuildTray();
+
+        _timer.Tick += (_, _) => TimerTick();
+        _timer.Start();
+
+        UpdateButtons();
+        UpdateFooter();
+    }
+
+    // ---------------------------------------------------------------- interfaz
+
+    private void BuildUi()
+    {
+        SuspendLayout();
+        _headerFont = new Font("Segoe UI", 8.5f, FontStyle.Bold);
+        _glyphFont = new Font("Segoe MDL2 Assets", 11f, FontStyle.Regular, GraphicsUnit.Pixel);
+        _percentFont = new Font("Segoe UI", 8f, FontStyle.Bold);
+        Text = "XoPy — Copiar, mover y verificar";
+        Icon = Icons.AppIcon();
+        BackColor = _palette.Canvas;
+        ForeColor = _palette.Text;
+        Font = new Font("Segoe UI", 9f);
+        MinimumSize = new Size(940, 580);
+        Size = new Size(1140, 720);
+        StartPosition = FormStartPosition.CenterScreen;
+        DoubleBuffered = true;
+        KeyPreview = true;
+        AllowDrop = true;
+
+        var root = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            BackColor = _palette.Canvas,
+            Padding = new Padding(0),
+            AutoSize = false,
+            RowCount = 5
+        };
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 57));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 54));
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 66));
+
+        var menu = BuildMenu();
+        root.Controls.Add(menu, 0, 0);
+        root.Controls.Add(BuildToolbar(), 0, 1);
+        root.Controls.Add(BuildDestinationBar(), 0, 2);
+        root.Controls.Add(BuildList(), 0, 3);
+        root.Controls.Add(BuildFooter(), 0, 4);
+
+        Controls.Add(root);
+        MainMenuStrip = menu;
+        ResumeLayout(true);
+
         DragEnter += (_, e) => e.Effect = e.Data?.GetDataPresent(DataFormats.FileDrop) == true ? DragDropEffects.Copy : DragDropEffects.None;
-        DragDrop += (_, e) => AddDroppedPaths(e);
-
-        OperationComboBox.Items.AddRange(new object[] { "Copiar", "Mover" });
-        OperationComboBox.SelectedIndex = 0;
-        ConflictComboBox.Items.AddRange(new object[] { "Cambiar nombre", "Sobrescribir", "Omitir" });
-        ConflictComboBox.SelectedIndex = 0;
-        DestinationTextBox.Text = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "XoPy_Transfers");
-        LoadSettings();
-
-        _engine.ProgressChanged += Engine_ProgressChanged;
-        _engine.Completed += Engine_Completed;
-        _uiTimer.Tick += (_, _) => FlushProgressAndUpdateMetrics();
-        _uiTimer.Start();
-        TrayIcon.Icon = SystemIcons.Application;
-        TrayIcon.Text = "XoPy - Listo";
-        TrayIcon.ContextMenuStrip = _trayMenu;
-        TrayIcon.DoubleClick += (_, _) => RestoreFromTray();
-        _trayMenu.Items.Add("Abrir XoPy", null, (_, _) => RestoreFromTray());
-        _trayMenu.Items.Add("Pausar / reanudar", null, PauseButton_Click);
-        _trayMenu.Items.Add("Historial", null, ShowHistoryDialog);
-        _trayMenu.Items.Add("Salir", null, (_, _) => Close());
-
-        RefreshQueue();
+        DragDrop += (_, e) => DropPaths(e);
+        Shown += (_, _) => ResizeColumns();
     }
 
-    private void AddFilesButton_Click(object? sender, EventArgs e)
+    private MenuStrip BuildMenu()
     {
-        if (_filesDialog.ShowDialog(this) != DialogResult.OK) return;
-        foreach (var file in _filesDialog.FileNames) AddSingleFile(file);
-        RefreshQueue();
+        var menu = new MenuStrip
+        {
+            Dock = DockStyle.Fill,
+            BackColor = _palette.Canvas,
+            ForeColor = _palette.Text,
+            Renderer = new ToolStripProfessionalRenderer(new MenuColors(_palette)),
+            Padding = new Padding(6, 2, 0, 2),
+            AutoSize = false,
+            Height = 26
+        };
+
+        var file = new ToolStripMenuItem("Archivo");
+        file.DropDownItems.Add(MenuItem("Añadir archivos…", (_, _) => AddFiles(), Keys.Control | Keys.O));
+        file.DropDownItems.Add(MenuItem("Añadir carpeta…", (_, _) => AddFolder(), Keys.Control | Keys.Shift | Keys.O));
+        file.DropDownItems.Add(new ToolStripSeparator());
+        file.DropDownItems.Add(MenuItem("Abrir cola…", (_, _) => LoadQueueFile()));
+        file.DropDownItems.Add(MenuItem("Guardar cola…", (_, _) => SaveQueueFile()));
+        file.DropDownItems.Add(new ToolStripSeparator());
+        file.DropDownItems.Add(MenuItem("Salir", (_, _) => ExitApplication()));
+
+        var transfer = new ToolStripMenuItem("Transferencia");
+        transfer.DropDownItems.Add(MenuItem("Copiar", (_, _) => StartTransfer(OperationType.Copy), Keys.F5));
+        transfer.DropDownItems.Add(MenuItem("Mover", (_, _) => StartTransfer(OperationType.Move), Keys.Control | Keys.F5));
+        transfer.DropDownItems.Add(MenuItem("Eliminar", (_, _) => StartTransfer(OperationType.Delete)));
+        transfer.DropDownItems.Add(MenuItem("Verificar", (_, _) => StartTransfer(OperationType.Test), Keys.F6));
+        transfer.DropDownItems.Add(new ToolStripSeparator());
+        transfer.DropDownItems.Add(MenuItem("Pausar / reanudar", (_, _) => TogglePause()));
+        transfer.DropDownItems.Add(MenuItem("Detener", (_, _) => StopTransfer()));
+
+        var tools = new ToolStripMenuItem("Herramientas");
+        tools.DropDownItems.Add(MenuItem("Preferencias…", (_, _) => ShowOptions()));
+        tools.DropDownItems.Add(MenuItem("Integración con el Explorador…", (_, _) => ShowExplorerIntegration()));
+        tools.DropDownItems.Add(MenuItem("Quitar seleccionados", (_, _) => RemoveSelected()));
+        tools.DropDownItems.Add(MenuItem("Limpiar la lista", (_, _) => ClearList()));
+        tools.DropDownItems.Add(new ToolStripSeparator());
+        tools.DropDownItems.Add(MenuItem("Historial de transferencias…", (_, _) => ShowHistory()));
+
+        var help = new ToolStripMenuItem("Ayuda");
+        help.DropDownItems.Add(MenuItem("Acerca de XoPy", (_, _) => ShowAbout()));
+
+        menu.Items.AddRange(new ToolStripItem[] { file, transfer, tools, help });
+        return menu;
     }
 
-    private void AddFolderButton_Click(object? sender, EventArgs e)
+    private static ToolStripMenuItem MenuItem(string text, EventHandler handler, Keys shortcut = Keys.None)
     {
-        if (_folderDialog.ShowDialog(this) != DialogResult.OK) return;
-        AddFolderTree(_folderDialog.SelectedPath);
-        RefreshQueue();
+        var item = new ToolStripMenuItem(text, null, handler);
+        if (shortcut != Keys.None) item.ShortcutKeys = shortcut;
+        return item;
     }
 
-    private void AddFolderTree(string folderPath)
+    private Control BuildToolbar()
     {
+        var bar = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            BackColor = _palette.Surface,
+            Padding = new Padding(10, 8, 10, 8),
+            Height = 57,
+            RowCount = 1
+        };
+        bar.RowStyles.Add(new RowStyle(SizeType.Absolute, 41));
+        bar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        bar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+
+        _addFilesButton = Ui.ToolButton("Añadir archivos", Icons.Add, _palette);
+        _addFilesButton.Size = new Size(136, 38);
+        _addFilesButton.Click += (_, _) => AddFiles();
+
+        _addFolderButton = Ui.ToolButton("Añadir carpeta", Icons.FolderAdd, _palette);
+        _addFolderButton.Size = new Size(134, 38);
+        _addFolderButton.Click += (_, _) => AddFolder();
+
+        _copyButton = Ui.ToolButton("Copiar", Icons.Copy, _palette, _palette.Accent);
+        _copyButton.Click += (_, _) => StartTransfer(OperationType.Copy);
+
+        _moveButton = Ui.ToolButton("Mover", Icons.Move, _palette);
+        _moveButton.Click += (_, _) => StartTransfer(OperationType.Move);
+
+        _deleteButton = Ui.ToolButton("Eliminar", Icons.Delete, _palette);
+        _deleteButton.Click += (_, _) => StartTransfer(OperationType.Delete);
+
+        _testButton = Ui.ToolButton("Verificar", Icons.Verify, _palette);
+        _testButton.Click += (_, _) => StartTransfer(OperationType.Test);
+
+        _pauseButton = Ui.ToolButton("Pausar", Icons.Pause, _palette);
+        _pauseButton.Click += (_, _) => TogglePause();
+
+        _stopButton = Ui.ToolButton("Detener", Icons.Stop, _palette);
+        _stopButton.Click += (_, _) => StopTransfer();
+
+        _optionsButton = Ui.ToolButton("Opciones", Icons.Settings, _palette);
+        _optionsButton.Click += (_, _) => ShowOptions();
+        _optionsButton.Margin = new Padding(0);
+
+        var left = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            AutoSize = true,
+            WrapContents = false,
+            BackColor = _palette.Surface,
+            Margin = new Padding(0)
+        };
+        left.Controls.AddRange(new Control[] { _addFilesButton, _addFolderButton, _copyButton, _moveButton, _deleteButton, _testButton, _pauseButton, _stopButton });
+
+        var right = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            AutoSize = true,
+            WrapContents = false,
+            FlowDirection = FlowDirection.RightToLeft,
+            BackColor = _palette.Surface
+        };
+        right.Controls.Add(_optionsButton);
+
+        bar.Controls.Add(left, 0, 0);
+        bar.Controls.Add(right, 1, 0);
+        bar.Paint += (_, e) =>
+        {
+            using var pen = new Pen(_palette.Border);
+            e.Graphics.DrawLine(pen, 0, bar.Height - 1, bar.Width, bar.Height - 1);
+        };
+        return bar;
+    }
+
+    private Control BuildDestinationBar()
+    {
+        var bar = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 5,
+            BackColor = _palette.Canvas,
+            Padding = new Padding(10, 9, 10, 8),
+            Height = 54,
+            RowCount = 1
+        };
+        bar.RowStyles.Add(new RowStyle(SizeType.Absolute, 37));
+        bar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        bar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        bar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        bar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        bar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        bar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+
+        var label = Ui.Label("Copiar a:", _palette, 9f, true, _palette.Muted);
+        label.Anchor = AnchorStyles.Left;
+        label.Margin = new Padding(0, 8, 8, 0);
+
+        _destination = new TextBox
+        {
+            Dock = DockStyle.Fill,
+            BorderStyle = BorderStyle.FixedSingle,
+            BackColor = _palette.Surface,
+            ForeColor = _palette.Text,
+            Font = new Font("Segoe UI", 9.5f),
+            Margin = new Padding(0, 6, 6, 4),
+            Anchor = AnchorStyles.Left | AnchorStyles.Right
+        };
+        _destination.TextChanged += (_, _) => UpdateFooter();
+
+        _browseButton = Ui.ToolButton("Examinar", Icons.Folder, _palette);
+        _browseButton.Size = new Size(104, 30);
+        _browseButton.Margin = new Padding(0, 3, 6, 0);
+        _browseButton.Anchor = AnchorStyles.Left;
+        _browseButton.Click += (_, _) => BrowseDestination();
+
+        _favoritesButton = Ui.ToolButton("Favoritos", Icons.Star, _palette);
+        _favoritesButton.Size = new Size(118, 30);
+        _favoritesButton.Margin = new Padding(0, 3, 6, 0);
+        _favoritesButton.Anchor = AnchorStyles.Left;
+        _favoritesButton.Click += (_, _) => ShowFavoritesMenu();
+
+        _favoritesMenu.BackColor = _palette.Surface;
+        _favoritesMenu.ForeColor = _palette.Text;
+        _favoritesMenu.Renderer = new ToolStripProfessionalRenderer(new MenuColors(_palette));
+        _favoritesMenu.Font = new Font("Segoe UI", 9f);
+
+        _verifyCheck = new CheckBox
+        {
+            Text = "Verificar",
+            AutoSize = true,
+            ForeColor = _palette.Text,
+            BackColor = Color.Transparent,
+            Margin = new Padding(0, 9, 0, 0),
+            Checked = _settings.VerifyAfterCopy,
+            Anchor = AnchorStyles.Left
+        };
+        new ToolTip().SetToolTip(_verifyCheck, "Compara cada archivo copiado con el original usando " + Format.Algorithm(_settings.Verify));
+        _verifyCheck.CheckedChanged += (_, _) =>
+        {
+            _settings.VerifyAfterCopy = _verifyCheck.Checked;
+            _store.Save(_settings);
+        };
+
+        bar.Controls.Add(label, 0, 0);
+        bar.Controls.Add(_destination, 1, 0);
+        bar.Controls.Add(_browseButton, 2, 0);
+        bar.Controls.Add(_favoritesButton, 3, 0);
+        bar.Controls.Add(_verifyCheck, 4, 0);
+        return bar;
+    }
+
+    private Control BuildList()
+    {
+        var container = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            BackColor = _palette.Canvas,
+            Padding = new Padding(10, 0, 10, 0),
+            Margin = new Padding(0),
+            RowCount = 2
+        };
+        container.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
+        container.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+
+        var header = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            BackColor = _palette.Canvas,
+            Height = 34,
+            RowCount = 1
+        };
+        header.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
+        header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+
+        _countLabel = Ui.Label("Lista vacía", _palette, 9f, true, _palette.Muted);
+        _countLabel.Anchor = AnchorStyles.Left;
+        _countLabel.Margin = new Padding(2, 8, 0, 0);
+
+        _removeButton = Ui.IconButton(Icons.Remove, _palette, "Quitar de la lista");
+        _removeButton.Click += (_, _) => RemoveSelected();
+        _clearButton = Ui.IconButton(Icons.Delete, _palette, "Limpiar la lista");
+        _clearButton.Click += (_, _) => ClearList();
+
+        var tools = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            AutoSize = true,
+            WrapContents = false,
+            FlowDirection = FlowDirection.RightToLeft,
+            BackColor = _palette.Canvas
+        };
+        tools.Controls.Add(_clearButton);
+        tools.Controls.Add(_removeButton);
+
+        header.Controls.Add(_countLabel, 0, 0);
+        header.Controls.Add(tools, 1, 0);
+
+        _list = new ListView
+        {
+            Dock = DockStyle.Fill,
+            View = View.Details,
+            FullRowSelect = true,
+            MultiSelect = true,
+            HideSelection = false,
+            OwnerDraw = true,
+            BorderStyle = BorderStyle.None,
+            BackColor = _palette.Surface,
+            ForeColor = _palette.Text,
+            HeaderStyle = ColumnHeaderStyle.Clickable,
+            UseCompatibleStateImageBehavior = false,
+            SmallImageList = BuildRowImageList(),
+            AllowDrop = true,
+            ShowItemToolTips = true,
+            Font = new Font("Segoe UI", 9f),
+            Margin = new Padding(0, 0, 0, 8)
+        };
+        _list.Columns.Add("Nombre", 420);
+        _list.Columns.Add("Tamaño", 100, HorizontalAlignment.Right);
+        _list.Columns.Add("Estado", 130);
+        _list.Columns.Add("Progreso", 260);
+
+        _list.DrawColumnHeader += ListDrawColumnHeader;
+        _list.DrawItem += (_, e) => { if (_list.View != View.Details) e.DrawDefault = true; };
+        _list.DrawSubItem += ListDrawSubItem;
+        _list.ColumnClick += ListColumnClick;
+        _list.Resize += (_, _) =>
+        {
+            if (IsHandleCreated) BeginInvoke(new Action(ResizeColumns));
+        };
+        _list.KeyDown += ListKeyDown;
+        _list.DoubleClick += ListDoubleClick;
+        _list.DragEnter += (_, e) => e.Effect = e.Data?.GetDataPresent(DataFormats.FileDrop) == true ? DragDropEffects.Copy : DragDropEffects.None;
+        _list.DragDrop += (_, e) => DropPaths(e);
+
+        BuildListMenu();
+        _list.ContextMenuStrip = _listMenu;
+
+        container.Controls.Add(header, 0, 0);
+        container.Controls.Add(_list, 0, 1);
+        return container;
+    }
+
+    private static ImageList BuildRowImageList()
+    {
+        var images = new ImageList { ImageSize = new Size(1, 30) };
+        var bitmap = new Bitmap(1, 30);
+        using (var graphics = Graphics.FromImage(bitmap)) graphics.Clear(Color.Transparent);
+        images.Images.Add(bitmap);
+        return images;
+    }
+
+    private void BuildListMenu()
+    {
+        _listMenu = new ContextMenuStrip
+        {
+            BackColor = _palette.Surface,
+            ForeColor = _palette.Text,
+            Renderer = new ToolStripProfessionalRenderer(new MenuColors(_palette)),
+            ShowImageMargin = false
+        };
+        _listMenu.Items.Add("Abrir archivo", null, (_, _) => OpenSelected());
+        _listMenu.Items.Add("Abrir carpeta contenedora", null, (_, _) => OpenSelectedFolder());
+        _listMenu.Items.Add(new ToolStripSeparator());
+        _listMenu.Items.Add("Copiar", null, (_, _) => StartTransfer(OperationType.Copy));
+        _listMenu.Items.Add("Mover", null, (_, _) => StartTransfer(OperationType.Move));
+        _listMenu.Items.Add("Verificar", null, (_, _) => StartTransfer(OperationType.Test));
+        _listMenu.Items.Add("Eliminar", null, (_, _) => StartTransfer(OperationType.Delete));
+        _listMenu.Items.Add(new ToolStripSeparator());
+        _listMenu.Items.Add("Quitar de la lista", null, (_, _) => RemoveSelected());
+        _listMenu.Items.Add("Reintentar los fallidos", null, (_, _) => RetryFailed());
+    }
+
+    private Control BuildFooter()
+    {
+        var footer = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            BackColor = _palette.Surface,
+            Padding = new Padding(12, 9, 12, 7),
+            Height = 66,
+            RowCount = 2
+        };
+        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 16));
+        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
+
+        _progress = new ProgressStrip(_palette) { Dock = DockStyle.Fill, Height = 12, Margin = new Padding(0, 0, 0, 2) };
+
+        _statusLabel = new Label
+        {
+            Text = "Listo",
+            AutoSize = false,
+            Dock = DockStyle.Fill,
+            TextAlign = ContentAlignment.MiddleLeft,
+            ForeColor = _palette.Text,
+            Font = new Font("Segoe UI", 9f, FontStyle.Bold),
+            AutoEllipsis = true,
+            Margin = new Padding(0)
+        };
+        _summaryLabel = new Label
+        {
+            Text = string.Empty,
+            AutoSize = false,
+            Dock = DockStyle.Fill,
+            TextAlign = ContentAlignment.MiddleCenter,
+            ForeColor = _palette.Muted,
+            Font = new Font("Segoe UI", 9f),
+            AutoEllipsis = true,
+            Margin = new Padding(0)
+        };
+        _speedLabel = new Label
+        {
+            Text = string.Empty,
+            AutoSize = false,
+            Dock = DockStyle.Fill,
+            TextAlign = ContentAlignment.MiddleRight,
+            ForeColor = _palette.Muted,
+            Font = new Font("Segoe UI", 9f),
+            AutoEllipsis = true,
+            Margin = new Padding(0)
+        };
+
+        var statusRow = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 3,
+            RowCount = 1,
+            BackColor = _palette.Surface
+        };
+        statusRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 38));
+        statusRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 34));
+        statusRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 28));
+        statusRow.Controls.Add(_statusLabel, 0, 0);
+        statusRow.Controls.Add(_summaryLabel, 1, 0);
+        statusRow.Controls.Add(_speedLabel, 2, 0);
+
+        footer.Controls.Add(_progress, 0, 0);
+        footer.Controls.Add(statusRow, 0, 1);
+        return footer;
+    }
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
+
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        if (!_settings.DarkTheme) return;
         try
         {
-            var root = Path.GetFullPath(folderPath);
-            if (_jobs.Any(j => j.IsFolderGroup && PathsEqual(j.SourcePath, root))) return;
-            var groupId = Guid.NewGuid();
-            var group = new TransferJob
+            var enabled = 1;
+            if (DwmSetWindowAttribute(Handle, 20, ref enabled, sizeof(int)) != 0)
+                DwmSetWindowAttribute(Handle, 19, ref enabled, sizeof(int));
+        }
+        catch { }
+    }
+
+    // ---------------------------------------------------------------- ajustes
+
+    private void LoadSettingsIntoUi()
+    {
+        _destination.Text = _settings.Destination;
+        _verifyCheck.Checked = _settings.VerifyAfterCopy;
+        _verifyCheck.Text = $"Verificar ({Format.Algorithm(_settings.Verify)})";
+    }
+
+    private void ShowFavoritesMenu()
+    {
+        _favoritesMenu.Items.Clear();
+        var favorites = _settings.Favorites.Where(Directory.Exists).ToList();
+        if (favorites.Count == 0)
+        {
+            _favoritesMenu.Items.Add(new ToolStripMenuItem("Sin favoritos todavía") { Enabled = false });
+        }
+        foreach (var favorite in favorites)
+        {
+            var path = favorite;
+            var item = new ToolStripMenuItem(path);
+            item.Click += (_, _) =>
             {
-                Id = groupId,
-                Name = Path.GetFileName(Path.TrimEndingDirectorySeparator(root)),
-                SourcePath = root,
-                DestinationPath = DestinationTextBox.Text,
-                RelativePath = string.Empty,
-                IsFolderGroup = true,
-                IsExpanded = true,
-                State = TransferState.Pending
+                _destination.Text = path;
+                SetStatus("Destino: " + path);
             };
-            _jobs.Add(group);
-            foreach (var file in EnumerateFilesWithoutReparsePoints(root))
+            _favoritesMenu.Items.Add(item);
+        }
+        _favoritesMenu.Items.Add(new ToolStripSeparator());
+        var add = new ToolStripMenuItem("Guardar la carpeta actual en favoritos");
+        add.Click += (_, _) => AddFavorite();
+        _favoritesMenu.Items.Add(add);
+        _favoritesMenu.Show(_favoritesButton, new Point(0, _favoritesButton.Height));
+    }
+
+    private void AddFavorite()
+    {
+        var path = _destination.Text.Trim();
+        if (path.Length == 0 || !Directory.Exists(path)) { SetStatus("Elige una carpeta existente antes de guardarla en favoritos."); return; }
+        if (!_settings.Favorites.Any(existing => string.Equals(existing, path, StringComparison.OrdinalIgnoreCase)))
+            _settings.Favorites.Add(path);
+        _store.Save(_settings);
+        SetStatus("Carpeta añadida a favoritos: " + path);
+    }
+
+    private void WireEngine()
+    {
+        _engine.ConflictResolver = ResolveConflict;
+        _engine.ErrorResolver = ResolveError;
+        _engine.Log = message => Debug.WriteLine("[XoPy] " + message);
+        _engine.Finished += (_, _) =>
+        {
+            try
             {
-                var info = new FileInfo(file);
-                var relative = Path.GetRelativePath(root, file);
-                var job = new TransferJob
+                if (IsHandleCreated && !IsDisposed) BeginInvoke(new Action(OnEngineFinished));
+            }
+            catch { }
+        };
+    }
+
+    private void BuildTray()
+    {
+        _trayIcon = Icons.AppIcon();
+        _tray.Icon = _trayIcon;
+        _tray.Text = "XoPy";
+        _tray.Visible = true;
+        _tray.DoubleClick += (_, _) => RestoreWindow();
+        _trayMenu.BackColor = _palette.Surface;
+        _trayMenu.ForeColor = _palette.Text;
+        _trayMenu.Renderer = new ToolStripProfessionalRenderer(new MenuColors(_palette));
+        _trayPauseItem = new ToolStripMenuItem("Pausar");
+        _trayPauseItem.Click += (_, _) => TogglePause();
+        _trayMenu.Items.Add("Abrir XoPy", null, (_, _) => RestoreWindow());
+        _trayMenu.Items.Add(_trayPauseItem);
+        _trayMenu.Items.Add("Detener", null, (_, _) => StopTransfer());
+        _trayMenu.Items.Add(new ToolStripSeparator());
+        _trayMenu.Items.Add("Historial", null, (_, _) => ShowHistory());
+        _trayMenu.Items.Add("Preferencias", null, (_, _) => ShowOptions());
+        _trayMenu.Items.Add(new ToolStripSeparator());
+        _trayMenu.Items.Add("Salir", null, (_, _) => ExitApplication());
+        _tray.ContextMenuStrip = _trayMenu;
+    }
+
+    // ---------------------------------------------------------------- arranque externo
+
+    protected override void OnShown(EventArgs e)
+    {
+        base.OnShown(e);
+        var request = _startupRequest;
+        if (request.Paths.Count > 0) AddPaths(request.Paths);
+        if (!string.IsNullOrWhiteSpace(request.Destination) && Directory.Exists(request.Destination))
+            _destination.Text = request.Destination!;
+        if (request.PasteFromClipboard) PasteFromClipboard(request.Destination ?? _destination.Text);
+        if (request.StartMinimized || _settings.StartMinimized) MinimizeToTray();
+        if (request.Operation is OperationType op && _items.Count > 0)
+        {
+            var ready = op is OperationType.Delete or OperationType.Test || !string.IsNullOrWhiteSpace(request.Destination);
+            if (ready) BeginInvoke(new Action(() => StartTransfer(op)));
+        }
+    }
+
+    public void HandleExternalRequest(StartupRequest request)
+    {
+        RestoreWindow();
+        if (request.Paths.Count > 0) AddPaths(request.Paths);
+        if (!string.IsNullOrWhiteSpace(request.Destination) && Directory.Exists(request.Destination))
+            _destination.Text = request.Destination!;
+        if (request.PasteFromClipboard) PasteFromClipboard(request.Destination ?? _destination.Text);
+        if (request.Operation is OperationType op && _items.Count > 0 && !_engine.IsRunning)
+        {
+            var ready = op is OperationType.Delete or OperationType.Test || !string.IsNullOrWhiteSpace(request.Destination);
+            if (ready) BeginInvoke(new Action(() => StartTransfer(op)));
+        }
+    }
+
+    private void PasteFromClipboard(string? destination)
+    {
+        string[] files;
+        try
+        {
+            if (!Clipboard.ContainsFileDropList()) { SetStatus("El portapapeles no contiene archivos."); return; }
+            files = Clipboard.GetFileDropList().Cast<string>().ToArray();
+        }
+        catch
+        {
+            SetStatus("No se pudo leer el portapapeles.");
+            return;
+        }
+        if (files.Length == 0) { SetStatus("El portapapeles no contiene archivos."); return; }
+        if (string.IsNullOrWhiteSpace(destination) || !Directory.Exists(destination))
+        {
+            SetStatus("Abre el menú de una carpeta para pegar con XoPy.");
+            return;
+        }
+        _destination.Text = destination;
+        AddPaths(files);
+        StartTransfer(OperationType.Copy);
+    }
+
+    // ---------------------------------------------------------------- cola
+
+    private void AddFiles()
+    {
+        if (_openFiles.ShowDialog(this) != DialogResult.OK) return;
+        AddPaths(_openFiles.FileNames);
+    }
+
+    private void AddFolder()
+    {
+        if (_pickFolder.ShowDialog(this) != DialogResult.OK) return;
+        AddPaths(new[] { _pickFolder.SelectedPath });
+    }
+
+    private void DropPaths(DragEventArgs e)
+    {
+        if (e.Data?.GetData(DataFormats.FileDrop) is string[] paths) AddPaths(paths);
+    }
+
+    private void AddPaths(IEnumerable<string> paths)
+    {
+        var added = 0;
+        foreach (var raw in paths)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(raw)) continue;
+                var path = Path.GetFullPath(raw.Trim().Trim('"'));
+                if (_items.Any(existing => string.Equals(existing.SourcePath, path, StringComparison.OrdinalIgnoreCase))) continue;
+
+                if (File.Exists(path))
                 {
-                    Name = Path.GetFileName(file),
-                    SourcePath = file,
-                    DestinationPath = DestinationTextBox.Text,
-                    RelativePath = relative,
-                    GroupId = groupId,
-                    State = TransferState.Pending,
-                    SizeBytes = info.Length
+                    var info = new FileInfo(path);
+                    _items.Add(new TransferItem
+                    {
+                        SourcePath = path,
+                        IsFolder = false,
+                        SizeBytes = info.Length,
+                        FileCount = 1,
+                        SizeKnown = true,
+                        State = ItemState.Pending,
+                        Operation = OperationType.Copy
+                    });
+                    added++;
+                }
+                else if (Directory.Exists(path))
+                {
+                    var item = new TransferItem
+                    {
+                        SourcePath = path,
+                        IsFolder = true,
+                        SizeKnown = false,
+                        State = ItemState.Measuring,
+                        Operation = OperationType.Copy
+                    };
+                    _items.Add(item);
+                    added++;
+                    _ = MeasureItemAsync(item);
+                }
+            }
+            catch { }
+        }
+
+        if (added > 0)
+        {
+            SyncRows();
+            UpdateFooter();
+            SetStatus($"{added} elemento(s) añadido(s) a la lista.");
+        }
+    }
+
+    private async Task MeasureItemAsync(TransferItem item)
+    {
+        var size = await Task.Run(() => Measure(item.SourcePath));
+        if (IsDisposed) return;
+        try
+        {
+            BeginInvoke(new Action(() =>
+            {
+                item.SizeBytes = size.Bytes;
+                item.FileCount = size.Files;
+                item.SizeKnown = true;
+                if (item.State == ItemState.Measuring) item.State = ItemState.Pending;
+                SyncRows();
+                UpdateFooter();
+            }));
+        }
+        catch { }
+    }
+
+    private static (long Bytes, int Files) Measure(string root)
+    {
+        long bytes = 0;
+        var files = 0;
+        var stack = new Stack<string>();
+        stack.Push(root);
+        while (stack.Count > 0)
+        {
+            var directory = stack.Pop();
+            string[] entries;
+            string[] children;
+            try
+            {
+                entries = Directory.GetFiles(directory);
+                children = Directory.GetDirectories(directory);
+            }
+            catch { continue; }
+            foreach (var file in entries)
+            {
+                try
+                {
+                    var attributes = File.GetAttributes(file);
+                    if ((attributes & FileAttributes.ReparsePoint) != 0) continue;
+                    bytes += new FileInfo(file).Length;
+                    files++;
+                }
+                catch { }
+            }
+            foreach (var child in children)
+            {
+                try
+                {
+                    if ((File.GetAttributes(child) & FileAttributes.ReparsePoint) != 0) continue;
+                    stack.Push(child);
+                }
+                catch { }
+            }
+        }
+        return (bytes, files);
+    }
+
+    private void SyncRows()
+    {
+        foreach (var item in _items)
+        {
+            if (!_rows.TryGetValue(item.Id, out var row))
+            {
+                row = new ListViewItem(new[] { item.Name, item.SizeText, item.StateText, string.Empty })
+                {
+                    Tag = item,
+                    ImageIndex = 0
                 };
-                _jobs.Add(job);
-                group.SizeBytes = SaturatingAdd(group.SizeBytes, job.SizeBytes);
+                _rows[item.Id] = row;
+                _list.Items.Add(row);
             }
-            // Queue empty subdirectories as visible, independently manageable directory entries.
-            foreach (var dir in EnumerateDirectoriesWithoutReparsePoints(root).Where(d => !Directory.EnumerateFileSystemEntries(d).Any()))
-            {
-                var relative = Path.GetRelativePath(root, dir);
-                _jobs.Add(new TransferJob
-                {
-                    Name = Path.GetFileName(dir), SourcePath = dir, DestinationPath = DestinationTextBox.Text,
-                    RelativePath = relative, GroupId = groupId, IsDirectoryEntry = true, State = TransferState.Pending
-                });
-            }
+            row.SubItems[1].Text = item.SizeText;
+            row.SubItems[2].Text = item.StateText;
+            row.SubItems[3].Text = $"{item.Percent:0} %";
+            row.ToolTipText = item.Error ?? item.SourcePath;
         }
-        catch (Exception ex) { StatusLabel.Text = $"No se pudo añadir la carpeta: {ex.Message}"; }
-    }
 
-    private static IEnumerable<string> EnumerateFilesWithoutReparsePoints(string root)
-    {
-        var pending = new Stack<string>();
-        pending.Push(root);
-        while (pending.Count > 0)
+        foreach (var id in _rows.Keys.ToList())
         {
-            var directory = pending.Pop();
-            foreach (var file in Directory.EnumerateFiles(directory))
-                if ((File.GetAttributes(file) & FileAttributes.ReparsePoint) == 0) yield return file;
-            foreach (var child in Directory.EnumerateDirectories(directory))
-                if ((File.GetAttributes(child) & FileAttributes.ReparsePoint) == 0) pending.Push(child);
+            if (_items.Any(item => item.Id == id)) continue;
+            _list.Items.Remove(_rows[id]);
+            _rows.Remove(id);
         }
+
+        _countLabel.Text = _items.Count == 0
+            ? "Lista vacía — arrastra archivos o carpetas aquí"
+            : $"{_items.Count} elemento(s) · {_items.Sum(i => i.FileCount)} archivo(s) · {Format.Bytes(_items.Sum(i => Math.Max(0, i.SizeBytes)))}";
+        _list.Invalidate();
     }
 
-    private static IEnumerable<string> EnumerateDirectoriesWithoutReparsePoints(string root)
+    private void RemoveSelected()
     {
-        var pending = new Stack<string>();
-        pending.Push(root);
-        while (pending.Count > 0)
-        {
-            var directory = pending.Pop();
-            foreach (var child in Directory.EnumerateDirectories(directory))
-            {
-                if ((File.GetAttributes(child) & FileAttributes.ReparsePoint) != 0) continue;
-                yield return child;
-                pending.Push(child);
-            }
-        }
+        if (_engine.IsRunning) { SetStatus("Detén la transferencia antes de modificar la lista."); return; }
+        var selected = _list.SelectedItems.Cast<ListViewItem>().Select(row => row.Tag).OfType<TransferItem>().ToList();
+        if (selected.Count == 0) { SetStatus("Selecciona uno o varios elementos."); return; }
+        foreach (var item in selected) _items.Remove(item);
+        SyncRows();
+        UpdateFooter();
+        UpdateButtons();
+        SetStatus($"{selected.Count} elemento(s) quitados de la lista.");
     }
 
-    private void AddSingleFile(string path)
+    private void ClearList()
+    {
+        if (_engine.IsRunning) { SetStatus("Detén la transferencia antes de limpiar la lista."); return; }
+        _items.Clear();
+        _rows.Clear();
+        _list.Items.Clear();
+        SyncRows();
+        UpdateFooter();
+        UpdateButtons();
+        SetStatus("Lista vacía.");
+    }
+
+    private void RetryFailed()
+    {
+        var failed = _items.Where(item => item.State is ItemState.Failed or ItemState.Cancelled or ItemState.Skipped).ToList();
+        if (failed.Count == 0) { SetStatus("No hay elementos fallidos."); return; }
+        foreach (var item in failed)
+        {
+            item.State = ItemState.Pending;
+            item.Error = null;
+            item.TransferredBytes = 0;
+        }
+        SyncRows();
+        SetStatus($"{failed.Count} elemento(s) listos para reintentar. Pulsa Copiar.");
+    }
+
+    // ---------------------------------------------------------------- transferencias
+
+    private void StartTransfer(OperationType operation)
+    {
+        if (_engine.IsRunning) { SetStatus("Ya hay una transferencia en curso."); return; }
+
+        var selected = _list.SelectedItems.Cast<ListViewItem>().Select(row => row.Tag).OfType<TransferItem>().ToList();
+        var candidates = selected.Count > 0 ? selected : _items.ToList();
+        if (candidates.Count == 0) { SetStatus("Añade archivos o carpetas para empezar."); return; }
+
+        var pending = candidates.Where(item => item.State is not (ItemState.Completed or ItemState.Running)).ToList();
+        var targets = pending.Count > 0 ? pending : candidates.ToList();
+        if (targets.Count == 0) { SetStatus("No hay elementos que transferir."); return; }
+
+        foreach (var item in targets.Where(item => !item.SizeKnown))
+        {
+            var measured = Measure(item.SourcePath);
+            item.SizeBytes = measured.Bytes;
+            item.FileCount = measured.Files;
+            item.SizeKnown = true;
+        }
+
+        var destination = _destination.Text.Trim();
+        if (operation is OperationType.Copy or OperationType.Move or OperationType.Test)
+        {
+            if (destination.Length == 0)
+            {
+                BrowseDestination();
+                destination = _destination.Text.Trim();
+                if (destination.Length == 0) return;
+            }
+            try { Directory.CreateDirectory(destination); }
+            catch (Exception ex) { ShowError("No se pudo usar la carpeta de destino: " + ex.Message); return; }
+
+            _settings.Destination = destination;
+            _store.Save(_settings);
+
+            if (operation != OperationType.Test && !ConfirmFreeSpace(destination, targets.Sum(item => item.SizeBytes))) return;
+        }
+
+        if (operation == OperationType.Delete && _settings.ConfirmDelete)
+        {
+            var message = $"¿Eliminar {targets.Count} elemento(s)?\n\n" +
+                          (_settings.UseRecycleBin
+                              ? "Se enviarán a la Papelera de reciclaje."
+                              : "Se eliminarán de forma permanente.");
+            if (MessageBox.Show(this, message, "XoPy", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+        }
+
+        foreach (var item in targets)
+        {
+            item.Operation = operation;
+            item.State = ItemState.Pending;
+            item.TransferredBytes = 0;
+            item.Error = null;
+            item.CurrentFile = null;
+            item.DestinationPath = operation == OperationType.Delete
+                ? string.Empty
+                : Path.Combine(destination, Path.GetFileName(Path.TrimEndingDirectorySeparator(item.SourcePath)));
+        }
+
+        _lastOperation = operation;
+        _wasRunning = true;
+        _trayPercent = -1;
+        SyncRows();
+        UpdateFooter();
+        UpdateButtons();
+
+        var options = new EngineOptions
+        {
+            Destination = destination,
+            Conflict = _settings.Conflict,
+            OnError = _settings.OnError,
+            Verify = _settings.Verify,
+            VerifyAfterCopy = _settings.VerifyAfterCopy,
+            RetryCount = _settings.RetryCount,
+            Parallelism = _settings.Parallelism,
+            BufferSize = _settings.BufferKiB * 1024,
+            SpeedLimitBytesPerSecond = _settings.SpeedLimitMiB * 1024L * 1024L,
+            PreserveTimestamps = _settings.PreserveTimestamps,
+            UseRecycleBin = _settings.UseRecycleBin
+        };
+
+        if (!_engine.Start(targets, options))
+        {
+            _wasRunning = false;
+            SetStatus("No se pudo iniciar la transferencia.");
+            UpdateButtons();
+            return;
+        }
+
+        _pauseButton.Text = "Pausar";
+        _pauseButton.Image = Icons.Glyph(Icons.Pause, _palette.Text, 18);
+        _trayPauseItem.Text = "Pausar";
+        SetStatus(operation switch
+        {
+            OperationType.Move => "Moviendo archivos…",
+            OperationType.Delete => "Eliminando archivos…",
+            OperationType.Test => "Verificando archivos…",
+            _ => "Copiando archivos…"
+        });
+        UpdateButtons();
+    }
+
+    private bool ConfirmFreeSpace(string destination, long requiredBytes)
     {
         try
         {
-            if (!File.Exists(path)) return;
-            var full = Path.GetFullPath(path);
-            if (_jobs.Any(j => !j.IsFolderGroup && !j.IsDirectoryEntry && PathsEqual(j.SourcePath, full))) return;
-            _jobs.Add(new TransferJob
-            {
-                Name = Path.GetFileName(full), SourcePath = full, DestinationPath = DestinationTextBox.Text,
-                RelativePath = Path.GetFileName(full), State = TransferState.Pending, SizeBytes = new FileInfo(full).Length
-            });
+            var root = Path.GetPathRoot(Path.GetFullPath(destination));
+            if (string.IsNullOrEmpty(root)) return true;
+            var drive = new DriveInfo(root);
+            if (!drive.IsReady || requiredBytes <= 0) return true;
+            if (drive.AvailableFreeSpace >= requiredBytes) return true;
+
+            var message = $"En el destino quedan {Format.Bytes(drive.AvailableFreeSpace)} libres y necesitas {Format.Bytes(requiredBytes)}.\n\n¿Quieres continuar de todos modos?";
+            return MessageBox.Show(this, message, "Espacio insuficiente", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) == DialogResult.Yes;
         }
-        catch (Exception ex) { StatusLabel.Text = $"No se pudo añadir el archivo: {ex.Message}"; }
-    }
-
-    private void BrowseDestinationButton_Click(object? sender, EventArgs e)
-    {
-        if (Directory.Exists(DestinationTextBox.Text)) _destinationDialog.SelectedPath = DestinationTextBox.Text;
-        if (_destinationDialog.ShowDialog(this) == DialogResult.OK) DestinationTextBox.Text = _destinationDialog.SelectedPath;
-    }
-
-    private void ShowOptionsDialog(object? sender, EventArgs e)
-    {
-        using var dialog = new OptionsDialog(DestinationTextBox.Text, OperationComboBox.SelectedIndex, ConflictComboBox.SelectedIndex, VerifyCheckBox.Checked, _speedLimitMiB, _parallelJobs, _bufferKiB);
-        if (dialog.ShowDialog(this) != DialogResult.OK) return;
-        DestinationTextBox.Text = dialog.Destination;
-        OperationComboBox.SelectedIndex = dialog.Operation;
-        ConflictComboBox.SelectedIndex = dialog.Conflict;
-        VerifyCheckBox.Checked = dialog.Verify;
-        _speedLimitMiB = dialog.SpeedLimitMiB;
-        _parallelJobs = dialog.ParallelJobs;
-        _bufferKiB = dialog.BufferKiB;
-        SaveSettings();
-        StatusLabel.Text = "Preferencias guardadas.";
-    }
-
-    private void StartButton_Click(object? sender, EventArgs e)
-    {
-        if (_engine.IsRunning) return;
-        var destination = DestinationTextBox.Text.Trim();
-        if (destination.Length == 0) { ShowError("Elige una carpeta de destino."); return; }
-        var pending = _jobs.Where(IsRunnable).Where(j => j.State is TransferState.Pending or TransferState.Cancelled or TransferState.Failed).ToList();
-        if (pending.Count == 0) { StatusLabel.Text = "No hay archivos pendientes."; return; }
-        try { Directory.CreateDirectory(destination); }
-        catch (Exception ex) { ShowError($"No se pudo crear el destino: {ex.Message}"); return; }
-        foreach (var job in pending)
+        catch
         {
-            job.DestinationPath = destination;
-            job.Operation = OperationComboBox.SelectedIndex == 1 ? OperationType.Move : OperationType.Copy;
-            job.State = TransferState.Pending;
-            job.CurrentBytes = 0;
-            job.ProgressPercent = 0;
-            job.ErrorMessage = null;
+            return true;
         }
-        _activeJobs = pending;
-        _paused = false;
-        _lastSampleBytes = 0;
-        _currentSpeed = 0;
-        _lastSampleAt = DateTime.UtcNow;
-        _clock.Restart();
-        PauseButton.Text = "Ⅱ  Pausar";
-        _engine.Start(pending, VerifyCheckBox.Checked, GetConflictResolution(), _speedLimitMiB * 1024L * 1024L, _parallelJobs, _bufferKiB * 1024);
-        StatusLabel.Text = $"Iniciando hasta {_parallelJobs} trabajos simultáneos…";
-        RefreshQueue();
     }
 
-    private static bool IsRunnable(TransferJob job) => !job.IsFolderGroup;
-
-    private ConflictResolution GetConflictResolution() => ConflictComboBox.SelectedIndex switch
-    {
-        1 => ConflictResolution.Overwrite,
-        2 => ConflictResolution.Skip,
-        _ => ConflictResolution.Rename
-    };
-
-    private void PauseButton_Click(object? sender, EventArgs e)
+    private void TogglePause()
     {
         if (!_engine.IsRunning) return;
-        _paused = !_paused;
-        _engine.SetPaused(_paused);
-        PauseButton.Text = _paused ? "▶  Reanudar" : "Ⅱ  Pausar";
-        if (_paused) _clock.Stop(); else _clock.Start();
-        UpdateMetrics();
+        var paused = !_engine.IsPaused;
+        _engine.SetPaused(paused);
+        _pauseButton.Text = paused ? "Reanudar" : "Pausar";
+        _pauseButton.Image = Icons.Glyph(paused ? Icons.Play : Icons.Pause, _palette.Text, 18);
+        _trayPauseItem.Text = paused ? "Reanudar" : "Pausar";
+        SetStatus(paused ? "Transferencia en pausa." : "Transferencia en curso…");
     }
 
-    private void StopButton_Click(object? sender, EventArgs e)
+    private void StopTransfer()
     {
-        if (_engine.IsRunning) { _engine.Cancel(); StatusLabel.Text = "Cancelando… se conservarán los parciales recuperables."; }
+        if (!_engine.IsRunning) return;
+        _engine.Cancel();
+        SetStatus("Cancelando… los archivos temporales se eliminarán.");
+        UpdateButtons();
     }
 
-    private void MoveUpButton_Click(object? sender, EventArgs e) => MoveSelected(-1);
-    private void MoveDownButton_Click(object? sender, EventArgs e) => MoveSelected(1);
-
-    private void MoveSelected(int direction)
+    private ConflictChoice ResolveConflict(ConflictPrompt prompt)
     {
-        if (_engine.IsRunning || QueueListView.SelectedIndices.Count != 1) return;
-        if (QueueListView.SelectedItems[0].Tag is not TransferJob selected) return;
-        var siblings = _jobs.Where(job => job.GroupId == selected.GroupId).ToList();
-        var index = siblings.IndexOf(selected);
-        var target = index + direction;
-        if (index < 0 || target < 0 || target >= siblings.Count) return;
-        (siblings[index], siblings[target]) = (siblings[target], siblings[index]);
-
-        var order = siblings.Select((job, position) => (job.Id, position))
-            .ToDictionary(item => item.Id, item => item.position);
-        RebuildQueueOrder((left, right) =>
-            order.TryGetValue(left.Id, out var leftPosition) &&
-            order.TryGetValue(right.Id, out var rightPosition)
-                ? leftPosition.CompareTo(rightPosition)
-                : 0);
-        RefreshQueue();
-        var selectedItem = QueueListView.Items.Cast<ListViewItem>()
-            .FirstOrDefault(item => item.Tag is TransferJob job && job.Id == selected.Id);
-        if (selectedItem is not null) selectedItem.Selected = true;
-    }
-
-    private void RemoveSelectedButton_Click(object? sender, EventArgs e)
-    {
-        if (_engine.IsRunning) { StatusLabel.Text = "Detén la transferencia antes de modificar la cola."; return; }
-        var selected = QueueListView.SelectedItems.Cast<ListViewItem>().Select(item => item.Tag as TransferJob).Where(j => j is not null).ToList();
-        if (selected.Count == 0) { StatusLabel.Text = "Selecciona uno o varios elementos."; return; }
-        var removeIds = selected.Select(j => j!.Id).ToHashSet();
-        foreach (var group in selected.Where(j => j!.IsFolderGroup).Cast<TransferJob>())
-            foreach (var child in _jobs.Where(j => j.GroupId == group.Id)) removeIds.Add(child.Id);
-        _jobs.RemoveAll(j => removeIds.Contains(j.Id));
-        RefreshQueue();
-        StatusLabel.Text = $"Se quitaron {removeIds.Count} elemento(s) de la cola.";
-    }
-
-    private void ClearCompletedButton_Click(object? sender, EventArgs e)
-    {
-        if (_engine.IsRunning) return;
-        var doneIds = _jobs.Where(j => !j.IsFolderGroup && j.State == TransferState.Completed).Select(j => j.Id).ToHashSet();
-        _jobs.RemoveAll(j => doneIds.Contains(j.Id));
-        _jobs.RemoveAll(j => j.IsFolderGroup && !_jobs.Any(child => child.GroupId == j.Id));
-        RefreshQueue();
-        StatusLabel.Text = $"Se limpiaron {doneIds.Count} archivo(s) completado(s).";
-    }
-
-    private void RetryFailedButton_Click(object? sender, EventArgs e)
-    {
-        if (_engine.IsRunning) return;
-        var count = 0;
-        foreach (var job in _jobs.Where(j => !j.IsFolderGroup && j.State is TransferState.Failed or TransferState.Cancelled))
+        if (!IsHandleCreated || IsDisposed) return ConflictChoice.Rename;
+        try
         {
-            job.State = TransferState.Pending;
-            job.ErrorMessage = null;
-            count++;
+            return (ConflictChoice)Invoke(new Func<ConflictChoice>(() => AskConflict(prompt)));
         }
-        RefreshQueue();
-        StatusLabel.Text = count == 0 ? "No hay archivos fallidos." : $"{count} archivo(s) listos para reintentar.";
+        catch
+        {
+            return ConflictChoice.Rename;
+        }
     }
 
-    private void QueueListView_KeyDown(object? sender, KeyEventArgs e)
+    private ConflictChoice AskConflict(ConflictPrompt prompt)
     {
-        if (e.KeyCode == Keys.Delete) { RemoveSelectedButton_Click(sender, EventArgs.Empty); e.Handled = true; }
-        if (e.KeyCode == Keys.F6) ShowHistoryDialog(sender, EventArgs.Empty);
+        var detail = $"Origen: {prompt.SourcePath} ({Format.Bytes(prompt.SourceSize)}, {prompt.SourceModified:g})\n" +
+                     $"Destino: {prompt.TargetPath} ({Format.Bytes(prompt.TargetSize)}, {prompt.TargetModified:g})";
+        var choice = PromptDialog.Ask(this, _palette, "Ya existe un archivo",
+            "El archivo de destino ya existe. ¿Qué quieres hacer con \"" + Path.GetFileName(prompt.TargetPath) + "\"?",
+            detail, new[] { "Sobrescribir", "Omitir", "Cambiar nombre", "Cancelar" }, "Aplicar a todos los conflictos", out var applyAll);
+
+        return choice switch
+        {
+            0 => applyAll ? ConflictChoice.OverwriteAll : ConflictChoice.Overwrite,
+            1 => applyAll ? ConflictChoice.SkipAll : ConflictChoice.Skip,
+            2 => ConflictChoice.Rename,
+            _ => ConflictChoice.Cancel
+        };
     }
 
-    private void QueueListView_DoubleClick(object? sender, EventArgs e)
+    private ErrorChoice ResolveError(ErrorPrompt prompt)
     {
-        if (QueueListView.SelectedItems.Count != 1 || QueueListView.SelectedItems[0].Tag is not TransferJob { IsFolderGroup: true } group) return;
-        group.IsExpanded = !group.IsExpanded;
-        RefreshQueue();
+        if (!IsHandleCreated || IsDisposed) return ErrorChoice.Skip;
+        try
+        {
+            return (ErrorChoice)Invoke(new Func<ErrorChoice>(() => AskError(prompt)));
+        }
+        catch
+        {
+            return ErrorChoice.Skip;
+        }
     }
 
-    private void SaveQueueButton_Click(object? sender, EventArgs e)
+    private ErrorChoice AskError(ErrorPrompt prompt)
     {
-        if (_saveQueueDialog.ShowDialog(this) != DialogResult.OK) return;
+        var choice = PromptDialog.Ask(this, _palette, "Error de transferencia",
+            "No se pudo transferir \"" + Path.GetFileName(prompt.FilePath) + "\".",
+            prompt.Message + $"\n\nIntento {prompt.Attempt}. Archivo: {prompt.FilePath}",
+            new[] { "Reintentar", "Omitir", "Omitir todos", "Detener" });
+        return choice switch
+        {
+            0 => ErrorChoice.Retry,
+            1 => ErrorChoice.Skip,
+            2 => ErrorChoice.SkipAll,
+            _ => ErrorChoice.Abort
+        };
+    }
+
+    private void OnEngineFinished()
+    {
+        _wasRunning = false;
+        _pauseButton.Text = "Pausar";
+        _pauseButton.Image = Icons.Glyph(Icons.Pause, _palette.Text, 18);
+        _trayPauseItem.Text = "Pausar";
+
+        var failed = _items.Count(item => item.State == ItemState.Failed);
+        var cancelled = _items.Count(item => item.State == ItemState.Cancelled);
+        var completed = _items.Count(item => item.State == ItemState.Completed);
+        var bytes = _engine.DoneBytes;
+        var elapsed = _engine.Elapsed;
+
+        _store.AppendHistory(new HistoryEntry
+        {
+            FinishedAt = DateTime.Now,
+            Operation = _lastOperation,
+            Destination = _destination.Text.Trim(),
+            FileCount = completed,
+            Bytes = bytes,
+            Seconds = elapsed.TotalSeconds,
+            Errors = failed
+        });
+
+        SetStatus(failed > 0
+            ? $"Terminado con {failed} error(es). Revisa los detalles en la lista."
+            : cancelled > 0
+                ? "Transferencia cancelada."
+                : "Transferencia completada correctamente.");
+
+        var previousIcon = _tray.Icon;
+        _tray.Icon = _trayIcon ?? Icons.AppIcon();
+        if (previousIcon is not null && !ReferenceEquals(previousIcon, _tray.Icon) && !ReferenceEquals(previousIcon, _trayIcon))
+            previousIcon.Dispose();
+        _tray.Text = "XoPy";
+        _trayPercent = -1;
+
+        SyncRows();
+        UpdateFooter();
+        UpdateButtons();
+
+        if (_settings.PlaySoundWhenDone)
+        {
+            try
+            {
+                if (failed > 0) SystemSounds.Hand.Play();
+                else SystemSounds.Asterisk.Play();
+            }
+            catch { }
+        }
+
+        if (_settings.OpenDestinationWhenDone && failed == 0 && cancelled == 0 && _lastOperation is OperationType.Copy or OperationType.Move)
+        {
+            try
+            {
+                var folder = _destination.Text.Trim();
+                if (Directory.Exists(folder)) Process.Start(new ProcessStartInfo("explorer.exe", $"\"{folder}\"") { UseShellExecute = true });
+            }
+            catch { }
+        }
+
+        if (failed == 0 && cancelled == 0 && _settings.ShutdownWhenDone)
+        {
+            try { Process.Start(new ProcessStartInfo("shutdown", "/s /t 30") { CreateNoWindow = true, UseShellExecute = false }); } catch { }
+        }
+
+        if (failed == 0 && cancelled == 0 && _settings.CloseWhenDone)
+        {
+            _exitRequested = true;
+            BeginInvoke(new Action(Close));
+        }
+    }
+
+    private void TimerTick()
+    {
+        if (_wasRunning) SyncRows();
+        UpdateFooter();
+        UpdateButtons();
+
+        if (_engine.IsRunning)
+        {
+            var current = _items.Where(item => item.State is ItemState.Running or ItemState.Verifying)
+                .Select(item => item.CurrentFile).FirstOrDefault(path => !string.IsNullOrEmpty(path));
+            if (!string.IsNullOrEmpty(current))
+                SetStatus((_engine.IsPaused ? "En pausa · " : string.Empty) + Path.GetFileName(current));
+
+            var total = _engine.TotalBytes;
+            var percent = total > 0 ? (int)Math.Clamp(_engine.DoneBytes * 100 / total, 0, 100) : 0;
+            if (percent != _trayPercent)
+            {
+                _trayPercent = percent;
+                var icon = Icons.ProgressIcon(percent, _settings.DarkTheme);
+                var previous = _tray.Icon;
+                _tray.Icon = icon;
+                if (previous is not null && !ReferenceEquals(previous, _trayIcon)) previous.Dispose();
+                _tray.Text = $"XoPy — {percent} %";
+            }
+            _trayPauseItem.Enabled = true;
+        }
+        else
+        {
+            _trayPauseItem.Enabled = false;
+        }
+    }
+
+    private void UpdateButtons()
+    {
+        var running = _engine.IsRunning;
+        _addFilesButton.Enabled = !running;
+        _addFolderButton.Enabled = !running;
+        _copyButton.Enabled = !running && _items.Count > 0;
+        _moveButton.Enabled = !running && _items.Count > 0;
+        _deleteButton.Enabled = !running && _items.Count > 0;
+        _testButton.Enabled = !running && _items.Count > 0;
+        _pauseButton.Enabled = running;
+        _stopButton.Enabled = running;
+        _browseButton.Enabled = !running;
+        _favoritesButton.Enabled = !running;
+        _verifyCheck.Enabled = !running;
+        _removeButton.Enabled = !running && _items.Count > 0;
+        _clearButton.Enabled = !running && _items.Count > 0;
+        _destination.ReadOnly = running;
+        _pauseButton.BackColor = running && _engine.IsPaused ? _palette.Accent : _palette.Raised;
+        _pauseButton.ForeColor = _pauseButton.BackColor == _palette.Accent ? Color.White : _palette.Text;
+    }
+
+    private void UpdateFooter()
+    {
+        var total = _items.Sum(item => Math.Max(0, item.SizeBytes));
+        var done = _items.Sum(item => Math.Max(0, Math.Min(item.TransferredBytes, Math.Max(item.SizeBytes, item.TransferredBytes))));
+        var percent = total > 0 ? Math.Clamp(done * 100d / total, 0, 100) : 0;
+        if (!_engine.IsRunning && _items.Count > 0 && _items.All(item => item.State is ItemState.Completed or ItemState.Skipped))
+            percent = 100;
+
+        _progress.Value = percent;
+        _progress.FillColor = _items.Any(item => item.State == ItemState.Failed) && !_engine.IsRunning
+            ? _palette.Warning
+            : _palette.Accent;
+
+        var files = _items.Sum(item => item.FileCount);
+        _summaryLabel.Text = _items.Count == 0
+            ? "Sin archivos en la lista"
+            : $"{files} archivos · {Format.Bytes(done)} de {Format.Bytes(total)} · {percent:0} %";
+
+        if (_engine.IsRunning)
+        {
+            var speed = _engine.SpeedBytesPerSecond;
+            var remaining = speed > 1 && total > done ? TimeSpan.FromSeconds((total - done) / speed) : TimeSpan.Zero;
+            _speedLabel.Text = $"{Format.Speed(speed)}  ·  quedan {Format.Duration(remaining)}";
+        }
+        else
+        {
+            _speedLabel.Text = _items.Count == 0 ? "Listo" : $"Total {Format.Bytes(total)}";
+        }
+    }
+
+    private void SetStatus(string message) => _statusLabel.Text = message;
+
+    private void ShowError(string message)
+    {
+        SetStatus(message);
+        MessageBox.Show(this, message, "XoPy", MessageBoxButtons.OK, MessageBoxIcon.Error);
+    }
+
+    // ---------------------------------------------------------------- dibujado
+
+    private void ListDrawColumnHeader(object? sender, DrawListViewColumnHeaderEventArgs e)
+    {
+        using var background = new SolidBrush(_palette.SurfaceAlt);
+        e.Graphics.FillRectangle(background, e.Bounds);
+        using var line = new Pen(_palette.Border);
+        e.Graphics.DrawLine(line, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Right, e.Bounds.Bottom - 1);
+        TextRenderer.DrawText(e.Graphics, e.Header.Text, _headerFont,
+            Rectangle.Inflate(e.Bounds, -10, 0), _palette.Muted,
+            TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+    }
+
+    private void ListDrawSubItem(object? sender, DrawListViewSubItemEventArgs e)
+    {
+        if (e.Item is null) return;
+        var item = e.Item.Tag as TransferItem;
+        var selected = e.Item.Selected;
+        var background = selected
+            ? _palette.Selection
+            : (e.ItemIndex % 2 == 0 ? _palette.Surface : _palette.SurfaceAlt);
+        using (var brush = new SolidBrush(background))
+            e.Graphics.FillRectangle(brush, e.Bounds);
+
+        if (item is null) return;
+
+        var textColor = _palette.Text;
+        var bounds = new Rectangle(e.Bounds.X + 10, e.Bounds.Y, Math.Max(0, e.Bounds.Width - 16), e.Bounds.Height);
+
+        switch (e.ColumnIndex)
+        {
+            case 0:
+            {
+                var glyph = item.IsFolder ? Icons.Folder : Icons.File;
+                var iconColor = item.IsFolder ? _palette.Accent : _palette.Muted;
+                TextRenderer.DrawText(e.Graphics, glyph, _glyphFont,
+                    new Rectangle(e.Bounds.X + 10, e.Bounds.Y + 5, 16, 20), iconColor,
+                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+                TextRenderer.DrawText(e.Graphics, item.Name, _list.Font,
+                    new Rectangle(e.Bounds.X + 32, e.Bounds.Y, Math.Max(0, e.Bounds.Width - 44), e.Bounds.Height),
+                    textColor, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+                break;
+            }
+            case 1:
+                TextRenderer.DrawText(e.Graphics, item.SizeText, _list.Font,
+                    new Rectangle(e.Bounds.X, e.Bounds.Y, Math.Max(0, e.Bounds.Width - 14), e.Bounds.Height),
+                    _palette.Muted, TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
+                break;
+            case 2:
+                TextRenderer.DrawText(e.Graphics, item.StateText, _list.Font, bounds,
+                    StateColor(item), TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+                break;
+            case 3:
+            {
+                var barBounds = new Rectangle(e.Bounds.X + 4, e.Bounds.Y + (e.Bounds.Height - 10) / 2,
+                    Math.Max(10, e.Bounds.Width - 76), 10);
+                Ui.DrawProgress(e.Graphics, barBounds, item.Percent, _palette, StateColor(item));
+                TextRenderer.DrawText(e.Graphics, $"{item.Percent:0} %", _percentFont,
+                    new Rectangle(barBounds.Right + 6, e.Bounds.Y, 56, e.Bounds.Height), _palette.Muted,
+                    TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
+                break;
+            }
+        }
+    }
+
+    private Color StateColor(TransferItem item) => item.State switch
+    {
+        ItemState.Completed => _palette.Success,
+        ItemState.Failed => _palette.Danger,
+        ItemState.Cancelled => _palette.Warning,
+        ItemState.Skipped => _palette.Muted,
+        ItemState.Running or ItemState.Verifying => _palette.Accent,
+        ItemState.Measuring => _palette.Warning,
+        _ => _palette.Muted
+    };
+
+    private void ResizeColumns()
+    {
+        if (_list.Columns.Count < 4) return;
+        var used = _list.Columns[0].Width + _list.Columns[1].Width + _list.Columns[2].Width;
+        var available = _list.ClientSize.Width - used - 2;
+        if (available > 140) _list.Columns[3].Width = available;
+    }
+
+    private void ListColumnClick(object? sender, ColumnClickEventArgs e)
+    {
+        if (_engine.IsRunning) return;
+        if (_sortColumn == e.Column) _sortAscending = !_sortAscending;
+        else { _sortColumn = e.Column; _sortAscending = true; }
+
+        Comparison<TransferItem> comparison = e.Column switch
+        {
+            0 => (left, right) => StringComparer.OrdinalIgnoreCase.Compare(left.Name, right.Name),
+            1 => (left, right) => left.SizeBytes.CompareTo(right.SizeBytes),
+            2 => (left, right) => StringComparer.OrdinalIgnoreCase.Compare(left.StateText, right.StateText),
+            _ => (left, right) => left.Percent.CompareTo(right.Percent)
+        };
+        if (!_sortAscending)
+        {
+            var ascending = comparison;
+            comparison = (left, right) => -ascending(left, right);
+        }
+
+        _items.Sort(comparison);
+        _list.Items.Clear();
+        _rows.Clear();
+        SyncRows();
+    }
+
+    private void ListKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.KeyCode == Keys.A && e.Control)
+        {
+            foreach (ListViewItem row in _list.Items) row.Selected = true;
+            e.Handled = true;
+        }
+        else if (e.KeyCode == Keys.Delete)
+        {
+            RemoveSelected();
+            e.Handled = true;
+        }
+    }
+
+    private void ListDoubleClick(object? sender, EventArgs e)
+    {
+        if (_list.SelectedItems.Count != 1) return;
+        if (_list.SelectedItems[0].Tag is not TransferItem item) return;
+        OpenItem(item);
+    }
+
+    private void OpenSelected()
+    {
+        if (_list.SelectedItems.Count != 1) return;
+        if (_list.SelectedItems[0].Tag is TransferItem item) OpenItem(item);
+    }
+
+    private void OpenItem(TransferItem item)
+    {
+        try
+        {
+            if (File.Exists(item.SourcePath))
+                Process.Start(new ProcessStartInfo(item.SourcePath) { UseShellExecute = true });
+            else if (Directory.Exists(item.SourcePath))
+                Process.Start(new ProcessStartInfo("explorer.exe", $"\"{item.SourcePath}\"") { UseShellExecute = true });
+        }
+        catch { }
+    }
+
+    private void OpenSelectedFolder()
+    {
+        if (_list.SelectedItems.Count != 1) return;
+        if (_list.SelectedItems[0].Tag is not TransferItem item) return;
+        try
+        {
+            var folder = Directory.Exists(item.SourcePath) ? item.SourcePath : Path.GetDirectoryName(item.SourcePath);
+            if (!string.IsNullOrEmpty(folder))
+                Process.Start(new ProcessStartInfo("explorer.exe", $"\"{folder}\"") { UseShellExecute = true });
+        }
+        catch { }
+    }
+
+    // ---------------------------------------------------------------- cuadros de diálogo
+
+    private void BrowseDestination()
+    {
+        try
+        {
+            if (Directory.Exists(_destination.Text.Trim())) _pickDestination.SelectedPath = _destination.Text.Trim();
+        }
+        catch { }
+        if (_pickDestination.ShowDialog(this) != DialogResult.OK) return;
+        _destination.Text = _pickDestination.SelectedPath;
+        _settings.Destination = _destination.Text;
+        _store.Save(_settings);
+    }
+
+    private void ShowOptions()
+    {
+        using var dialog = new OptionsDialog(_settings, _palette);
+        if (dialog.ShowDialog(this) != DialogResult.OK) return;
+
+        var themeChanged = dialog.Result.DarkTheme != _settings.DarkTheme;
+        dialog.ApplyTo(_settings);
+        _store.Save(_settings);
+
+        try
+        {
+            ShellIntegration.Apply(_settings.ExplorerIntegration);
+            ShellIntegration.SetAutoStart(_settings.StartWithWindows);
+        }
+        catch { }
+
+        LoadSettingsIntoUi();
+        UpdateButtons();
+        UpdateFooter();
+        SetStatus("Preferencias guardadas.");
+
+        if (themeChanged)
+        {
+            MessageBox.Show(this, "El tema se aplicará la próxima vez que abras XoPy.", "XoPy",
+                MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+    }
+
+    private void ShowExplorerIntegration()
+    {
+        var message = "La integración añade XoPy al menú contextual del Explorador de Windows:\n\n" +
+                      "· Copiar con XoPy\n· Mover con XoPy\n· Verificar con XoPy\n· Pegar con XoPy (en el fondo de una carpeta)\n\n" +
+                      "Windows no permite que un programa normal intercepte Ctrl+C / Ctrl+V; por eso la integración usa el menú contextual, igual que TeraCopy.";
+        if (MessageBox.Show(this, message + "\n\n¿Activar la integración con el Explorador?", "Integración con el Explorador",
+                MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+        try
+        {
+            _settings.ExplorerIntegration = true;
+            ShellIntegration.Apply(true);
+            _store.Save(_settings);
+            SetStatus("Integración activada. Ya puedes hacer clic derecho en archivos y carpetas.");
+        }
+        catch (Exception ex)
+        {
+            ShowError("No se pudo activar la integración: " + ex.Message);
+        }
+    }
+
+    private void ShowHistory()
+    {
+        using var dialog = new HistoryDialog(_store.LoadHistory(), _palette);
+        dialog.ShowDialog(this);
+    }
+
+    private void ShowAbout()
+    {
+        var version = typeof(MainForm).Assembly.GetName().Version?.ToString(3) ?? "2.0.0";
+        MessageBox.Show(this,
+            $"XoPy {version}\n\nGestor de copias gratuito para Windows, inspirado en la interfaz de TeraCopy.\n\n" +
+            "· Copia, mueve, elimina y verifica archivos o carpetas completas\n" +
+            "· Verificación CRC32, MD5, SHA-1, SHA-256 y SHA-512\n" +
+            "· Pausa, reanudación, límite de velocidad y transferencias paralelas\n" +
+            "· Historial, favoritos e integración con el Explorador\n\n" +
+            "Hecho por Quevedo-crack.",
+            "Acerca de XoPy", MessageBoxButtons.OK, MessageBoxIcon.Information);
+    }
+
+    private void SaveQueueFile()
+    {
+        if (_saveQueue.ShowDialog(this) != DialogResult.OK) return;
         try
         {
             var snapshot = new QueueSnapshot
             {
-                Destination = DestinationTextBox.Text,
-                Operation = OperationComboBox.SelectedIndex,
-                Conflict = ConflictComboBox.SelectedIndex,
-                Verify = VerifyCheckBox.Checked,
-                SpeedLimitMiB = _speedLimitMiB,
-                ParallelJobs = _parallelJobs,
-                BufferKiB = _bufferKiB,
-                Jobs = _jobs
+                Destination = _destination.Text.Trim(),
+                Operation = OperationType.Copy,
+                Sources = _items.Select(item => item.SourcePath).ToList()
             };
-            File.WriteAllText(_saveQueueDialog.FileName, JsonSerializer.Serialize(snapshot, new JsonSerializerOptions { WriteIndented = true }));
-            StatusLabel.Text = "Cola y preferencias guardadas.";
+            File.WriteAllText(_saveQueue.FileName, JsonSerializer.Serialize(snapshot, new JsonSerializerOptions { WriteIndented = true }));
+            SetStatus("Cola guardada en " + _saveQueue.FileName);
         }
-        catch (Exception ex) { ShowError($"No se pudo guardar la cola: {ex.Message}"); }
+        catch (Exception ex)
+        {
+            ShowError("No se pudo guardar la cola: " + ex.Message);
+        }
     }
 
-    private void LoadQueueButton_Click(object? sender, EventArgs e)
+    private void LoadQueueFile()
     {
-        if (_engine.IsRunning) { StatusLabel.Text = "Detén las transferencias antes de cargar una cola."; return; }
-        if (_loadQueueDialog.ShowDialog(this) != DialogResult.OK) return;
+        if (_engine.IsRunning) { SetStatus("Detén la transferencia antes de abrir otra cola."); return; }
+        if (_loadQueue.ShowDialog(this) != DialogResult.OK) return;
         try
         {
-            using var document = JsonDocument.Parse(File.ReadAllText(_loadQueueDialog.FileName));
-            QueueSnapshot? snapshot = null;
-            List<TransferJob>? loaded;
-            if (document.RootElement.ValueKind == JsonValueKind.Array)
-            {
-                loaded = document.RootElement.Deserialize<List<TransferJob>>();
-            }
-            else
-            {
-                snapshot = document.RootElement.Deserialize<QueueSnapshot>();
-                loaded = snapshot?.Jobs;
-            }
-            if (loaded is null) { ShowError("El archivo no contiene una cola válida."); return; }
-            _jobs.Clear();
-            foreach (var job in loaded)
-            {
-                if (job.State is TransferState.Running or TransferState.Paused) job.State = TransferState.Pending;
-                _jobs.Add(job);
-            }
-            if (snapshot is not null)
-            {
-                if (!string.IsNullOrWhiteSpace(snapshot.Destination))
-                    DestinationTextBox.Text = snapshot.Destination;
-                OperationComboBox.SelectedIndex = Math.Clamp(snapshot.Operation, 0, 1);
-                ConflictComboBox.SelectedIndex = Math.Clamp(snapshot.Conflict, 0, 2);
-                VerifyCheckBox.Checked = snapshot.Verify;
-                _speedLimitMiB = Math.Clamp(snapshot.SpeedLimitMiB, 0, 1024 * 1024);
-                _parallelJobs = Math.Clamp(snapshot.ParallelJobs, 1, 16);
-                _bufferKiB = Math.Clamp(snapshot.BufferKiB, 64, 8192);
-                SaveSettings();
-            }
-            RefreshQueue();
-            StatusLabel.Text = $"Cola cargada: {_jobs.Count} elemento(s); inicia para reanudar los parciales.";
+            var snapshot = JsonSerializer.Deserialize<QueueSnapshot>(File.ReadAllText(_loadQueue.FileName));
+            if (snapshot is null) { ShowError("El archivo no contiene una cola válida."); return; }
+
+            _items.Clear();
+            _rows.Clear();
+            _list.Items.Clear();
+
+            if (!string.IsNullOrWhiteSpace(snapshot.Destination) && Directory.Exists(snapshot.Destination))
+                _destination.Text = snapshot.Destination;
+            AddPaths(snapshot.Sources);
+            SetStatus($"Cola cargada: {_items.Count} elemento(s).");
         }
-        catch (Exception ex) { ShowError($"No se pudo cargar la cola: {ex.Message}"); }
-    }
-
-    private void AddDroppedPaths(DragEventArgs e)
-    {
-        if (_engine.IsRunning || e.Data?.GetData(DataFormats.FileDrop) is not string[] paths) return;
-        foreach (var path in paths)
+        catch (Exception ex)
         {
-            if (Directory.Exists(path)) AddFolderTree(path);
-            else AddSingleFile(path);
+            ShowError("No se pudo abrir la cola: " + ex.Message);
         }
-        RefreshQueue();
     }
 
-    private void QueueListView_ColumnClick(object? sender, ColumnClickEventArgs e)
+    // ---------------------------------------------------------------- ventana y bandeja
+
+    private void RestoreWindow()
     {
-        if (_engine.IsRunning) return;
-        if (_sortColumn == e.Column) _sortAscending = !_sortAscending; else { _sortColumn = e.Column; _sortAscending = true; }
-        Comparison<TransferJob> comparison = (left, right) => e.Column switch
-        {
-            0 => StringComparer.OrdinalIgnoreCase.Compare(left.Name, right.Name),
-            1 => StringComparer.OrdinalIgnoreCase.Compare(left.SourcePath, right.SourcePath),
-            2 => StringComparer.OrdinalIgnoreCase.Compare(left.RelativePath, right.RelativePath),
-            3 => left.SizeBytes.CompareTo(right.SizeBytes),
-            4 => StringComparer.OrdinalIgnoreCase.Compare(left.State.ToString(), right.State.ToString()),
-            _ => left.ProgressPercent.CompareTo(right.ProgressPercent)
-        };
-        if (!_sortAscending)
-        {
-            var ascendingComparison = comparison;
-            comparison = (left, right) => -ascendingComparison(left, right);
-        }
-        RebuildQueueOrder(comparison);
-        RefreshQueue();
+        if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
+        ShowInTaskbar = true;
+        Show();
+        Activate();
+        BringToFront();
     }
 
-    private void RebuildQueueOrder(Comparison<TransferJob>? comparison = null)
+    private void MinimizeToTray()
     {
-        var originalOrder = _jobs.Select((job, index) => (job.Id, index))
-            .ToDictionary(item => item.Id, item => item.index);
-        var childrenByGroup = _jobs
-            .Where(job => job.GroupId.HasValue)
-            .GroupBy(job => job.GroupId!.Value)
-            .ToDictionary(group => group.Key, group => group.ToList());
-        var flattened = new List<TransferJob>(_jobs.Count);
-
-        void AddSiblings(IEnumerable<TransferJob> siblings)
-        {
-            var ordered = siblings.ToList();
-            ordered.Sort((left, right) =>
-            {
-                var result = comparison?.Invoke(left, right) ?? 0;
-                return result != 0 ? result : originalOrder[left.Id].CompareTo(originalOrder[right.Id]);
-            });
-            foreach (var job in ordered)
-            {
-                flattened.Add(job);
-                if (job.IsFolderGroup && childrenByGroup.TryGetValue(job.Id, out var children))
-                    AddSiblings(children);
-            }
-        }
-
-        AddSiblings(_jobs.Where(job => !job.GroupId.HasValue));
-        _jobs.Clear();
-        _jobs.AddRange(flattened);
-    }
-
-    private void RefreshQueue()
-    {
-        if (QueueListView.IsDisposed) return;
-        var selected = QueueListView.Items.Cast<ListViewItem>().Where(i => i.Selected).Select(i => (i.Tag as TransferJob)?.Id).Where(id => id.HasValue).Select(id => id!.Value).ToHashSet();
-        QueueListView.BeginUpdate();
-        QueueListView.Items.Clear();
-        var hiddenGroups = new HashSet<Guid>();
-        foreach (var job in _jobs)
-        {
-            if (job.IsFolderGroup)
-            {
-                var children = _jobs.Where(c => c.GroupId == job.Id).ToList();
-                job.SizeBytes = children.Sum(c => c.SizeBytes);
-                job.CurrentBytes = children.Sum(c => Math.Min(c.CurrentBytes, c.SizeBytes));
-                job.ProgressPercent = job.SizeBytes == 0 ? 100 : Math.Clamp(job.CurrentBytes * 100d / job.SizeBytes, 0, 100);
-                job.State = AggregateState(children);
-                if (!job.IsExpanded) hiddenGroups.Add(job.Id);
-                AddQueueItem(job, (job.IsExpanded ? "▾  " : "▸  ") + job.Name, 0, selected);
-                continue;
-            }
-            if (job.GroupId is Guid parent && (hiddenGroups.Contains(parent) || !_jobs.FirstOrDefault(x => x.Id == parent)!.IsExpanded)) continue;
-            AddQueueItem(job, "    " + (job.IsDirectoryEntry ? "▣  " : "📄  ") + job.Name, job.GroupId.HasValue ? 1 : 0, selected);
-        }
-        QueueListView.EndUpdate();
-        UpdateProgressControls();
-        UpdateCounters();
-    }
-
-    private void AddQueueItem(TransferJob job, string displayName, int indentation, HashSet<Guid> selected)
-    {
-        var item = new ListViewItem(displayName) { Tag = job, ToolTipText = job.ErrorMessage ?? job.SourcePath };
-        item.SubItems.Add(job.SourcePath);
-        item.SubItems.Add(job.RelativePath);
-        item.SubItems.Add(FormatBytes(job.SizeBytes));
-        item.SubItems.Add(job.ErrorMessage is null ? job.State.ToString() : $"{job.State}: {job.ErrorMessage}");
-        item.SubItems.Add($"{job.ProgressPercent:0.##}%");
-        item.Selected = selected.Contains(job.Id);
-        QueueListView.Items.Add(item);
-    }
-
-    private static TransferState AggregateState(List<TransferJob> children)
-    {
-        if (children.Count == 0) return TransferState.Completed;
-        if (children.Any(x => x.State == TransferState.Running)) return TransferState.Running;
-        if (children.Any(x => x.State == TransferState.Paused)) return TransferState.Paused;
-        if (children.Any(x => x.State == TransferState.Failed)) return TransferState.Failed;
-        if (children.All(x => x.State == TransferState.Completed)) return TransferState.Completed;
-        if (children.Any(x => x.State == TransferState.Cancelled)) return TransferState.Cancelled;
-        return TransferState.Pending;
-    }
-
-    private void UpdateCounters()
-    {
-        var files = _jobs.Where(j => !j.IsFolderGroup).ToList();
-        var pending = files.Count(j => j.State == TransferState.Pending);
-        var active = files.Count(j => j.State is TransferState.Running or TransferState.Paused);
-        var complete = files.Count(j => j.State == TransferState.Completed);
-        var failed = files.Count(j => j.State == TransferState.Failed);
-        QueueCountLabel.Text = pending.ToString(); ActiveCountLabel.Text = active.ToString();
-        CompletedCountLabel.Text = complete.ToString(); FailedCountLabel.Text = failed.ToString();
-        QueueSummaryLabel.Text = pending.ToString(); ActiveSummaryLabel.Text = active.ToString();
-        CompletedSummaryLabel.Text = complete.ToString(); FailedSummaryLabel.Text = failed.ToString();
-    }
-
-    private static long SaturatingAdd(long a, long b) => a > long.MaxValue - b ? long.MaxValue : a + b;
-
-    private static string FormatBytes(double bytes)
-    {
-        string[] units = { "B", "KB", "MB", "GB", "TB" };
-        var value = Math.Max(0, bytes);
-        var unit = 0;
-        while (value >= 1024 && unit < units.Length - 1) { value /= 1024; unit++; }
-        return $"{value:0.##} {units[unit]}";
-    }
-
-    private void Engine_ProgressChanged(object? sender, TransferProgressEventArgs e)
-    {
-        if (IsDisposed) return;
-        lock (_latestProgress) _latestProgress[e.JobId] = e;
-    }
-
-    private void FlushProgressAndUpdateMetrics()
-    {
-        if (IsDisposed) return;
-        List<TransferProgressEventArgs> snapshot;
-        lock (_latestProgress) { snapshot = _latestProgress.Values.ToList(); _latestProgress.Clear(); }
-        foreach (var progress in snapshot)
-        {
-            var job = _jobs.FirstOrDefault(x => x.Id == progress.JobId);
-            if (job is null) continue;
-            job.State = progress.State;
-            job.ProgressPercent = progress.ProgressPercent;
-            job.CurrentBytes = progress.CurrentBytes;
-        }
-        if (snapshot.Count > 0) RefreshQueue();
-        UpdateMetrics();
-    }
-
-    private void UpdateMetrics()
-    {
-        if (_activeJobs.Count == 0) return;
-        var now = DateTime.UtcNow;
-        var bytes = _activeJobs.Sum(j => Math.Min(j.CurrentBytes, j.SizeBytes));
-        var seconds = (now - _lastSampleAt).TotalSeconds;
-        if (seconds >= .5)
-        {
-            _currentSpeed = Math.Max(0, bytes - _lastSampleBytes) / seconds;
-            _lastSampleBytes = bytes;
-            _lastSampleAt = now;
-        }
-        var average = _clock.Elapsed.TotalSeconds > 0 ? bytes / _clock.Elapsed.TotalSeconds : 0;
-        var remaining = Math.Max(0, _activeJobs.Sum(j => j.SizeBytes) - bytes);
-        var etaSeconds = average > 0 ? remaining / average : double.PositiveInfinity;
-        var eta = double.IsFinite(etaSeconds) ? $"{Math.Ceiling(etaSeconds / 60):0} min" : "calculando…";
-        var state = _paused ? "Pausado" : _engine.IsRunning ? "Copiando" : "Listo";
-        StatusLabel.Text = $"{state} | {FormatBytes(_currentSpeed)}/s | media {FormatBytes(average)}/s | {_clock.Elapsed:hh\\:mm\\:ss} transcurridos | restan {eta}";
-        UpdateTrayProgress();
-    }
-
-    private void Engine_Completed(object? sender, EventArgs e)
-    {
-        if (IsDisposed || !IsHandleCreated) return;
+        Hide();
+        ShowInTaskbar = false;
         try
         {
-            BeginInvoke(() =>
-            {
-                _paused = false;
-                _clock.Stop();
-                PauseButton.Text = "Ⅱ  Pausar";
-                var failed = _activeJobs.Count(j => j.State == TransferState.Failed);
-                var cancelled = _activeJobs.Count(j => j.State == TransferState.Cancelled);
-                var outcome = failed > 0 ? $"Finalizado con {failed} error(es)" : cancelled > 0 ? $"Cancelado ({cancelled})" : "Transferencia finalizada";
-                SaveHistory(outcome);
-                foreach (var group in _jobs.Where(j => j.IsFolderGroup))
-                {
-                    if (OperationComboBox.SelectedIndex == 1 && _jobs.Where(j => j.GroupId == group.Id).All(j => j.State == TransferState.Completed))
-                        DeleteEmptySourceDirectories(group.SourcePath);
-                }
-                RefreshQueue();
-                UpdateMetrics();
-            });
-        }
-        catch (InvalidOperationException) { }
-    }
-
-    private static void DeleteEmptySourceDirectories(string root)
-    {
-        try
-        {
-            foreach (var directory in Directory.GetDirectories(root, "*", SearchOption.AllDirectories).OrderByDescending(x => x.Length))
-                if (!Directory.EnumerateFileSystemEntries(directory).Any()) Directory.Delete(directory);
-            if (Directory.Exists(root) && !Directory.EnumerateFileSystemEntries(root).Any()) Directory.Delete(root);
+            _tray.ShowBalloonTip(1200, "XoPy", "XoPy sigue abierto en el área de notificación.", ToolTipIcon.Info);
         }
         catch { }
     }
 
-    private void UpdateProgressControls()
+    private void ExitApplication()
     {
-        var work = _jobs.Where(j => !j.IsFolderGroup).ToList();
-        var total = work.Sum(j => j.SizeBytes);
-        var copied = work.Sum(j => Math.Min(j.CurrentBytes, j.SizeBytes));
-        OverallProgressBar.Value = total <= 0 ? (work.Count > 0 && work.All(j => j.State == TransferState.Completed) ? 100 : 0) : (int)Math.Clamp(copied * 100d / total, 0, 100);
-        StatusProgressBar.Value = OverallProgressBar.Value;
+        _exitRequested = true;
+        Close();
     }
-
-    private void UpdateTrayProgress()
-    {
-        var percent = OverallProgressBar.Value;
-        var state = _engine.IsRunning ? (_paused ? "Pausado" : "Copiando") : "Listo";
-        TrayIcon.Text = $"XoPy - {state}: {percent}%";
-        if (percent == _lastTrayPercent && state == _lastTrayState) return;
-        _lastTrayPercent = percent;
-        _lastTrayState = state;
-        var newIcon = CreateProgressIcon(percent);
-        var oldIcon = _trayProgressIcon;
-        _trayProgressIcon = newIcon;
-        TrayIcon.Icon = newIcon;
-        oldIcon?.Dispose();
-    }
-
-    private static Icon CreateProgressIcon(int percent)
-    {
-        using var bitmap = new Bitmap(32, 32);
-        using (var graphics = Graphics.FromImage(bitmap))
-        using (var track = new Pen(Color.FromArgb(110, 110, 110), 3))
-        using (var progress = new Pen(Color.FromArgb(70, 200, 100), 3))
-        using (var textBrush = new SolidBrush(Color.White))
-        using (var background = new SolidBrush(Color.FromArgb(35, 45, 55)))
-        using (var font = new Font("Arial", 8, FontStyle.Bold, GraphicsUnit.Pixel))
-        using (var format = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
-        {
-            graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            graphics.Clear(Color.Transparent);
-            graphics.FillEllipse(background, 1, 1, 30, 30);
-            graphics.DrawArc(track, 3, 3, 26, 26, -90, 360);
-            if (percent > 0) graphics.DrawArc(progress, 3, 3, 26, 26, -90, 360 * percent / 100f);
-            graphics.DrawString(percent.ToString(), font, textBrush, new RectangleF(2, 2, 28, 28), format);
-        }
-
-        var handle = bitmap.GetHicon();
-        try
-        {
-            using var borrowedIcon = Icon.FromHandle(handle);
-            return (Icon)borrowedIcon.Clone();
-        }
-        finally
-        {
-            DestroyIcon(handle);
-        }
-    }
-
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern bool DestroyIcon(IntPtr handle);
-
-    private void SaveHistory(string outcome)
-    {
-        try
-        {
-            Directory.CreateDirectory(_appData);
-            var history = File.Exists(HistoryFile) ? JsonSerializer.Deserialize<List<HistoryEntry>>(File.ReadAllText(HistoryFile)) ?? new() : new();
-            var copied = _activeJobs.Sum(j => Math.Min(j.CurrentBytes, j.SizeBytes));
-            var avg = _clock.Elapsed.TotalSeconds > 0 ? copied / _clock.Elapsed.TotalSeconds : 0;
-            history.Insert(0, new HistoryEntry(DateTime.Now, outcome, _activeJobs.Count, copied, _clock.Elapsed, avg));
-            File.WriteAllText(HistoryFile, JsonSerializer.Serialize(history.Take(200), new JsonSerializerOptions { WriteIndented = true }));
-        }
-        catch { }
-    }
-
-    private void ShowHistoryDialog(object? sender, EventArgs e)
-    {
-        try
-        {
-            var history = File.Exists(HistoryFile) ? JsonSerializer.Deserialize<List<HistoryEntry>>(File.ReadAllText(HistoryFile)) ?? new() : new();
-            var text = string.Join(Environment.NewLine, history.Take(40).Select(h => $"{h.FinishedAt:yyyy-MM-dd HH:mm:ss} | {h.Result} | {h.FileCount} archivos | {FormatBytes(h.BytesCopied)} | {h.Elapsed:hh\\:mm\\:ss} | {FormatBytes(h.AverageBytesPerSecond)}/s"));
-            MessageBox.Show(this, string.IsNullOrEmpty(text) ? "Aún no hay transferencias en el historial." : text, "Historial de XoPy", MessageBoxButtons.OK, MessageBoxIcon.Information);
-        }
-        catch (Exception ex) { ShowError($"No se pudo leer el historial: {ex.Message}"); }
-    }
-
-    private void LoadSettings()
-    {
-        try
-        {
-            if (!File.Exists(SettingsFile)) return;
-            var settings = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(SettingsFile));
-            if (settings is null) return;
-            if (!string.IsNullOrWhiteSpace(settings.Destination)) DestinationTextBox.Text = settings.Destination;
-            OperationComboBox.SelectedIndex = Math.Clamp(settings.Operation, 0, 1);
-            ConflictComboBox.SelectedIndex = Math.Clamp(settings.Conflict, 0, 2);
-            VerifyCheckBox.Checked = settings.Verify;
-            _speedLimitMiB = Math.Clamp(settings.SpeedLimitMiB, 0, 1024 * 1024);
-            _parallelJobs = Math.Clamp(settings.ParallelJobs, 1, 16);
-            _bufferKiB = Math.Clamp(settings.BufferKiB, 64, 8192);
-        }
-        catch { }
-    }
-
-    private void SaveSettings()
-    {
-        try
-        {
-            Directory.CreateDirectory(_appData);
-            var data = new AppSettings(DestinationTextBox.Text, OperationComboBox.SelectedIndex, ConflictComboBox.SelectedIndex, VerifyCheckBox.Checked, _speedLimitMiB, _parallelJobs, _bufferKiB);
-            File.WriteAllText(SettingsFile, JsonSerializer.Serialize(data, new JsonSerializerOptions { WriteIndented = true }));
-        }
-        catch { }
-    }
-
-    private void RestoreFromTray() { Show(); WindowState = FormWindowState.Normal; ShowInTaskbar = true; Activate(); }
 
     protected override void OnResize(EventArgs e)
     {
         base.OnResize(e);
-        if (WindowState != FormWindowState.Minimized) return;
-        Hide(); ShowInTaskbar = false;
-        TrayIcon.ShowBalloonTip(1000, "XoPy", "XoPy sigue ejecutándose en segundo plano.", ToolTipIcon.Info);
+        if (WindowState == FormWindowState.Minimized && _settings.MinimizeToTray) MinimizeToTray();
     }
 
-    private void ShowError(string message)
+    protected override void OnFormClosing(FormClosingEventArgs e)
     {
-        StatusLabel.Text = message;
-        MessageBox.Show(this, message, "XoPy", MessageBoxButtons.OK, MessageBoxIcon.Error);
-    }
+        if (!_exitRequested && _settings.MinimizeToTray && e.CloseReason == CloseReason.UserClosing)
+        {
+            e.Cancel = true;
+            MinimizeToTray();
+            return;
+        }
 
-    private static bool PathsEqual(string a, string b) => string.Equals(Path.TrimEndingDirectorySeparator(Path.GetFullPath(a)), Path.TrimEndingDirectorySeparator(Path.GetFullPath(b)), StringComparison.OrdinalIgnoreCase);
+        if (_engine.IsRunning)
+        {
+            var answer = MessageBox.Show(this, "Hay una transferencia en curso. ¿Detenerla y salir?", "XoPy",
+                MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+            if (answer != DialogResult.Yes) { e.Cancel = true; return; }
+            _engine.Cancel();
+        }
+
+        base.OnFormClosing(e);
+    }
 
     protected override void Dispose(bool disposing)
     {
         if (disposing)
         {
-            _uiTimer.Stop(); _uiTimer.Dispose();
-            _trayProgressIcon?.Dispose();
-            TrayIcon.Visible = false; _trayMenu.Dispose(); components?.Dispose();
+            _timer.Stop();
+            _timer.Dispose();
+            _engine.Cancel();
+            _tray.Visible = false;
+            _tray.Dispose();
+            _trayMenu.Dispose();
+            _listMenu.Dispose();
+            _favoritesMenu.Dispose();
+            if (_trayIcon is not null) _trayIcon.Dispose();
         }
         base.Dispose(disposing);
-    }
-}
-
-internal sealed class QueueSnapshot
-{
-    public QueueSnapshot() { }
-
-    public string Destination { get; set; } = string.Empty;
-    public int Operation { get; set; }
-    public int Conflict { get; set; }
-    public bool Verify { get; set; } = true;
-    public int SpeedLimitMiB { get; set; }
-    public int ParallelJobs { get; set; } = 3;
-    public int BufferKiB { get; set; } = 1024;
-    public List<TransferJob>? Jobs { get; set; }
-}
-
-internal sealed class OptionsDialog : Form
-{
-    private readonly TextBox _destination = new() { Dock = DockStyle.Fill };
-    private readonly ComboBox _operation = new() { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill };
-    private readonly ComboBox _conflict = new() { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill };
-    private readonly CheckBox _verify = new() { Text = "Verificar copias con SHA-256", AutoSize = true };
-    private readonly NumericUpDown _speed = new() { Minimum = 0, Maximum = 1048576, ThousandsSeparator = true, Dock = DockStyle.Left, Width = 150 };
-    private readonly NumericUpDown _parallel = new() { Minimum = 1, Maximum = 16, Dock = DockStyle.Left, Width = 100 };
-    private readonly NumericUpDown _buffer = new() { Minimum = 64, Maximum = 8192, Increment = 64, Dock = DockStyle.Left, Width = 100 };
-    public string Destination => _destination.Text;
-    public int Operation => _operation.SelectedIndex;
-    public int Conflict => _conflict.SelectedIndex;
-    public bool Verify => _verify.Checked;
-    public int SpeedLimitMiB => (int)_speed.Value;
-    public int ParallelJobs => (int)_parallel.Value;
-    public int BufferKiB => (int)_buffer.Value;
-
-    public OptionsDialog(string destination, int operation, int conflict, bool verify, int speedLimitMiB, int parallelJobs, int bufferKiB)
-    {
-        Text = "Preferencias de XoPy";
-        StartPosition = FormStartPosition.CenterParent;
-        FormBorderStyle = FormBorderStyle.FixedDialog;
-        MaximizeBox = false; MinimizeBox = false;
-        ClientSize = new Size(560, 390);
-        _destination.Text = destination;
-        _operation.Items.AddRange(new object[] { "Copiar", "Mover" }); _operation.SelectedIndex = Math.Clamp(operation, 0, 1);
-        _conflict.Items.AddRange(new object[] { "Cambiar nombre", "Sobrescribir", "Omitir" }); _conflict.SelectedIndex = Math.Clamp(conflict, 0, 2);
-        _verify.Checked = verify;
-        _speed.Value = Math.Clamp(speedLimitMiB, 0, (int)_speed.Maximum);
-        _parallel.Value = Math.Clamp(parallelJobs, 1, (int)_parallel.Maximum);
-        _buffer.Value = Math.Clamp(bufferKiB, 64, (int)_buffer.Maximum);
-
-        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(16), ColumnCount = 2, RowCount = 8 };
-        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 205));
-        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        AddOption(layout, 0, "Carpeta destino", _destination);
-        AddOption(layout, 1, "Operación", _operation);
-        AddOption(layout, 2, "Si el destino existe", _conflict);
-        AddOption(layout, 3, "Verificación", _verify);
-        AddOption(layout, 4, "Límite MiB/s (0 = ilimitado)", _speed);
-        AddOption(layout, 5, "Archivos simultáneos (1–16)", _parallel);
-        AddOption(layout, 6, "Buffer por archivo (KiB)", _buffer);
-        var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft };
-        var ok = new Button { Text = "Guardar", DialogResult = DialogResult.OK, AutoSize = true };
-        var cancel = new Button { Text = "Cancelar", DialogResult = DialogResult.Cancel, AutoSize = true };
-        buttons.Controls.Add(ok); buttons.Controls.Add(cancel);
-        layout.Controls.Add(buttons, 0, 7); layout.SetColumnSpan(buttons, 2);
-        Controls.Add(layout); AcceptButton = ok; CancelButton = cancel;
-    }
-
-    private static void AddOption(TableLayoutPanel layout, int row, string label, Control control)
-    {
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
-        layout.Controls.Add(new Label { Text = label, AutoSize = true, Anchor = AnchorStyles.Left }, 0, row);
-        layout.Controls.Add(control, 1, row);
     }
 }

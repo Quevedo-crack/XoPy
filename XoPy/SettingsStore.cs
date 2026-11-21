@@ -1,0 +1,89 @@
+using System.Text.Json;
+
+namespace XoPy;
+
+public sealed class SettingsStore
+{
+    private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
+
+    public string DataFolder { get; } = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "XoPy");
+    public string SettingsFile => Path.Combine(DataFolder, "settings.json");
+    public string HistoryFile => Path.Combine(DataFolder, "history.json");
+
+    public AppSettings Load()
+    {
+        AppSettings settings = new();
+        try
+        {
+            if (File.Exists(SettingsFile))
+            {
+                var loaded = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(SettingsFile));
+                if (loaded is not null) settings = loaded;
+            }
+        }
+        catch
+        {
+            // Un archivo de configuración dañado no debe impedir que la aplicación arranque.
+        }
+
+        settings.Favorites ??= new List<string>();
+        if (settings.Favorites.Count == 0)
+        {
+            settings.Favorites.Add(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory));
+            settings.Favorites.Add(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments));
+            settings.Favorites.Add(Environment.GetFolderPath(Environment.SpecialFolder.MyMusic));
+            settings.Favorites.Add(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures));
+            settings.Favorites.Add(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos));
+        }
+
+        if (string.IsNullOrWhiteSpace(settings.Destination) || !Directory.Exists(settings.Destination))
+            settings.Destination = AppSettings.DefaultDestination();
+
+        settings.Parallelism = Math.Clamp(settings.Parallelism, 1, 16);
+        settings.BufferKiB = Math.Clamp(settings.BufferKiB, 64, 8192);
+        settings.SpeedLimitMiB = Math.Clamp(settings.SpeedLimitMiB, 0, 100000);
+        settings.RetryCount = Math.Clamp(settings.RetryCount, 0, 20);
+        return settings;
+    }
+
+    public void Save(AppSettings settings)
+    {
+        try
+        {
+            Directory.CreateDirectory(DataFolder);
+            File.WriteAllText(SettingsFile, JsonSerializer.Serialize(settings, JsonOptions));
+        }
+        catch
+        {
+            // Silencioso: guardar preferencias nunca debe bloquear la interfaz.
+        }
+    }
+
+    public List<HistoryEntry> LoadHistory()
+    {
+        try
+        {
+            if (!File.Exists(HistoryFile)) return new List<HistoryEntry>();
+            return JsonSerializer.Deserialize<List<HistoryEntry>>(File.ReadAllText(HistoryFile)) ?? new List<HistoryEntry>();
+        }
+        catch
+        {
+            return new List<HistoryEntry>();
+        }
+    }
+
+    public void AppendHistory(HistoryEntry entry)
+    {
+        try
+        {
+            var history = LoadHistory();
+            history.Insert(0, entry);
+            Directory.CreateDirectory(DataFolder);
+            File.WriteAllText(HistoryFile, JsonSerializer.Serialize(history.Take(300).ToList(), JsonOptions));
+        }
+        catch
+        {
+            // El historial es opcional.
+        }
+    }
+}
