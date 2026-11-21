@@ -145,7 +145,9 @@ jobs:
         if: failure()
         shell: pwsh
         run: |
+          dotnet build XoPy/XoPy.csproj -c Release -r win-x64 --self-contained true *> build-errors.txt
           $out = @()
+          $out += Get-Content 'build-errors.txt' -ErrorAction SilentlyContinue
           Get-ChildItem 'C:\xopytest' -ErrorAction SilentlyContinue | ForEach-Object { $out += "FILE: $($_.Name) ($($_.Length) bytes)" }
           foreach ($file in @('C:\xopytest\exitcode.txt', 'C:\xopytest\shot.png.log', 'C:\xopytest\shot.png.error.txt', 'C:\xopytest\tab.error.txt', 'C:\xopytest\options.png.error.txt', 'C:\xopytest\conflict.png.error.txt', 'C:\xopytest\copiatest.txt', 'C:\xopytest\movetest.txt')) {
             if (Test-Path $file) { $out += "--- $file"; $out += Get-Content $file }
