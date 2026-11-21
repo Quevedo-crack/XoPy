@@ -20,7 +20,7 @@ FILE: video.mp4 (20482 bytes)
 --- C:\xopytest\exitcode.txt
 exitcode=0 exited=True
 --- C:\xopytest\shot.png.log
-inicio 2026-11-21T20:33:39.2519712+00:00
+inicio 2026-11-21T20:35:44.5373034+00:00
 ventana creada {Width=1044, Height=720}
 ventana mostrada {Width=1028, Height=681}
 --- C:\xopytest\copiatest.txt
