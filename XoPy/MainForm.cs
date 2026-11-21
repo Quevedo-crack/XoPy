@@ -58,7 +58,7 @@ public sealed partial class MainForm : Form
     private SpeedGraph _graph = null!;
     private Label[,] _categoryValues = new Label[4, 3];
     private ListBox _extraDestinations = null!;
-    private CheckBox _optLocked = null!, _optResume = null!, _optChecksums = null!;
+    private CheckBox _optLocked = null!, _optResume = null!, _optChecksums = null!, _optNative = null!;
     private NumericUpDown _optSecurePasses = null!;
     private TextBox _optScript = null!;
     private Label _statusLabel = null!;
@@ -114,6 +114,7 @@ public sealed partial class MainForm : Form
     private OperationType _lastOperation = OperationType.Copy;
     private string _lastDestination = string.Empty;
     private long _sessionBytes;
+    private double _lastPercent;
     private TimeSpan _sessionElapsed;
 
     public MainForm(StartupRequest request)
@@ -159,7 +160,7 @@ public sealed partial class MainForm : Form
         BackColor = _palette.Canvas;
         ForeColor = _palette.Text;
         Font = new Font("Segoe UI", 9f);
-        MinimumSize = new Size(1280, 720);
+        MinimumSize = new Size(1024, 640);
         DoubleBuffered = true;
         KeyPreview = true;
         AllowDrop = true;
@@ -293,7 +294,7 @@ public sealed partial class MainForm : Form
         _copyButton = BarButton("Copiar", Icons.Copy, (_, _) => StartTransfer(OperationType.Copy), true);
         _moveButton = BarButton("Mover", Icons.Move, (_, _) => StartTransfer(OperationType.Move));
         _testButton = BarButton("Test", Icons.Verify, (_, _) => StartTransfer(OperationType.Test));
-        _deleteButton = BarButton("Borrar", Icons.Delete, (_, _) => StartTransfer(OperationType.Delete));
+        _deleteButton = BarButton("Eliminar", Icons.Delete, (_, _) => StartTransfer(OperationType.Delete));
         _pauseButton = BarButton("Pausar", Icons.Pause, (_, _) => TogglePause());
         _skipButton = BarButton("Saltar", Icons.ChevronRight, (_, _) => SkipCurrent());
         _stopButton = BarButton("Detener", Icons.Stop, (_, _) => StopTransfer());
@@ -377,7 +378,7 @@ public sealed partial class MainForm : Form
         "Copiar" => "Copiar los elementos seleccionados (F5)",
         "Mover" => "Mover los elementos seleccionados (Ctrl+F5)",
         "Test" => "Comprobar la copia comparando hashes (F6)",
-        "Borrar" => "Eliminar los elementos seleccionados",
+        "Eliminar" => "Eliminar los archivos del disco (no es lo mismo que quitarlos de la lista)",
         "Saltar" => "Saltar el archivo que se está copiando",
         _ => text
     };
@@ -828,6 +829,7 @@ public sealed partial class MainForm : Form
         _countLabel = Ui.Label("Lista vacía — arrastra archivos o carpetas aquí", _palette, 9f, true, _palette.Muted);
         _countLabel.Anchor = AnchorStyles.Left;
         _countLabel.Margin = new Padding(10, 9, 0, 0);
+        _countLabel.AutoEllipsis = true;
 
         _upButton = Ui.IconButton(Icons.Up, _palette, "Subir el elemento seleccionado (Alt+↑)");
         _upButton.Click += (_, _) => MoveSelected(-1);
@@ -933,13 +935,14 @@ public sealed partial class MainForm : Form
         _listMenu.Items.Add("Copiar…", null, (_, _) => StartTransfer(OperationType.Copy));
         _listMenu.Items.Add("Mover…", null, (_, _) => StartTransfer(OperationType.Move));
         _listMenu.Items.Add("Test (verificar)", null, (_, _) => StartTransfer(OperationType.Test));
-        _listMenu.Items.Add("Eliminar…", null, (_, _) => StartTransfer(OperationType.Delete));
+        _listMenu.Items.Add("Eliminar del disco…", null, (_, _) => StartTransfer(OperationType.Delete));
         _listMenu.Items.Add(new ToolStripSeparator());
         _listMenu.Items.Add("Expandir / contraer", null, (_, _) => ToggleSelectedFolders());
         _listMenu.Items.Add("Subir", null, (_, _) => MoveSelected(-1));
         _listMenu.Items.Add("Bajar", null, (_, _) => MoveSelected(1));
         _listMenu.Items.Add(new ToolStripSeparator());
-        _listMenu.Items.Add("Quitar de la lista", null, (_, _) => RemoveSelected());
+        _listMenu.Items.Add(new ToolStripSeparator());
+        _listMenu.Items.Add("Quitar de la lista (Supr)", null, (_, _) => RemoveSelected());
         _listMenu.Items.Add("Reintentar los fallidos", null, (_, _) => RetryFailed());
         _listMenu.Items.Add(new ToolStripSeparator());
         _listMenu.Items.Add("Mostrar los hashes", null, (_, _) => ToggleHashes());
@@ -1027,8 +1030,8 @@ public sealed partial class MainForm : Form
     private void ApplyWindowGeometry()
     {
         var workingArea = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1920, 1080);
-        var width = _settings.WindowWidth >= MinimumSize.Width ? _settings.WindowWidth : 1440;
-        var height = _settings.WindowHeight >= MinimumSize.Height ? _settings.WindowHeight : 920;
+        var width = _settings.WindowWidth >= MinimumSize.Width ? _settings.WindowWidth : 1200;
+        var height = _settings.WindowHeight >= MinimumSize.Height ? _settings.WindowHeight : 740;
         if (!_startupRequest.Screenshot)
         {
             width = Math.Min(width, workingArea.Width - 20);

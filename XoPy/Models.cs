@@ -150,6 +150,7 @@ public sealed class AppSettings
     public bool ShowHashes { get; set; } = true;
     public bool CopyLockedFiles { get; set; } = true;
     public bool ResumePartials { get; set; } = true;
+    public bool NativeCopy { get; set; } = true;
     public int SecureDeletePasses { get; set; }
     public bool WriteChecksumFile { get; set; }
     public string CompletionScript { get; set; } = string.Empty;

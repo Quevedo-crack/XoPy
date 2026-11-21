@@ -269,13 +269,14 @@ public sealed partial class MainForm
         _optShowHashes = OptionCheck("Mostrar los hashes en la lista", _settings.ShowHashes);
         _optLocked = OptionCheck("Copiar archivos bloqueados o en uso (permisos de copia de seguridad)", _settings.CopyLockedFiles);
         _optResume = OptionCheck("Reanudar copias parciales al reintentar", _settings.ResumePartials);
+        _optNative = OptionCheck("Usar el motor nativo de Windows (CopyFileEx, más rápido)", _settings.NativeCopy);
         _optChecksums = OptionCheck("Crear un archivo de checksums al terminar", _settings.WriteChecksumFile);
         toggles.Controls.AddRange(new Control[]
         {
             _optVerifyAfterCopy, _optPreserveTimestamps, _optRecycleBin, _optShowHashes,
-            _optLocked, _optResume, _optChecksums
+            _optLocked, _optNative, _optResume, _optChecksums
         });
-        AddWideRow(grid, toggles, 170);
+        AddWideRow(grid, toggles, 194);
 
         _optSecurePasses = new NumericUpDown
         {
@@ -388,6 +389,7 @@ public sealed partial class MainForm
         _optPreserveTimestamps.CheckedChanged += (_, _) => SaveQuickOptions();
         _optRecycleBin.CheckedChanged += (_, _) => SaveQuickOptions();
         _optLocked.CheckedChanged += (_, _) => SaveQuickOptions();
+        _optNative.CheckedChanged += (_, _) => SaveQuickOptions();
         _optResume.CheckedChanged += (_, _) => SaveQuickOptions();
         _optChecksums.CheckedChanged += (_, _) => SaveQuickOptions();
         _optSecurePasses.ValueChanged += (_, _) => SaveQuickOptions();
@@ -533,6 +535,7 @@ public sealed partial class MainForm
         _settings.UseRecycleBin = _optRecycleBin.Checked;
         _settings.ShowHashes = _optShowHashes.Checked;
         _settings.CopyLockedFiles = _optLocked.Checked;
+        _settings.NativeCopy = _optNative.Checked;
         _settings.ResumePartials = _optResume.Checked;
         _settings.WriteChecksumFile = _optChecksums.Checked;
         _settings.SecureDeletePasses = (int)_optSecurePasses.Value;
@@ -1218,6 +1221,16 @@ public sealed partial class MainForm
         var used = _list.Columns[1].Width + _list.Columns[2].Width + _list.Columns[3].Width
                    + _list.Columns[4].Width + _list.Columns[5].Width;
         var available = _list.ClientSize.Width - used - 4;
-        _list.Columns[0].Width = Math.Max(200, available);
+        if (available < 380)
+        {
+            // En ventanas pequeñas se reducen Tamaño y Progreso para que quepa el nombre.
+            _list.Columns[1].Width = 76;
+            _list.Columns[2].Width = 116;
+            _list.Columns[3].Width = 130;
+            used = _list.Columns[1].Width + _list.Columns[2].Width + _list.Columns[3].Width
+                   + _list.Columns[4].Width + _list.Columns[5].Width;
+            available = _list.ClientSize.Width - used - 4;
+        }
+        _list.Columns[0].Width = Math.Max(160, available);
     }
 }

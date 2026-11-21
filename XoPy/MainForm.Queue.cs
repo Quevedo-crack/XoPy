@@ -586,7 +586,14 @@ public sealed partial class MainForm
             var children = ReferenceEquals(node, parent) ? siblings : Children(node);
             foreach (var child in children) AddNode(child);
         }
-        foreach (var root in RootItems()) AddNode(root);
+        if (parent is null)
+        {
+            foreach (var root in siblings) AddNode(root);
+        }
+        else
+        {
+            foreach (var root in RootItems()) AddNode(root);
+        }
 
         _items.Clear();
         _items.AddRange(rebuilt);
@@ -793,10 +800,10 @@ public sealed partial class MainForm
             if (_settings.ConfirmDelete)
             {
                 var totalDelete = deleteTargets.Sum(item => Math.Max(0, item.SizeBytes));
-                var message = $"¿Eliminar {deleteTargets.Count} elemento(s) ({Format.Bytes(totalDelete)})?\n\n" +
+                var message = $"¿Eliminar {deleteTargets.Count} elemento(s) del disco ({Format.Bytes(totalDelete)})?\n\n" +
                               (_settings.UseRecycleBin
-                                  ? "Se enviarán a la Papelera de reciclaje."
-                                  : "Se eliminarán de forma permanente.");
+                                  ? "Se enviarán a la Papelera de reciclaje.\n\nSi solo quieres quitarlos de la lista, pulsa Supr o el botón — de la barra de la lista."
+                                  : "Se eliminarán de forma permanente.\n\nSi solo quieres quitarlos de la lista, pulsa Supr o el botón — de la barra de la lista.");
                 if (MessageBox.Show(this, message, "XoPy", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
             }
         }
@@ -898,6 +905,7 @@ public sealed partial class MainForm
             PreserveTimestamps = _settings.PreserveTimestamps,
             UseRecycleBin = _settings.UseRecycleBin,
             CopyLockedFiles = _settings.CopyLockedFiles,
+            NativeCopy = _settings.NativeCopy,
             ResumePartials = _settings.ResumePartials,
             SecureDeletePasses = _settings.SecureDeletePasses,
             Destinations = ExtraDestinations(operation)
@@ -1135,7 +1143,7 @@ public sealed partial class MainForm
             try { Process.Start(new ProcessStartInfo("shutdown", "/s /t 30") { CreateNoWindow = true, UseShellExecute = false }); } catch { }
         }
 
-        if (failed == 0 && cancelled == 0 && _settings.CloseWhenDone)
+        if (failed == 0 && cancelled == 0 && _settings.CloseWhenDone && _lastOperation is OperationType.Copy or OperationType.Move)
         {
             _exitRequested = true;
             BeginInvoke(new Action(Close));
@@ -1195,8 +1203,7 @@ public sealed partial class MainForm
 
     private void UpdateTitle()
     {
-        var total = _engine.TotalBytes;
-        var percent = total > 0 ? _engine.DoneBytes * 100d / total : 0;
+        var percent = _lastPercent;
         var speed = Format.Speed(_engine.SpeedBytesPerSecond);
         Text = _engine.IsPaused
             ? $"XoPy — en pausa · {percent:0.0} %"
@@ -1205,8 +1212,7 @@ public sealed partial class MainForm
 
     private void UpdateTrayState()
     {
-        var total = _engine.TotalBytes;
-        var percent = total > 0 ? (int)Math.Clamp(_engine.DoneBytes * 100 / total, 0, 100) : 0;
+        var percent = (int)Math.Clamp(Math.Round(_lastPercent), 0, 100);
         var paused = _engine.IsPaused;
         var error = _items.Any(item => item.State == ItemState.Failed);
         if (percent == _trayPercent && paused == _trayPaused && error == _trayError) return;
@@ -1289,6 +1295,7 @@ public sealed partial class MainForm
             if (leaves.Count > 0 && leaves.All(item => item.State is ItemState.Completed or ItemState.Skipped)) percent = 100;
         }
 
+        _lastPercent = percent;
         UpdateCountLabel(leaves.Count, total);
         _progress.Value = percent;
         _progress.FillColor = _items.Any(item => item.State == ItemState.Failed) && !_engine.IsRunning
@@ -1418,6 +1425,12 @@ public sealed partial class MainForm
         _history = _store.LoadHistory();
         using var dialog = new HistoryDialog(_history, _palette);
         dialog.ShowDialog(this);
+        if (dialog.Modified)
+        {
+            _store.SaveHistory(dialog.Entries);
+            _history = _store.LoadHistory();
+            SetStatus($"Historial actualizado: {_history.Count} entrada(s).");
+        }
         UpdateJobs();
         UpdateTargetTab();
     }
