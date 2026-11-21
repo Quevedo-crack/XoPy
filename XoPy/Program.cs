@@ -25,6 +25,13 @@ internal static class Program
             return;
         }
 
+        var tabsShot = FindOption(args, "--screenshot-tabs");
+        if (tabsShot is not null)
+        {
+            RunTabScreenshots(request, tabsShot);
+            return;
+        }
+
         var optionsShot = FindOption(args, "--screenshot-options");
         if (optionsShot is not null)
         {
@@ -92,6 +99,28 @@ internal static class Program
         catch (Exception ex)
         {
             try { File.WriteAllText(path + ".error.txt", ex.ToString()); } catch { }
+            Environment.Exit(2);
+        }
+    }
+
+    private static void RunTabScreenshots(StartupRequest request, string prefix)
+    {
+        try
+        {
+            using var form = new MainForm(request);
+            form.Show();
+            Pump(5000);
+            for (var index = 0; index < form.TabCount; index++)
+            {
+                form.ShowTab(index);
+                Pump(400);
+                Save(form, $"{prefix}-{index}.png");
+            }
+            Environment.Exit(0);
+        }
+        catch (Exception ex)
+        {
+            try { File.WriteAllText(prefix + ".error.txt", ex.ToString()); } catch { }
             Environment.Exit(2);
         }
     }

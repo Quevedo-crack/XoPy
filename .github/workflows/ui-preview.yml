@@ -55,6 +55,16 @@ jobs:
           New-Item -ItemType Directory -Force docs | Out-Null
           Copy-Item 'C:\xopytest\shot.png' 'docs\xopy-preview.png'
 
+      - name: Capturar las pestañas de la ventana
+        shell: pwsh
+        run: |
+          $exe = (Resolve-Path .\publish\XoPy.exe).Path
+          $arguments = @('--screenshot-tabs', 'C:\xopytest\tab', 'C:\xopytest\informe.pdf', 'C:\xopytest\carpeta')
+          $process = Start-Process -FilePath $exe -ArgumentList $arguments -PassThru
+          if (-not $process.WaitForExit(90000)) { $process.Kill(); throw 'No se generaron las capturas de las pestañas' }
+          if (-not (Test-Path 'C:\xopytest\tab-0.png')) { throw "Faltan las capturas de las pestañas (código $($process.ExitCode))" }
+          Get-ChildItem 'C:\xopytest\tab-*.png' | ForEach-Object { Move-Item $_.FullName ("docs\xopy-tab-" + $_.Name.Substring(4)) -Force }
+
       - name: Capturar los diálogos
         shell: pwsh
         run: |
@@ -124,7 +134,7 @@ jobs:
         run: |
           git config user.name "XoPy Bot"
           git config user.email "xopy-bot@users.noreply.github.com"
-          git add docs/xopy-preview.png docs/xopy-options*.png docs/xopy-conflict.png docs/xopy-verify.png
+          git add docs/xopy-preview.png docs/xopy-tab-*.png docs/xopy-options*.png docs/xopy-conflict.png docs/xopy-verify.png
           git diff --cached --quiet
           if ($LASTEXITCODE -ne 0) {
             git commit -m "Añadir captura automática de la interfaz"
@@ -137,7 +147,7 @@ jobs:
         run: |
           $out = @()
           Get-ChildItem 'C:\xopytest' -ErrorAction SilentlyContinue | ForEach-Object { $out += "FILE: $($_.Name) ($($_.Length) bytes)" }
-          foreach ($file in @('C:\xopytest\exitcode.txt', 'C:\xopytest\shot.png.log', 'C:\xopytest\shot.png.error.txt', 'C:\xopytest\options.png.error.txt', 'C:\xopytest\conflict.png.error.txt', 'C:\xopytest\copiatest.txt', 'C:\xopytest\movetest.txt')) {
+          foreach ($file in @('C:\xopytest\exitcode.txt', 'C:\xopytest\shot.png.log', 'C:\xopytest\shot.png.error.txt', 'C:\xopytest\tab.error.txt', 'C:\xopytest\options.png.error.txt', 'C:\xopytest\conflict.png.error.txt', 'C:\xopytest\copiatest.txt', 'C:\xopytest\movetest.txt')) {
             if (Test-Path $file) { $out += "--- $file"; $out += Get-Content $file }
           }
           New-Item -ItemType Directory -Force docs | Out-Null

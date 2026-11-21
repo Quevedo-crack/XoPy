@@ -1212,7 +1212,7 @@ public sealed partial class MainForm
         }
         else if (_items.Count > 0)
         {
-            _currentLabel.Text = _currentStatus ?? "Listo para transferir.";
+            _currentLabel.Text = "Listo para transferir. Elige Copiar, Mover, Test o Eliminar.";
         }
         else
         {

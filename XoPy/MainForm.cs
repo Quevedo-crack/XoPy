@@ -149,7 +149,7 @@ public sealed partial class MainForm : Form
         BackColor = _palette.Canvas;
         ForeColor = _palette.Text;
         Font = new Font("Segoe UI", 9f);
-        MinimumSize = new Size(1040, 680);
+        MinimumSize = new Size(1180, 720);
         DoubleBuffered = true;
         KeyPreview = true;
         AllowDrop = true;
@@ -167,7 +167,7 @@ public sealed partial class MainForm : Form
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 52));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 92));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 86));
 
         _menu = BuildMenu();
         root.Controls.Add(_menu, 0, 0);
@@ -187,6 +187,7 @@ public sealed partial class MainForm : Form
         {
             ResizeColumns();
             SelectTab(0);
+            ApplyDarkScrollbars();
         };
     }
 
@@ -313,9 +314,8 @@ public sealed partial class MainForm : Form
         var left = new FlowLayoutPanel
         {
             Dock = DockStyle.Fill,
-            AutoSize = true,
+            AutoSize = false,
             WrapContents = false,
-            AutoScroll = true,
             BackColor = _palette.Surface,
             Margin = new Padding(0)
         };
@@ -585,9 +585,9 @@ public sealed partial class MainForm : Form
             Padding = new Padding(12, 8, 12, 8),
             RowCount = 3
         };
-        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 18));
-        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 14));
-        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
+        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 19));
+        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 13));
+        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
 
         _currentLabel = new Label
         {
@@ -810,6 +810,28 @@ public sealed partial class MainForm : Form
     [DllImport("user32.dll")]
     private static extern bool SetForegroundWindow(IntPtr hwnd);
 
+    [DllImport("uxtheme.dll", CharSet = CharSet.Unicode)]
+    private static extern int SetWindowTheme(IntPtr hwnd, string appName, string? idList);
+
+    private void ApplyDarkScrollbars()
+    {
+        if (!_settings.DarkTheme) return;
+        foreach (var control in new Control?[] { _list, _logBox, _targetList, _jobsList })
+        {
+            try
+            {
+                if (control is not null && control.IsHandleCreated)
+                    SetWindowTheme(control.Handle, "DarkMode_Explorer", null);
+            }
+            catch { }
+        }
+    }
+
+    /// <summary>Selecciona una pestaña (0 Lista, 1 Destino, 2 Opciones, 3 Estado, 4 Registro).</summary>
+    public void ShowTab(int index) => SelectTab(index);
+
+    public int TabCount => _pages.Length;
+
     protected override void OnHandleCreated(EventArgs e)
     {
         base.OnHandleCreated(e);
@@ -821,6 +843,7 @@ public sealed partial class MainForm : Form
                 DwmSetWindowAttribute(Handle, 19, ref enabled, sizeof(int));
         }
         catch { }
+        ApplyDarkScrollbars();
     }
 
     // ---------------------------------------------------------------- ajustes
