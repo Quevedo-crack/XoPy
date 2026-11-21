@@ -53,28 +53,33 @@ internal static class Program
 
     private static void RunScreenshot(StartupRequest request, string path)
     {
-        using var form = new MainForm(request);
-        var timer = new System.Windows.Forms.Timer { Interval = 1500 };
-        timer.Tick += (_, _) =>
+        try
         {
-            timer.Stop();
-            try
+            var log = path + ".log";
+            File.WriteAllText(log, $"inicio {DateTime.Now:O}{Environment.NewLine}");
+            using var form = new MainForm(request);
+            File.AppendAllText(log, $"ventana creada {form.Size}{Environment.NewLine}");
+            form.Show();
+            File.AppendAllText(log, $"ventana mostrada {form.ClientSize}{Environment.NewLine}");
+            var deadline = DateTime.UtcNow.AddSeconds(8);
+            while (DateTime.UtcNow < deadline)
             {
-                using var bitmap = new Bitmap(form.Width, form.Height);
-                form.DrawToBitmap(bitmap, new Rectangle(0, 0, form.Width, form.Height));
-                var directory = Path.GetDirectoryName(path);
-                if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
-                bitmap.Save(path, ImageFormat.Png);
+                Application.DoEvents();
+                Thread.Sleep(40);
             }
-            catch (Exception ex)
-            {
-                try { File.WriteAllText(path + ".error.txt", ex.ToString()); } catch { }
-            }
-            form.Close();
-        };
-        form.Shown += (_, _) => timer.Start();
-        Application.Run(form);
-        timer.Dispose();
+
+            using var bitmap = new Bitmap(form.ClientSize.Width, form.ClientSize.Height);
+            form.DrawToBitmap(bitmap, new Rectangle(0, 0, bitmap.Width, bitmap.Height));
+            var directory = Path.GetDirectoryName(path);
+            if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
+            bitmap.Save(path, ImageFormat.Png);
+            Environment.Exit(0);
+        }
+        catch (Exception ex)
+        {
+            try { File.WriteAllText(path + ".error.txt", ex.ToString()); } catch { }
+            Environment.Exit(2);
+        }
     }
 
     private static void ShowFatal(Exception? exception)

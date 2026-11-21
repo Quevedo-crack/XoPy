@@ -45,8 +45,10 @@ jobs:
           $arguments = @('--screenshot', 'C:\xopytest\shot.png', 'C:\xopytest\informe.pdf', 'C:\xopytest\video.mp4', 'C:\xopytest\carpeta')
           $process = Start-Process -FilePath $exe -ArgumentList $arguments -PassThru
           if (-not $process.WaitForExit(60000)) { $process.Kill(); throw 'La aplicación no terminó' }
+          foreach ($extra in @('C:\xopytest\shot.png.log', 'C:\xopytest\shot.png.error.txt')) {
+            if (Test-Path $extra) { Write-Host "--- $extra"; Get-Content $extra }
+          }
           if (-not (Test-Path 'C:\xopytest\shot.png')) {
-            if (Test-Path 'C:\xopytest\shot.png.error.txt') { Get-Content 'C:\xopytest\shot.png.error.txt' }
             throw "No se generó la captura (código $($process.ExitCode))"
           }
           New-Item -ItemType Directory -Force docs | Out-Null
