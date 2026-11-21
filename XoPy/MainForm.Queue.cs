@@ -1420,6 +1420,77 @@ public sealed partial class MainForm
         }
     }
 
+    /// <summary>Prueba automática de reordenar, ordenar y quitar de la lista sin tocar el disco.</summary>
+    public string QueueSelfTest()
+    {
+        var report = new StringBuilder();
+        _items.Clear();
+        _rows.Clear();
+        _list.Items.Clear();
+
+        TransferItem Make(string name, long size, Guid? parent = null, int depth = 0) => new()
+        {
+            Kind = ItemKind.File,
+            SourcePath = @"X:\inexistente\" + name,
+            RelativePath = name,
+            SizeBytes = size,
+            SizeKnown = true,
+            ParentId = parent,
+            Depth = depth,
+            State = ItemState.Pending
+        };
+
+        var folder = new TransferItem
+        {
+            Kind = ItemKind.Folder,
+            SourcePath = @"X:\inexistente\Carpeta",
+            RelativePath = "Carpeta",
+            SizeBytes = 200,
+            SizeKnown = true,
+            State = ItemState.Pending
+        };
+        var child1 = Make("foto1.jpg", 120, folder.Id, 1);
+        child1.RelativePath = Path.Combine("Carpeta", "foto1.jpg");
+        var child2 = Make("foto2.jpg", 80, folder.Id, 1);
+        child2.RelativePath = Path.Combine("Carpeta", "foto2.jpg");
+        var a = Make("a.txt", 300);
+        var b = Make("b.txt", 100);
+
+        _items.AddRange(new[] { folder, child1, child2, a, b });
+        RebuildRows();
+
+        if (!MoveBlock(a, -1) || !ReferenceEquals(RootItems()[0], a))
+            report.AppendLine("FALLO: subir un archivo de la raíz no cambió el orden.");
+        if (!MoveBlock(b, -1) || RootItems().IndexOf(b) != 1)
+            report.AppendLine("FALLO: bajar un archivo de la raíz no cambió el orden.");
+        if (!MoveBlock(child2, -1) || Children(folder)[0] != child2)
+            report.AppendLine("FALLO: no se pudo reordenar dentro de la carpeta.");
+        if (Children(folder)[0].Depth != 1 || Children(folder)[0].ParentId != folder.Id)
+            report.AppendLine("FALLO: el archivo se separó de su carpeta al reordenar.");
+
+        SortQueue(QueueSortField.Size);
+        var roots = RootItems();
+        if (!roots.SequenceEqual(new[] { b, folder, a }))
+            report.AppendLine("FALLO: ordenar por tamaño no dejó b, carpeta, a.");
+
+        var before = _items.Count;
+        SelectRows(new[] { child1.Id });
+        RemoveSelected();
+        if (_items.Any(item => item.Id == child1.Id) || _items.Count != before - 1)
+            report.AppendLine("FALLO: quitar de la lista no eliminó solo el elemento seleccionado.");
+        if (_items.Count(item => item.Kind == ItemKind.File) != 3)
+            report.AppendLine("FALLO: el recuento de archivos tras quitar es incorrecto.");
+        if (_items.Any(item => File.Exists(item.SourcePath)))
+            report.AppendLine("FALLO: la prueba tocó archivos reales.");
+
+        _items.Clear();
+        _rows.Clear();
+        _list.Items.Clear();
+        return report.Length == 0
+            ? "OK: reordenar, ordenar y quitar de la lista funcionan y no borran archivos."
+            : report.ToString();
+    }
+
     private void ShowHistory()
     {
         _history = _store.LoadHistory();

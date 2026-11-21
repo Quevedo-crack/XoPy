@@ -53,6 +53,22 @@ internal static class Program
             return;
         }
 
+        var historyShot = FindOption(args, "--screenshot-history");
+        if (historyShot is not null)
+        {
+            RunHistoryScreenshot(historyShot);
+            return;
+        }
+
+        var queueTest = FindOption(args, "--self-test-queue");
+        if (queueTest is not null)
+        {
+            using var testForm = new MainForm(new StartupRequest());
+            var report = testForm.QueueSelfTest();
+            File.WriteAllText(queueTest, report);
+            Environment.Exit(report.StartsWith("OK", StringComparison.Ordinal) ? 0 : 1);
+        }
+
         var mutex = new Mutex(true, Ipc.MutexName, out var isFirstInstance);
         if (!isFirstInstance)
         {
@@ -209,6 +225,32 @@ internal static class Program
             {
                 Save(dialog, path);
             }
+            Environment.Exit(0);
+        }
+        catch (Exception ex)
+        {
+            try { File.WriteAllText(path + ".error.txt", ex.ToString()); } catch { }
+            Environment.Exit(2);
+        }
+    }
+
+    private static void RunHistoryScreenshot(string path)
+    {
+        try
+        {
+            var palette = Palette.For(true);
+            var entries = new List<HistoryEntry>
+            {
+                new() { FinishedAt = DateTime.Now.AddMinutes(-2), Operation = OperationType.Copy, Destination = @"D:\Backup\Videos\Drone", FileCount = 142, Bytes = 12_884_901_888, Seconds = 64, Errors = 0 },
+                new() { FinishedAt = DateTime.Now.AddMinutes(-18), Operation = OperationType.Move, Destination = @"E:\Series", FileCount = 1352, Bytes = 1_073_741_824, Seconds = 210, Errors = 0 },
+                new() { FinishedAt = DateTime.Now.AddHours(-3), Operation = OperationType.Test, Destination = @"C:\Backup\Fotos", FileCount = 36, Bytes = 7_340_032, Seconds = 12, Errors = 1 },
+                new() { FinishedAt = DateTime.Now.AddDays(-1), Operation = OperationType.Delete, Destination = @"C:\Temp", FileCount = 80, Bytes = 512_000_000, Seconds = 8, Errors = 0 }
+            };
+
+            using var dialog = new HistoryDialog(entries, palette);
+            dialog.Show();
+            Pump(600);
+            Save(dialog, path);
             Environment.Exit(0);
         }
         catch (Exception ex)
