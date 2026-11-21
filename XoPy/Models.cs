@@ -179,6 +179,9 @@ public sealed class StartupRequest
     public bool StartMinimized { get; set; }
     public bool AskDestination { get; set; }
     public bool Screenshot { get; set; }
+    public ConflictPolicy? Conflict { get; set; }
+    public VerifyAlgorithm? VerifyAlgorithm { get; set; }
+    public bool VerifyAfterCopy { get; set; }
 
     public static StartupRequest Parse(string[] args)
     {
@@ -195,6 +198,14 @@ public sealed class StartupRequest
                 case "--paste": request.PasteFromClipboard = true; break;
                 case "--tray": request.StartMinimized = true; break;
                 case "--ask-destination": request.AskDestination = true; break;
+                case "--overwrite": request.Conflict = ConflictPolicy.Overwrite; break;
+                case "--skip": request.Conflict = ConflictPolicy.Skip; break;
+                case "--rename": request.Conflict = ConflictPolicy.Rename; break;
+                case "--verify": request.VerifyAfterCopy = true; break;
+                case "--algo":
+                    if (i + 1 < args.Length && Enum.TryParse<VerifyAlgorithm>(args[++i], true, out var algorithm))
+                        request.VerifyAlgorithm = algorithm;
+                    break;
                 case "--screenshot":
                 case "--screenshot-options":
                 case "--screenshot-conflict":

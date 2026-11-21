@@ -266,12 +266,12 @@ public sealed partial class MainForm : Form
         bar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         bar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
 
-        _addFilesButton = BarButton("Archivos", Icons.Add, (_, _) => AddFiles());
+        _addFilesButton = BarButton("Añadir", Icons.Add, (_, _) => AddFiles());
         _addFolderButton = BarButton("Carpeta", Icons.FolderAdd, (_, _) => AddFolder());
-        _copyButton = BarButton("Copiar…", Icons.Copy, (_, _) => StartTransfer(OperationType.Copy), true);
-        _moveButton = BarButton("Mover…", Icons.Move, (_, _) => StartTransfer(OperationType.Move));
+        _copyButton = BarButton("Copiar", Icons.Copy, (_, _) => StartTransfer(OperationType.Copy), true);
+        _moveButton = BarButton("Mover", Icons.Move, (_, _) => StartTransfer(OperationType.Move));
         _testButton = BarButton("Test", Icons.Verify, (_, _) => StartTransfer(OperationType.Test));
-        _deleteButton = BarButton("Eliminar", Icons.Delete, (_, _) => StartTransfer(OperationType.Delete));
+        _deleteButton = BarButton("Borrar", Icons.Delete, (_, _) => StartTransfer(OperationType.Delete));
         _pauseButton = BarButton("Pausar", Icons.Pause, (_, _) => TogglePause());
         _skipButton = BarButton("Saltar", Icons.ChevronRight, (_, _) => SkipCurrent());
         _stopButton = BarButton("Detener", Icons.Stop, (_, _) => StopTransfer());
@@ -341,11 +341,23 @@ public sealed partial class MainForm : Form
             Margin = new Padding(0, 0, 3, 0),
             Padding = new Padding(6, 0, 6, 0),
             TextAlign = ContentAlignment.MiddleCenter,
-            ToolTipText = text.TrimEnd('…')
+            ToolTipText = TooltipFor(text)
         };
         button.Click += click;
         return button;
     }
+
+    private static string TooltipFor(string text) => text switch
+    {
+        "Añadir" => "Añadir archivos a la cola (Ctrl+O)",
+        "Carpeta" => "Añadir una carpeta completa (Ctrl+Mayús+O)",
+        "Copiar" => "Copiar los elementos seleccionados (F5)",
+        "Mover" => "Mover los elementos seleccionados (Ctrl+F5)",
+        "Test" => "Comprobar la copia comparando hashes (F6)",
+        "Borrar" => "Eliminar los elementos seleccionados",
+        "Saltar" => "Saltar el archivo que se está copiando",
+        _ => text
+    };
 
     private Control BuildDestinationBar()
     {
@@ -743,7 +755,7 @@ public sealed partial class MainForm : Form
         _list.DrawColumnHeader += ListDrawColumnHeader;
         _list.DrawItem += (_, e) => { if (_list.View != View.Details) e.DrawDefault = true; };
         _list.DrawSubItem += ListDrawSubItem;
-        _list.Resize += (_, _) => { if (IsHandleCreated) BeginInvoke(new Action(ResizeColumns)); };
+        _list.Resize += (_, _) => { if (IsHandleCreated) BeginInvoke(new Action(UpdateHashColumns)); };
         _list.KeyDown += ListKeyDown;
         _list.DoubleClick += ListDoubleClick;
         _list.MouseDown += ListMouseDown;
@@ -1010,6 +1022,10 @@ public sealed partial class MainForm : Form
         if (!string.IsNullOrWhiteSpace(request.Destination) && Directory.Exists(request.Destination))
             _destination.Text = request.Destination!;
         if (request.PasteFromClipboard) PasteFromClipboard(request.Destination ?? _destination.Text);
+
+        if (request.Conflict is not null) _settings.Conflict = request.Conflict.Value;
+        if (request.VerifyAlgorithm is not null) _settings.Verify = request.VerifyAlgorithm.Value;
+        if (request.VerifyAfterCopy) _settings.VerifyAfterCopy = true;
 
         var op = request.Operation;
         if (op is not null && _items.Count > 0 && !_engine.IsRunning)

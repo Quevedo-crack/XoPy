@@ -684,10 +684,27 @@ public sealed partial class MainForm
 
     // ---------------------------------------------------------------- hashes y columnas
 
+    private bool _updatingColumns;
+
     private void UpdateHashColumns()
     {
-        if (_list is null || _list.Columns.Count < 6) return;
-        var show = _settings.ShowHashes && (_settings.VerifyAfterCopy || _lastOperation == OperationType.Test);
+        if (_list is null || _list.Columns.Count < 6 || _updatingColumns) return;
+        _updatingColumns = true;
+        try
+        {
+            UpdateHashColumnsCore();
+        }
+        finally
+        {
+            _updatingColumns = false;
+        }
+    }
+
+    private void UpdateHashColumnsCore()
+    {
+        if (_list.Columns.Count < 6) return;
+        var wideEnough = _list.ClientSize.Width >= 840;
+        var show = wideEnough && _settings.ShowHashes && (_settings.VerifyAfterCopy || _lastOperation == OperationType.Test);
         _list.Columns[1].Width = show ? 88 : 96;
         _list.Columns[2].Width = show ? 110 : 132;
         _list.Columns[3].Width = show ? 132 : 210;

@@ -24,6 +24,22 @@ Así se ve una verificación correcta (SHA-256 comparado con el original):
 
 ![Verificación en XoPy](docs/xopy-verify.png)
 
+## Automatización y línea de comandos
+
+XoPy acepta órdenes para usarlo desde scripts o desde el Explorador:
+
+```
+XoPy.exe --copy  --to "D:\Copias" "C:\Datos\informe.pdf"
+XoPy.exe --move  --to "D:\Copias" "C:\Datos\carpeta"
+XoPy.exe --test  --to "D:\Copias" "C:\Datos\informe.pdf"
+XoPy.exe --copy  --overwrite --verify --algo sha256 --to "D:\Copias" "C:\Datos\informe.pdf"
+XoPy.exe --paste --to "D:\Copias"
+```
+
+- `--overwrite`, `--skip`, `--rename` fuerzan la política de conflictos de esa ejecución.
+- `--verify` y `--algo crc32|md5|sha1|sha256|sha512` activan la verificación al copiar.
+- `--ask-destination` abre el selector de carpeta antes de empezar (es lo que hace «Copiar a… con XoPy»).
+
 ## Funciones
 
 - **Copia, mueve, elimina y verifica** archivos o carpetas completas (con subcarpetas).
