@@ -829,7 +829,6 @@ public sealed partial class MainForm : Form
         _countLabel = Ui.Label("Lista vacía — arrastra archivos o carpetas aquí", _palette, 9f, true, _palette.Muted);
         _countLabel.Anchor = AnchorStyles.Left;
         _countLabel.Margin = new Padding(10, 9, 0, 0);
-        _countLabel.AutoEllipsis = true;
 
         _upButton = Ui.IconButton(Icons.Up, _palette, "Subir el elemento seleccionado (Alt+↑)");
         _upButton.Click += (_, _) => MoveSelected(-1);
