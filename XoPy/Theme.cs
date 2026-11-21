@@ -470,6 +470,88 @@ internal sealed class ProgressStrip : Control
     }
 }
 
+/// <summary>Gráfica de velocidad de transferencia (estilo TeraCopy).</summary>
+internal sealed class SpeedGraph : Control
+{
+    private readonly Palette _palette;
+    private readonly List<double> _samples = new();
+    private const int Capacity = 150;
+
+    public SpeedGraph(Palette palette)
+    {
+        _palette = palette;
+        SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
+        BackColor = palette.SurfaceAlt;
+        Height = 120;
+    }
+
+    public void Reset()
+    {
+        _samples.Clear();
+        Invalidate();
+    }
+
+    public void Add(double bytesPerSecond)
+    {
+        if (bytesPerSecond < 0) bytesPerSecond = 0;
+        _samples.Add(bytesPerSecond);
+        while (_samples.Count > Capacity) _samples.RemoveAt(0);
+        Invalidate();
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        var graphics = e.Graphics;
+        graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        var width = Width - 1;
+        var height = Height - 1;
+        using (var background = new SolidBrush(_palette.SurfaceAlt))
+            graphics.FillRectangle(background, 0, 0, Width, Height);
+
+        using (var grid = new Pen(Color.FromArgb(38, _palette.Border), 1))
+        {
+            for (var i = 1; i < 4; i++)
+            {
+                var y = height * i / 4f;
+                graphics.DrawLine(grid, 0, y, width, y);
+            }
+        }
+
+        if (_samples.Count < 2)
+        {
+            using var idle = new SolidBrush(_palette.Muted);
+            graphics.DrawString("Sin actividad", new Font("Segoe UI", 9f), idle, new PointF(12, 10));
+            return;
+        }
+
+        var max = Math.Max(1, _samples.Max());
+        var points = new PointF[_samples.Count];
+        for (var i = 0; i < _samples.Count; i++)
+        {
+            var x = width * i / (float)Math.Max(1, _samples.Count - 1);
+            var y = height - 2 - (float)(_samples[i] / max) * (height - 8);
+            points[i] = new PointF(x, y);
+        }
+
+        using (var area = new GraphicsPath())
+        {
+            area.AddLines(points);
+            area.AddLine(points[^1].X, points[^1].Y, width, height);
+            area.AddLine(width, height, 0, height);
+            area.CloseFigure();
+            using var gradient = new LinearGradientBrush(new Rectangle(0, 0, Math.Max(1, Width), Math.Max(1, Height)),
+                Color.FromArgb(150, _palette.Accent), Color.FromArgb(18, _palette.Accent), LinearGradientMode.Vertical);
+            graphics.FillPath(gradient, area);
+        }
+
+        using (var line = new Pen(_palette.Accent, 1.8f))
+            graphics.DrawLines(line, points);
+
+        using var label = new SolidBrush(_palette.Muted);
+        graphics.DrawString("Máx. " + Format.Speed(max), new Font("Segoe UI", 8.25f), label, new PointF(10, 6));
+    }
+}
+
 internal sealed class ChoiceButton : Button
 {
     private readonly string[] _items;

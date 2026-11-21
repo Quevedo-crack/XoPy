@@ -1,6 +1,6 @@
 ; Instalador de XoPy para Windows 10/11 x64
 #define AppName "XoPy"
-#define AppVersion "2.1.0"
+#define AppVersion "2.2.0"
 #define AppPublisher "Quevedo-crack"
 #define AppExe "XoPy.exe"
 
@@ -31,7 +31,7 @@ MinVersion=10.0
 CloseApplications=yes
 RestartApplications=no
 AllowNoIcons=yes
-VersionInfoVersion=2.1.0.0
+VersionInfoVersion=2.2.0.0
 VersionInfoProductName={#AppName}
 VersionInfoDescription=Instalador de XoPy
 VersionInfoCompany={#AppPublisher}

@@ -51,6 +51,16 @@ public sealed partial class MainForm : Form
     private Button _downButton = null!;
     private ListView _list = null!;
     private Label _countLabel = null!;
+    private Button _sortButton = null!;
+    private Label _hdrCopyState = null!, _hdrCopyPath = null!, _hdrCopyInfo = null!, _hdrCopyPercent = null!;
+    private Label _hdrTargetState = null!, _hdrTargetPath = null!, _hdrTargetInfo = null!, _hdrTargetPercent = null!;
+    private ProgressStrip _hdrCopyBar = null!, _hdrTargetBar = null!;
+    private SpeedGraph _graph = null!;
+    private Label[,] _categoryValues = new Label[4, 3];
+    private ListBox _extraDestinations = null!;
+    private CheckBox _optLocked = null!, _optResume = null!, _optChecksums = null!;
+    private NumericUpDown _optSecurePasses = null!;
+    private TextBox _optScript = null!;
     private Label _statusLabel = null!;
     private Label _summaryLabel = null!;
     private Label _speedLabel = null!;
@@ -159,12 +169,13 @@ public sealed partial class MainForm : Form
             Dock = DockStyle.Fill,
             ColumnCount = 1,
             BackColor = _palette.Canvas,
-            RowCount = 6,
+            RowCount = 7,
             Padding = new Padding(0)
         };
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 58));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 52));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 68));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 86));
@@ -173,9 +184,10 @@ public sealed partial class MainForm : Form
         root.Controls.Add(_menu, 0, 0);
         root.Controls.Add(BuildToolbar(), 0, 1);
         root.Controls.Add(BuildDestinationBar(), 0, 2);
-        root.Controls.Add(BuildTabBar(), 0, 3);
-        root.Controls.Add(BuildContent(), 0, 4);
-        root.Controls.Add(BuildFooter(), 0, 5);
+        root.Controls.Add(BuildTransferHeader(), 0, 3);
+        root.Controls.Add(BuildTabBar(), 0, 4);
+        root.Controls.Add(BuildContent(), 0, 5);
+        root.Controls.Add(BuildFooter(), 0, 6);
 
         Controls.Add(root);
         MainMenuStrip = _menu;
@@ -207,7 +219,11 @@ public sealed partial class MainForm : Form
         file.DropDownItems.Add(MenuItem("Añadir carpeta…", (_, _) => AddFolder(), Keys.Control | Keys.Shift | Keys.O));
         file.DropDownItems.Add(new ToolStripSeparator());
         file.DropDownItems.Add(MenuItem("Abrir cola…", (_, _) => LoadQueueFile()));
+        file.DropDownItems.Add(MenuItem("Abrir la última cola y reanudar", (_, _) => ResumeLastQueue()));
         file.DropDownItems.Add(MenuItem("Guardar cola…", (_, _) => SaveQueueFile()));
+        file.DropDownItems.Add(new ToolStripSeparator());
+        file.DropDownItems.Add(MenuItem("Exportar informe HTML…", (_, _) => ExportReportHtml()));
+        file.DropDownItems.Add(MenuItem("Exportar informe CSV…", (_, _) => ExportReportCsv()));
         file.DropDownItems.Add(new ToolStripSeparator());
         file.DropDownItems.Add(MenuItem("Salir", (_, _) => ExitApplication()));
 
@@ -224,6 +240,12 @@ public sealed partial class MainForm : Form
         var queue = new ToolStripMenuItem("Cola");
         queue.DropDownItems.Add(MenuItem("Subir el elemento  (Alt+↑)", (_, _) => MoveSelected(-1)));
         queue.DropDownItems.Add(MenuItem("Bajar el elemento  (Alt+↓)", (_, _) => MoveSelected(1)));
+        queue.DropDownItems.Add(new ToolStripSeparator());
+        queue.DropDownItems.Add(MenuItem("Ordenar por nombre", (_, _) => SortQueue(QueueSortField.Name)));
+        queue.DropDownItems.Add(MenuItem("Ordenar por tamaño", (_, _) => SortQueue(QueueSortField.Size)));
+        queue.DropDownItems.Add(MenuItem("Ordenar por tipo", (_, _) => SortQueue(QueueSortField.Type)));
+        queue.DropDownItems.Add(MenuItem("Ordenar por carpeta de destino", (_, _) => SortQueue(QueueSortField.Destination)));
+        queue.DropDownItems.Add(MenuItem("Invertir el orden", (_, _) => SortQueue(QueueSortField.Name, invert: true)));
         queue.DropDownItems.Add(new ToolStripSeparator());
         queue.DropDownItems.Add(MenuItem("Expandir todo", (_, _) => ExpandAll(true)));
         queue.DropDownItems.Add(MenuItem("Contraer todo", (_, _) => ExpandAll(false)));
@@ -588,6 +610,114 @@ public sealed partial class MainForm : Form
         return panel;
     }
 
+    private Control BuildTransferHeader()
+    {
+        var host = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 2,
+            BackColor = _palette.Surface,
+            Padding = new Padding(12, 4, 12, 2),
+            Margin = new Padding(0)
+        };
+        host.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
+        host.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
+
+        host.Controls.Add(BuildHeaderRow("Copiando", out _hdrCopyState, out _hdrCopyPath, out _hdrCopyInfo, out _hdrCopyBar, out _hdrCopyPercent), 0, 0);
+        host.Controls.Add(BuildHeaderRow("Destino", out _hdrTargetState, out _hdrTargetPath, out _hdrTargetInfo, out _hdrTargetBar, out _hdrTargetPercent), 0, 1);
+        return host;
+    }
+
+    private TableLayoutPanel BuildHeaderRow(string title, out Label state, out Label path, out Label info,
+        out ProgressStrip bar, out Label percent)
+    {
+        var row = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 5,
+            RowCount = 1,
+            BackColor = _palette.Surface,
+            Margin = new Padding(0)
+        };
+        row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 92));
+        row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 250));
+        row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 240));
+        row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 64));
+
+        state = new Label
+        {
+            Text = title,
+            AutoSize = false,
+            Dock = DockStyle.Fill,
+            TextAlign = ContentAlignment.MiddleCenter,
+            ForeColor = _palette.Text,
+            BackColor = _palette.SurfaceAlt,
+            Font = new Font("Segoe UI", 8.5f, FontStyle.Bold),
+            Margin = new Padding(0, 3, 8, 3)
+        };
+        path = new Label
+        {
+            Text = "—",
+            AutoSize = false,
+            Dock = DockStyle.Fill,
+            TextAlign = ContentAlignment.MiddleLeft,
+            ForeColor = _palette.Text,
+            Font = new Font("Segoe UI", 8.75f),
+            AutoEllipsis = true,
+            Margin = new Padding(0, 3, 10, 3)
+        };
+        info = new Label
+        {
+            Text = string.Empty,
+            AutoSize = false,
+            Dock = DockStyle.Fill,
+            TextAlign = ContentAlignment.MiddleRight,
+            ForeColor = _palette.Muted,
+            Font = new Font("Segoe UI", 8.25f),
+            AutoEllipsis = true,
+            Margin = new Padding(0, 3, 10, 3)
+        };
+        bar = new ProgressStrip(_palette) { Dock = DockStyle.Fill, Height = 10, Margin = new Padding(0, 10, 10, 10) };
+        percent = new Label
+        {
+            Text = "—",
+            AutoSize = false,
+            Dock = DockStyle.Fill,
+            TextAlign = ContentAlignment.MiddleRight,
+            ForeColor = _palette.Text,
+            Font = new Font("Segoe UI", 9f, FontStyle.Bold),
+            Margin = new Padding(0, 3, 0, 3)
+        };
+
+        row.Controls.Add(state, 0, 0);
+        row.Controls.Add(path, 1, 0);
+        row.Controls.Add(info, 2, 0);
+        row.Controls.Add(bar, 3, 0);
+        row.Controls.Add(percent, 4, 0);
+        return row;
+    }
+
+    private void ShowSortMenu(Control anchor)
+    {
+        var menu = new ContextMenuStrip { ShowImageMargin = false };
+        Ui.StyleMenu(menu, _palette);
+        void Add(string text, Action action)
+        {
+            var item = new ToolStripMenuItem(text);
+            item.Click += (_, _) => action();
+            menu.Items.Add(item);
+        }
+        Add("Nombre (A → Z)", () => SortQueue(QueueSortField.Name));
+        Add("Nombre (Z → A)", () => SortQueue(QueueSortField.Name, invert: true));
+        Add("Tamaño (menor → mayor)", () => SortQueue(QueueSortField.Size));
+        Add("Tamaño (mayor → menor)", () => SortQueue(QueueSortField.Size, invert: true));
+        Add("Tipo de archivo (A → Z)", () => SortQueue(QueueSortField.Type));
+        Add("Carpeta de destino (A → Z)", () => SortQueue(QueueSortField.Destination));
+        menu.Show(anchor, new Point(0, anchor.Height));
+    }
+
     private Control BuildFooter()
     {
         var footer = new TableLayoutPanel
@@ -717,10 +847,14 @@ public sealed partial class MainForm : Form
             BackColor = _palette.SurfaceAlt,
             Padding = new Padding(0, 2, 4, 0)
         };
+        _sortButton = Ui.IconButton("\u21C5", _palette, "Ordenar la cola por nombre, tamaño, tipo o carpeta de destino");
+        _sortButton.Click += (_, _) => ShowSortMenu(_sortButton);
+
         tools.Controls.Add(_clearButton);
         tools.Controls.Add(_removeButton);
         tools.Controls.Add(_downButton);
         tools.Controls.Add(_upButton);
+        tools.Controls.Add(_sortButton);
 
         header.Controls.Add(_countLabel, 0, 0);
         header.Controls.Add(tools, 1, 0);
@@ -763,6 +897,14 @@ public sealed partial class MainForm : Form
         _list.DragEnter += (_, e) => e.Effect = e.Data?.GetDataPresent(DataFormats.FileDrop) == true ? DragDropEffects.Copy : DragDropEffects.None;
         _list.DragDrop += (_, e) => DropPaths(e);
         _list.SelectedIndexChanged += (_, _) => UpdateButtons();
+
+        // Doble búfer para que la lista no parpadee mientras se actualiza el progreso.
+        try
+        {
+            typeof(ListView).GetProperty("DoubleBuffered", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+                ?.SetValue(_list, true);
+        }
+        catch { }
 
         BuildListMenu();
         _list.ContextMenuStrip = _listMenu;
@@ -1027,6 +1169,19 @@ public sealed partial class MainForm : Form
         if (request.Conflict is not null) _settings.Conflict = request.Conflict.Value;
         if (request.VerifyAlgorithm is not null) _settings.Verify = request.VerifyAlgorithm.Value;
         if (request.VerifyAfterCopy) _settings.VerifyAfterCopy = true;
+        if (request.CopyLockedFiles) _settings.CopyLockedFiles = true;
+        if (!request.ResumePartials) _settings.ResumePartials = false;
+        if (request.WriteChecksumFile)
+        {
+            _settings.WriteChecksumFile = true;
+            if (_settings.Verify == VerifyAlgorithm.None) _settings.Verify = VerifyAlgorithm.Sha256;
+        }
+        if (request.SecureDeletePasses is not null) _settings.SecureDeletePasses = Math.Clamp(request.SecureDeletePasses.Value, 0, 7);
+        if (!string.IsNullOrWhiteSpace(request.CompletionScript)) _settings.CompletionScript = request.CompletionScript!;
+        foreach (var extra in request.ExtraDestinations.Where(Directory.Exists))
+            if (!_settings.ExtraDestinations.Contains(extra, StringComparer.OrdinalIgnoreCase))
+                _settings.ExtraDestinations.Add(extra);
+        RefreshExtraDestinations();
 
         var op = request.Operation;
         if (op is not null && _items.Count > 0 && !_engine.IsRunning)

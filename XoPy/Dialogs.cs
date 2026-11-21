@@ -166,6 +166,12 @@ internal sealed class OptionsDialog : Form
     private readonly CheckBox _closeWhenDone;
     private readonly CheckBox _shutdown;
     private readonly ListBox _favorites;
+    private readonly CheckBox _copyLocked;
+    private readonly CheckBox _resumePartials;
+    private readonly CheckBox _writeChecksums;
+    private readonly NumericUpDown _securePasses;
+    private readonly TextBox _completionScript;
+    private readonly ListBox _extraDestinations;
 
     public AppSettings Result { get; }
 
@@ -174,6 +180,7 @@ internal sealed class OptionsDialog : Form
         _palette = palette;
         Result = CloneSettings(settings);
         _favorites = new ListBox();
+        _extraDestinations = new ListBox();
 
         Text = "Preferencias de XoPy";
         BackColor = palette.Canvas;
@@ -209,6 +216,12 @@ internal sealed class OptionsDialog : Form
         _speed = Numeric(settings.SpeedLimitMiB, 0, 100000, 10);
         _preserveTimestamps = Check("Conservar las fechas de modificación", settings.PreserveTimestamps);
         _recycleBin = Check("Enviar a la Papelera de reciclaje al eliminar", settings.UseRecycleBin);
+        _copyLocked = Check("Copiar archivos bloqueados o en uso", settings.CopyLockedFiles);
+        _resumePartials = Check("Reanudar copias parciales al reintentar", settings.ResumePartials);
+        _writeChecksums = Check("Crear un archivo de checksums al terminar", settings.WriteChecksumFile);
+        _securePasses = Numeric(settings.SecureDeletePasses, 0, 7, 1);
+        _completionScript = TextBox(settings.CompletionScript);
+        _extraDestinations.Items.AddRange(settings.ExtraDestinations.Cast<object>().ToArray());
 
         _verifyAlgorithm = new ChoiceButton(palette, new[]
         {
@@ -285,12 +298,69 @@ internal sealed class OptionsDialog : Form
             ("", _startWithWindows, 40),
             ("", _startMinimized, 40)));
 
-        _tabs.TabPages.Add(Page("Transferencia", 5,
+        var extraPanel = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 2,
+            BackColor = _palette.Canvas
+        };
+        extraPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        extraPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
+        _extraDestinations.Dock = DockStyle.Fill;
+        _extraDestinations.BorderStyle = BorderStyle.FixedSingle;
+        _extraDestinations.BackColor = _palette.Surface;
+        _extraDestinations.ForeColor = _palette.Text;
+        _extraDestinations.IntegralHeight = false;
+        var extraButtons = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
+            BackColor = _palette.Canvas
+        };
+        var addExtra = Ui.DialogButton("Añadir destino…", _palette);
+        addExtra.Size = new Size(140, 28);
+        addExtra.Click += (_, _) =>
+        {
+            using var dialog = new FolderBrowserDialog { Description = "Destino adicional" };
+            if (dialog.ShowDialog(this) != DialogResult.OK) return;
+            var path = dialog.SelectedPath;
+            if (string.Equals(path, _destination.Text.Trim(), StringComparison.OrdinalIgnoreCase)) return;
+            if (!_extraDestinations.Items.Cast<object>().Any(entry => string.Equals(entry.ToString(), path, StringComparison.OrdinalIgnoreCase)))
+                _extraDestinations.Items.Add(path);
+        };
+        var removeExtra = Ui.DialogButton("Quitar", _palette);
+        removeExtra.Size = new Size(90, 28);
+        removeExtra.Click += (_, _) =>
+        {
+            if (_extraDestinations.SelectedIndex >= 0) _extraDestinations.Items.RemoveAt(_extraDestinations.SelectedIndex);
+        };
+        extraButtons.Controls.AddRange(new Control[] { addExtra, removeExtra });
+        extraPanel.Controls.Add(_extraDestinations, 0, 0);
+        extraPanel.Controls.Add(extraButtons, 0, 1);
+
+        _tabs.TabPages.Add(Page("Transferencia", 12,
             ("Transferencias simultáneas", _parallel, 48),
             ("Búfer por archivo (KiB)", _buffer, 48),
             ("Límite de velocidad (MiB/s, 0 = sin límite)", _speed, 48),
             ("", _preserveTimestamps, 40),
-            ("", _recycleBin, 40)));
+            ("", _recycleBin, 40),
+            ("", _copyLocked, 36),
+            ("", _resumePartials, 36),
+            ("", _writeChecksums, 36),
+            ("Pasadas de borrado seguro (0 = normal)", _securePasses, 44),
+            ("Script al finalizar", _completionScript, 44),
+            ("Destinos adicionales", extraPanel, 120),
+            ("", new Label
+            {
+                Text = "Los destinos adicionales reciben una copia completa de lo que se copie o mueva.\n" +
+                       "El script recibe como argumentos la carpeta de destino, los errores y la operación.",
+                AutoSize = true,
+                ForeColor = _palette.Muted,
+                Font = new Font("Segoe UI", 8.5f),
+                BackColor = Color.Transparent
+            }, 52)));
 
         var verifyPage = Page("Verificación", 3,
             ("Algoritmo", _verifyAlgorithm, 48),
@@ -484,6 +554,16 @@ internal sealed class OptionsDialog : Form
         Result.SpeedLimitMiB = (int)_speed.Value;
         Result.PreserveTimestamps = _preserveTimestamps.Checked;
         Result.UseRecycleBin = _recycleBin.Checked;
+        Result.CopyLockedFiles = _copyLocked.Checked;
+        Result.ResumePartials = _resumePartials.Checked;
+        Result.WriteChecksumFile = _writeChecksums.Checked;
+        Result.SecureDeletePasses = (int)_securePasses.Value;
+        Result.CompletionScript = _completionScript.Text.Trim();
+        Result.ExtraDestinations = _extraDestinations.Items.Cast<object>()
+            .Select(entry => entry.ToString() ?? string.Empty)
+            .Where(path => path.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
         Result.Verify = (VerifyAlgorithm)_verifyAlgorithm.SelectedIndex;
         Result.VerifyAfterCopy = _verifyAfterCopy.Checked;
         Result.Conflict = (ConflictPolicy)_conflict.SelectedIndex;
@@ -511,6 +591,12 @@ internal sealed class OptionsDialog : Form
         target.SpeedLimitMiB = Result.SpeedLimitMiB;
         target.PreserveTimestamps = Result.PreserveTimestamps;
         target.UseRecycleBin = Result.UseRecycleBin;
+        target.CopyLockedFiles = Result.CopyLockedFiles;
+        target.ResumePartials = Result.ResumePartials;
+        target.WriteChecksumFile = Result.WriteChecksumFile;
+        target.SecureDeletePasses = Result.SecureDeletePasses;
+        target.CompletionScript = Result.CompletionScript;
+        target.ExtraDestinations = Result.ExtraDestinations.ToList();
         target.Verify = Result.Verify;
         target.VerifyAfterCopy = Result.VerifyAfterCopy;
         target.Conflict = Result.Conflict;
@@ -537,6 +623,12 @@ internal sealed class OptionsDialog : Form
         SpeedLimitMiB = source.SpeedLimitMiB,
         PreserveTimestamps = source.PreserveTimestamps,
         UseRecycleBin = source.UseRecycleBin,
+        CopyLockedFiles = source.CopyLockedFiles,
+        ResumePartials = source.ResumePartials,
+        WriteChecksumFile = source.WriteChecksumFile,
+        SecureDeletePasses = source.SecureDeletePasses,
+        CompletionScript = source.CompletionScript,
+        ExtraDestinations = source.ExtraDestinations.ToList(),
         Verify = source.Verify,
         VerifyAfterCopy = source.VerifyAfterCopy,
         Conflict = source.Conflict,
@@ -633,7 +725,42 @@ internal sealed class HistoryDialog : Form
             }
         };
 
+        var exportHtml = Ui.DialogButton("Exportar HTML", palette);
+        exportHtml.Click += (_, _) =>
+        {
+            using var dialog = new SaveFileDialog
+            {
+                Title = "Exportar historial",
+                Filter = "Página HTML (*.html)|*.html",
+                FileName = $"xopy-historial-{DateTime.Now:yyyyMMdd-HHmm}.html"
+            };
+            if (dialog.ShowDialog(this) != DialogResult.OK) return;
+            try
+            {
+                var html = new StringBuilder();
+                html.AppendLine("<!DOCTYPE html><html lang=\"es\"><head><meta charset=\"utf-8\"><title>Historial de XoPy</title><style>")
+                    .AppendLine("body{font-family:'Segoe UI',sans-serif;background:#16181d;color:#e6e8ee;margin:28px}")
+                    .AppendLine("h1{font-size:20px}table{border-collapse:collapse;width:100%;font-size:13px}")
+                    .AppendLine("th,td{border-bottom:1px solid #2b2f38;padding:6px 8px;text-align:left}")
+                    .AppendLine("th{color:#9aa3b2}.bad{color:#ff7a7a}.ok{color:#57d38c}")
+                    .AppendLine("</style></head><body><h1>Historial de transferencias</h1><table>")
+                    .AppendLine("<tr><th>Fecha</th><th>Operación</th><th>Destino</th><th>Archivos</th><th>Tamaño</th><th>Velocidad</th><th>Resultado</th></tr>");
+                foreach (var entry in entries)
+                {
+                    var css = entry.Errors > 0 ? "bad" : "ok";
+                    html.AppendLine($"<tr><td>{entry.FinishedAt:yyyy-MM-dd HH:mm}</td><td>{entry.OperationText}</td><td>{System.Net.WebUtility.HtmlEncode(entry.Destination)}</td><td>{entry.FileCount}</td><td>{Format.Bytes(entry.Bytes)}</td><td>{Format.Speed(entry.BytesPerSecond)}</td><td class=\"{css}\">{entry.ResultText}</td></tr>");
+                }
+                html.AppendLine("</table></body></html>");
+                File.WriteAllText(dialog.FileName, html.ToString(), new UTF8Encoding(false));
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, "No se pudo exportar: " + ex.Message, "XoPy", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        };
+
         buttons.Controls.Add(close);
+        buttons.Controls.Add(exportHtml);
         buttons.Controls.Add(export);
 
         var root = new TableLayoutPanel

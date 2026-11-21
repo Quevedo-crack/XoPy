@@ -16,10 +16,15 @@ public enum ErrorChoice { Retry, Skip, SkipAll, Abort }
 public sealed class EngineOptions
 {
     public string Destination { get; set; } = string.Empty;
+    public List<string> Destinations { get; set; } = new();
+    public bool CopyLockedFiles { get; set; }
+    public bool ResumePartials { get; set; } = true;
+    public int SecureDeletePasses { get; set; }
     public ConflictPolicy Conflict { get; set; } = ConflictPolicy.Ask;
     public ErrorPolicy OnError { get; set; } = ErrorPolicy.Retry;
     public VerifyAlgorithm Verify { get; set; } = VerifyAlgorithm.None;
     public bool VerifyAfterCopy { get; set; }
+    public bool ComputeHashes { get; set; }
     public int RetryCount { get; set; } = 3;
     public int Parallelism { get; set; } = 2;
     public int BufferSize { get; set; } = 1024 * 1024;
@@ -107,12 +112,15 @@ public sealed class CopyEngine
         _stickyError = null;
         options.Parallelism = Math.Clamp(options.Parallelism, 1, 16);
         options.BufferSize = Math.Clamp(options.BufferSize, 64 * 1024, 8 * 1024 * 1024);
+        options.Destinations = DestinationList(options);
+        if (options.CopyLockedFiles) Privileges.EnableBackupPrivileges();
 
+        var destinations = Math.Max(1, options.Destinations.Count);
         Interlocked.Exchange(ref _doneBytes, 0);
         Interlocked.Exchange(ref _errors, 0);
-        Interlocked.Exchange(ref _totalBytes, list.Sum(item => Math.Max(0, item.SizeBytes)));
+        Interlocked.Exchange(ref _totalBytes, list.Sum(item => Math.Max(0, item.SizeBytes)) * destinations);
         _clock.Restart();
-        FileLog.Write($"Inicio: {list.Count} elementos, {options.Destination}, verificar={options.VerifyAfterCopy} ({options.Verify})");
+        FileLog.Write($"Inicio: {list.Count} elementos, destinos={string.Join(" | ", options.Destinations)}, verificar={options.VerifyAfterCopy} ({options.Verify}), reanudar={options.ResumePartials}");
         _ = Task.Run(() => RunAsync(list, options, _cts.Token));
         return true;
     }
@@ -185,6 +193,14 @@ public sealed class CopyEngine
         }
     }
 
+    private static List<string> DestinationList(EngineOptions options)
+    {
+        var list = new List<string>();
+        if (!string.IsNullOrWhiteSpace(options.Destination)) list.Add(options.Destination);
+        if (options.Destinations is not null) list.AddRange(options.Destinations);
+        return list.Where(path => !string.IsNullOrWhiteSpace(path)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
     private async Task ProcessAsync(TransferItem item, EngineOptions options, CancellationToken token)
     {
         if (item.Operation == OperationType.Delete)
@@ -195,10 +211,13 @@ public sealed class CopyEngine
 
         if (item.Kind == ItemKind.DirectoryEntry)
         {
-            var directory = string.IsNullOrWhiteSpace(item.DestinationPath)
-                ? Path.Combine(options.Destination, item.RelativePath)
-                : item.DestinationPath;
-            Directory.CreateDirectory(directory);
+            var destinations = DestinationList(options).Where(path => !string.IsNullOrWhiteSpace(path)).ToList();
+            if (destinations.Count == 0) throw new IOException("No hay ninguna carpeta de destino.");
+            foreach (var destination in destinations)
+            {
+                var directory = Path.Combine(destination, item.RelativePath);
+                Directory.CreateDirectory(directory);
+            }
             item.TransferredBytes = 0;
             return;
         }
@@ -217,24 +236,47 @@ public sealed class CopyEngine
         var source = Path.GetFullPath(item.SourcePath);
         if (!File.Exists(source)) throw new FileNotFoundException("No se encontró el archivo: " + source, source);
 
-        var destination = string.IsNullOrWhiteSpace(item.DestinationPath)
-            ? Path.Combine(options.Destination, Path.GetFileName(source))
-            : item.DestinationPath;
-        item.DestinationPath = destination;
+        var destinations = DestinationList(options);
+        if (destinations.Count == 0 && !string.IsNullOrWhiteSpace(item.DestinationPath))
+        {
+            var folder = Path.GetDirectoryName(item.DestinationPath);
+            if (!string.IsNullOrEmpty(folder)) destinations.Add(folder);
+        }
+        if (destinations.Count == 0) throw new IOException("No hay ninguna carpeta de destino.");
 
-        var directory = Path.GetDirectoryName(destination);
-        if (string.IsNullOrEmpty(directory)) throw new IOException("Ruta de destino no válida: " + destination);
-        Directory.CreateDirectory(directory);
+        var relative = string.IsNullOrWhiteSpace(item.RelativePath) ? Path.GetFileName(source) : item.RelativePath;
+        var copied = 0;
+        var skipped = 0;
 
-        var target = ResolveTarget(source, destination, options, token);
-        if (target is null)
+        foreach (var destination in destinations)
+        {
+            token.ThrowIfCancellationRequested();
+            var target = Path.Combine(destination, relative);
+            var directory = Path.GetDirectoryName(target);
+            if (string.IsNullOrEmpty(directory)) throw new IOException("Ruta de destino no válida: " + target);
+            Directory.CreateDirectory(directory);
+
+            item.TransferredBytes = 0;
+            var resolved = ResolveTarget(source, target, options, token);
+            if (resolved is null)
+            {
+                skipped++;
+                continue;
+            }
+
+            await CopyWithRetryAsync(source, resolved, item, options, token).ConfigureAwait(false);
+            if (item.State is ItemState.Failed or ItemState.Skipped) return;
+            item.DestinationPath = resolved;
+            copied++;
+        }
+
+        if (copied == 0 && skipped > 0)
         {
             item.State = ItemState.Skipped;
             item.TransferredBytes = item.SizeBytes;
             return;
         }
 
-        await CopyWithRetryAsync(source, target, item, options, token).ConfigureAwait(false);
         item.TransferredBytes = item.SizeBytes;
 
         if (item.Operation == OperationType.Move)
@@ -307,25 +349,64 @@ public sealed class CopyEngine
         var directory = Path.GetDirectoryName(target)!;
         var name = Path.GetFileName(target);
         var temp = Path.Combine(directory, "." + name + ".xopy-part");
+        long sourceLength;
+        try { sourceLength = new FileInfo(source).Length; } catch { sourceLength = 0; }
 
-        // Primero intentamos escribir en un temporal para no dejar el destino a medias.
-        // Si no se puede crear (permisos, rutas largas, unidades de red), escribimos directo.
-        bool tempCreated = false;
+        long existing = 0;
+        if (options.ResumePartials && File.Exists(temp))
+        {
+            try { existing = new FileInfo(temp).Length; } catch { existing = 0; }
+            if (existing > sourceLength)
+            {
+                TryDeleteFile(temp);
+                existing = 0;
+            }
+        }
+
+        // Copia ya terminada en una ejecución anterior: solo hay que verificar y colocar.
+        if (existing > 0 && existing == sourceLength)
+        {
+            item.TransferredBytes = sourceLength;
+            await FinishFileAsync(source, temp, item, options, token).ConfigureAwait(false);
+            if (File.Exists(target)) ClearReadOnly(target);
+            File.Move(temp, target, true);
+            ApplyMetadata(source, target, options);
+            FileLog.Write($"Reanudada (completa) la copia parcial de {target}");
+            return;
+        }
+
+        var keepTemp = false;
         try
         {
-            tempCreated = true;
-            await WriteFileAsync(source, temp, item, options, token).ConfigureAwait(false);
+            if (existing > 0)
+            {
+                item.TransferredBytes = existing;
+                FileLog.Write($"Reanudando {temp} desde {existing} de {sourceLength} bytes");
+                await WriteFileAsync(source, temp, item, options, token, existing, true).ConfigureAwait(false);
+            }
+            else
+            {
+                await WriteFileAsync(source, temp, item, options, token).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            keepTemp = true;
+            throw;
         }
         catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or NotSupportedException)
         {
+            if (existing > 0)
+            {
+                // No mezclamos una copia parcial con una escritura directa.
+                keepTemp = true;
+                throw;
+            }
+
+            // Si no se puede crear el temporal (permisos, rutas largas, unidades de red), copiamos directo.
             TryDeleteFile(temp);
-            tempCreated = false;
             item.TransferredBytes = 0;
             FileLog.Write($"Temporal no disponible para {target}: {ex.Message}. Se copia directamente.");
-        }
-
-        if (!tempCreated)
-        {
             await WriteFileAsync(source, target, item, options, token).ConfigureAwait(false);
             await FinishFileAsync(source, target, item, options, token).ConfigureAwait(false);
             return;
@@ -338,15 +419,20 @@ public sealed class CopyEngine
             File.Move(temp, target, true);
             ApplyMetadata(source, target, options);
         }
+        catch
+        {
+            keepTemp = true;
+            throw;
+        }
         finally
         {
-            TryDeleteFile(temp);
+            if (!keepTemp) TryDeleteFile(temp);
         }
     }
 
     private async Task FinishFileAsync(string source, string writtenPath, TransferItem item, EngineOptions options, CancellationToken token)
     {
-        if (options.VerifyAfterCopy && options.Verify != VerifyAlgorithm.None)
+        if ((options.VerifyAfterCopy || options.ComputeHashes) && options.Verify != VerifyAlgorithm.None)
         {
             item.State = ItemState.Verifying;
             try
@@ -355,7 +441,7 @@ public sealed class CopyEngine
                 var targetHash = await Hashing.ComputeAsync(options.Verify, writtenPath, token).ConfigureAwait(false);
                 item.HashSource = Hashing.ToText(options.Verify, sourceHash);
                 item.HashTarget = Hashing.ToText(options.Verify, targetHash);
-                if (!Hashing.Equal(sourceHash, targetHash))
+                if (options.VerifyAfterCopy && !Hashing.Equal(sourceHash, targetHash))
                     throw new IOException($"{Format.Algorithm(options.Verify)} no coincide al verificar la copia.");
             }
             finally
@@ -386,16 +472,17 @@ public sealed class CopyEngine
         catch { }
     }
 
-    private async Task WriteFileAsync(string source, string destination, TransferItem item, EngineOptions options, CancellationToken token)
+    private async Task WriteFileAsync(string source, string destination, TransferItem item, EngineOptions options,
+        CancellationToken token, long offset = 0, bool append = false)
     {
-        await using var input = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, options.BufferSize,
-            FileOptions.Asynchronous | FileOptions.SequentialScan);
-        await using var output = new FileStream(destination, FileMode.Create, FileAccess.Write, FileShare.None, options.BufferSize,
-            FileOptions.Asynchronous | FileOptions.SequentialScan);
+        await using var input = OpenSourceRead(source, options, options.BufferSize);
+        if (offset > 0) input.Seek(offset, SeekOrigin.Begin);
+        await using var output = new FileStream(destination, append ? FileMode.Append : FileMode.Create, FileAccess.Write,
+            FileShare.None, options.BufferSize, FileOptions.Asynchronous | FileOptions.SequentialScan);
 
         var buffer = new byte[options.BufferSize];
         var throttle = Stopwatch.StartNew();
-        long copied = 0;
+        long copied = offset;
 
         while (true)
         {
@@ -415,32 +502,67 @@ public sealed class CopyEngine
             item.TransferredBytes = copied;
             item.CurrentFile = source;
             Interlocked.Add(ref _doneBytes, read);
-            await ThrottleAsync(copied, throttle, options, token).ConfigureAwait(false);
+            await ThrottleAsync(copied - offset, throttle, options, token).ConfigureAwait(false);
         }
 
         await output.FlushAsync(token).ConfigureAwait(false);
+    }
+
+    /// <summary>Abre el origen permitiendo que otro programa lo tenga abierto; si está bloqueado, usa la API de copia de seguridad.</summary>
+    private static Stream OpenSourceRead(string path, EngineOptions options, int bufferSize)
+    {
+        try
+        {
+            return new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete,
+                bufferSize, FileOptions.Asynchronous | FileOptions.SequentialScan);
+        }
+        catch (Exception ex) when (options.CopyLockedFiles && ex is IOException or UnauthorizedAccessException)
+        {
+            var handle = NativeMethods.CreateFileW(path, NativeMethods.GenericRead, NativeMethods.FileShareAll,
+                IntPtr.Zero, NativeMethods.OpenExisting, NativeMethods.FileFlagBackupSemantics | NativeMethods.FileFlagSequentialScan,
+                IntPtr.Zero);
+            if (handle.IsInvalid)
+                throw new IOException("El archivo está bloqueado y no se pudo abrir con permisos de copia de seguridad: " + path,
+                    new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error()));
+            FileLog.Write("Abierto con permisos de copia de seguridad (archivo bloqueado): " + path);
+            return new FileStream(handle, FileAccess.Read, bufferSize);
+        }
     }
 
     private async Task TestAsync(TransferItem item, EngineOptions options, CancellationToken token)
     {
         var source = Path.GetFullPath(item.SourcePath);
         var algorithm = options.Verify == VerifyAlgorithm.None ? VerifyAlgorithm.Sha256 : options.Verify;
-        var target = string.IsNullOrWhiteSpace(item.DestinationPath)
-            ? Path.Combine(options.Destination, Path.GetFileName(source))
-            : item.DestinationPath;
-        item.DestinationPath = target;
-
         if (!File.Exists(source)) throw new FileNotFoundException("No se encontró el archivo: " + source, source);
-        if (!File.Exists(target)) throw new FileNotFoundException("No se encontró la copia de destino: " + target, target);
+
+        var destinations = DestinationList(options).Where(path => !string.IsNullOrWhiteSpace(path)).ToList();
+        if (destinations.Count == 0 && !string.IsNullOrWhiteSpace(item.DestinationPath))
+        {
+            var folder = Path.GetDirectoryName(item.DestinationPath);
+            if (!string.IsNullOrEmpty(folder)) destinations.Add(folder);
+        }
+        var relative = string.IsNullOrWhiteSpace(item.RelativePath) ? Path.GetFileName(source) : item.RelativePath;
 
         item.State = ItemState.Verifying;
         var sourceHash = await Hashing.ComputeAsync(algorithm, source, token).ConfigureAwait(false);
-        var targetHash = await Hashing.ComputeAsync(algorithm, target, token).ConfigureAwait(false);
         item.HashSource = Hashing.ToText(algorithm, sourceHash);
-        item.HashTarget = Hashing.ToText(algorithm, targetHash);
-        if (!Hashing.Equal(sourceHash, targetHash))
-            throw new IOException($"{Format.Algorithm(algorithm)} no coincide con el original.");
 
+        var checkedTargets = 0;
+        foreach (var destination in destinations)
+        {
+            var target = Path.Combine(destination, relative);
+            if (!File.Exists(target))
+                throw new FileNotFoundException("No se encontró la copia de destino: " + target, target);
+
+            var targetHash = await Hashing.ComputeAsync(algorithm, target, token).ConfigureAwait(false);
+            item.HashTarget = Hashing.ToText(algorithm, targetHash);
+            item.DestinationPath = target;
+            if (!Hashing.Equal(sourceHash, targetHash))
+                throw new IOException($"{Format.Algorithm(algorithm)} no coincide con el original en {target}.");
+            checkedTargets++;
+        }
+
+        if (checkedTargets == 0) throw new IOException("No hay destinos que verificar.");
         Interlocked.Add(ref _doneBytes, Math.Max(0, item.SizeBytes));
         item.TransferredBytes = item.SizeBytes;
         item.State = ItemState.Running;
@@ -465,6 +587,7 @@ public sealed class CopyEngine
 
         if (!isDirectory)
         {
+            if (options.SecureDeletePasses > 0) SecureWipe(source, options.SecureDeletePasses);
             DeleteFileForcibly(source);
             item.TransferredBytes = item.SizeBytes;
             Interlocked.Add(ref _doneBytes, Math.Max(0, item.SizeBytes));
@@ -476,6 +599,7 @@ public sealed class CopyEngine
             token.ThrowIfCancellationRequested();
             await WaitWhilePausedAsync(token).ConfigureAwait(false);
             var length = SafeLength(file);
+            if (options.SecureDeletePasses > 0) SecureWipe(file, options.SecureDeletePasses);
             DeleteFileForcibly(file);
             item.TransferredBytes += length;
             Interlocked.Add(ref _doneBytes, length);
@@ -678,6 +802,119 @@ public sealed class CopyEngine
     private static void TryDeleteFile(string path)
     {
         try { if (File.Exists(path)) File.Delete(path); } catch { }
+    }
+
+    /// <summary>Sobrescribe el contenido antes de borrar (borrado seguro).</summary>
+    private static void SecureWipe(string path, int passes)
+    {
+        try
+        {
+            var info = new FileInfo(path);
+            if (!info.Exists || info.Length == 0) return;
+            ClearReadOnly(path);
+            var length = info.Length;
+            var buffer = new byte[1024 * 1024];
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Write, FileShare.None, buffer.Length);
+            for (var pass = 0; pass < Math.Max(1, passes); pass++)
+            {
+                stream.Position = 0;
+                var remaining = length;
+                while (remaining > 0)
+                {
+                    var chunk = (int)Math.Min(buffer.Length, remaining);
+                    Random.Shared.NextBytes(buffer.AsSpan(0, chunk));
+                    stream.Write(buffer, 0, chunk);
+                    remaining -= chunk;
+                }
+                stream.Flush(true);
+            }
+            FileLog.Write($"Borrado seguro ({passes} pasada(s)): {path}");
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write("No se pudo sobrescribir " + path + ": " + ex.Message);
+        }
+    }
+}
+
+internal static class NativeMethods
+{
+    public const uint GenericRead = 0x80000000;
+    public const uint FileShareAll = 0x00000007;
+    public const uint OpenExisting = 3;
+    public const uint FileFlagBackupSemantics = 0x02000000;
+    public const uint FileFlagSequentialScan = 0x08000000;
+
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    public static extern Microsoft.Win32.SafeHandles.SafeFileHandle CreateFileW(string lpFileName, uint dwDesiredAccess,
+        uint dwShareMode, IntPtr lpSecurityAttributes, uint dwCreationDisposition, uint dwFlagsAndAttributes, IntPtr hTemplateFile);
+
+    [DllImport("kernel32.dll")]
+    public static extern IntPtr GetCurrentProcess();
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool CloseHandle(IntPtr handle);
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    public static extern bool OpenProcessToken(IntPtr processHandle, uint desiredAccess, out IntPtr tokenHandle);
+
+    [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    public static extern bool LookupPrivilegeValueW(string? systemName, string name, out Luid luid);
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    public static extern bool AdjustTokenPrivileges(IntPtr tokenHandle, bool disableAllPrivileges,
+        ref TokenPrivileges newState, uint bufferLength, IntPtr previousState, IntPtr returnLength);
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct Luid
+    {
+        public uint LowPart;
+        public int HighPart;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct TokenPrivileges
+    {
+        public uint PrivilegeCount;
+        public Luid Luid;
+        public uint Attributes;
+    }
+}
+
+/// <summary>Activa privilegios de copia de seguridad para poder leer archivos protegidos o en uso.</summary>
+public static class Privileges
+{
+    private const uint TokenAdjustPrivileges = 0x0020;
+    private const uint TokenQuery = 0x0008;
+    private const uint SePrivilegeEnabled = 0x0002;
+
+    public static void EnableBackupPrivileges()
+    {
+        Enable("SeBackupPrivilege");
+        Enable("SeRestorePrivilege");
+    }
+
+    private static void Enable(string name)
+    {
+        var token = IntPtr.Zero;
+        try
+        {
+            if (!NativeMethods.OpenProcessToken(NativeMethods.GetCurrentProcess(), TokenAdjustPrivileges | TokenQuery, out token))
+                return;
+            if (!NativeMethods.LookupPrivilegeValueW(null, name, out var luid)) return;
+            var privileges = new NativeMethods.TokenPrivileges
+            {
+                PrivilegeCount = 1,
+                Luid = luid,
+                Attributes = SePrivilegeEnabled
+            };
+            NativeMethods.AdjustTokenPrivileges(token, false, ref privileges, 0, IntPtr.Zero, IntPtr.Zero);
+        }
+        catch { }
+        finally
+        {
+            if (token != IntPtr.Zero) NativeMethods.CloseHandle(token);
+        }
     }
 }
 
