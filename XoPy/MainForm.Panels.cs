@@ -18,6 +18,7 @@ public sealed partial class MainForm
     private readonly Font _monoFont = new("Consolas", 8.25f);
 
     private Label _targetPathLabel = null!;
+    private Panel _optionsScroll = null!;
     private bool _syncingOptions;
     private List<HistoryEntry> _history = new();
 
@@ -165,13 +166,14 @@ public sealed partial class MainForm
 
     private Control BuildOptionsPage()
     {
-        var scroll = new Panel
+        _optionsScroll = new Panel
         {
             Dock = DockStyle.Fill,
             AutoScroll = true,
             BackColor = _palette.Surface,
             Padding = new Padding(16, 12, 16, 12)
         };
+        var scroll = _optionsScroll;
 
         var grid = new TableLayoutPanel
         {
@@ -475,6 +477,7 @@ public sealed partial class MainForm
             _palette, 8.5f, false, _palette.Muted);
         hint.Dock = DockStyle.Fill;
         hint.AutoSize = false;
+        hint.AutoEllipsis = true;
         hint.TextAlign = ContentAlignment.TopLeft;
 
         page.Controls.Add(title, 0, 0);
@@ -600,6 +603,7 @@ public sealed partial class MainForm
     private void RefreshLog()
     {
         if (_logBox is null) return;
+        try { SetWindowTheme(_logBox.Handle, "DarkMode_Explorer", null); } catch { }
         var builder = new StringBuilder();
         builder.AppendLine("=== Historial de transferencias ===");
         if (_history.Count == 0) builder.AppendLine("(todavía no hay transferencias)");

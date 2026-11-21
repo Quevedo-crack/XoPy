@@ -33,17 +33,17 @@ public sealed partial class MainForm : Form
     private Button _favoritesButton = null!;
     private readonly ContextMenuStrip _favoritesMenu = new();
     private CheckBox _verifyCheck = null!;
-    private Button _addFilesButton = null!;
-    private Button _addFolderButton = null!;
-    private Button _copyButton = null!;
-    private Button _moveButton = null!;
-    private Button _deleteButton = null!;
-    private Button _testButton = null!;
-    private Button _pauseButton = null!;
-    private Button _skipButton = null!;
-    private Button _stopButton = null!;
-    private Button _optionsButton = null!;
-    private Button _menuButton = null!;
+    private ToolStripButton _addFilesButton = null!;
+    private ToolStripButton _addFolderButton = null!;
+    private ToolStripButton _copyButton = null!;
+    private ToolStripButton _moveButton = null!;
+    private ToolStripButton _deleteButton = null!;
+    private ToolStripButton _testButton = null!;
+    private ToolStripButton _pauseButton = null!;
+    private ToolStripButton _skipButton = null!;
+    private ToolStripButton _stopButton = null!;
+    private ToolStripButton _optionsButton = null!;
+    private ToolStripButton _menuButton = null!;
     private Button _browseButton = null!;
     private Button _removeButton = null!;
     private Button _clearButton = null!;
@@ -254,97 +254,73 @@ public sealed partial class MainForm : Form
 
     private Control BuildToolbar()
     {
-        var bar = new TableLayoutPanel
+        var bar = new ToolStrip
         {
             Dock = DockStyle.Fill,
-            ColumnCount = 2,
-            BackColor = _palette.Surface,
-            Padding = new Padding(10, 8, 10, 8),
-            RowCount = 1
-        };
-        bar.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
-        bar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        bar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-
-        _addFilesButton = Ui.ToolButton("Archivos", Icons.Add, _palette);
-        _addFilesButton.Size = new Size(116, 38);
-        _addFilesButton.Click += (_, _) => AddFiles();
-
-        _addFolderButton = Ui.ToolButton("Carpeta", Icons.FolderAdd, _palette);
-        _addFolderButton.Size = new Size(112, 38);
-        _addFolderButton.Click += (_, _) => AddFolder();
-
-        _copyButton = Ui.ToolButton("Copiar…", Icons.Copy, _palette, _palette.Accent);
-        _copyButton.Size = new Size(100, 38);
-        _copyButton.Click += (_, _) => StartTransfer(OperationType.Copy);
-
-        _moveButton = Ui.ToolButton("Mover…", Icons.Move, _palette);
-        _moveButton.Size = new Size(96, 38);
-        _moveButton.Click += (_, _) => StartTransfer(OperationType.Move);
-
-        _testButton = Ui.ToolButton("Test", Icons.Verify, _palette);
-        _testButton.Size = new Size(84, 38);
-        _testButton.Click += (_, _) => StartTransfer(OperationType.Test);
-
-        _deleteButton = Ui.ToolButton("Eliminar", Icons.Delete, _palette);
-        _deleteButton.Size = new Size(96, 38);
-        _deleteButton.Click += (_, _) => StartTransfer(OperationType.Delete);
-
-        _pauseButton = Ui.ToolButton("Pausar", Icons.Pause, _palette);
-        _pauseButton.Size = new Size(94, 38);
-        _pauseButton.Click += (_, _) => TogglePause();
-
-        _skipButton = Ui.ToolButton("Saltar", Icons.ChevronRight, _palette);
-        _skipButton.Size = new Size(88, 38);
-        _skipButton.Click += (_, _) => SkipCurrent();
-
-        _stopButton = Ui.ToolButton("Detener", Icons.Stop, _palette);
-        _stopButton.Size = new Size(94, 38);
-        _stopButton.Click += (_, _) => StopTransfer();
-
-        _optionsButton = Ui.ToolButton("Opciones", Icons.Settings, _palette);
-        _optionsButton.Size = new Size(104, 38);
-        _optionsButton.Click += (_, _) => ShowOptions();
-
-        _menuButton = Ui.ToolButton("Menú", Icons.More, _palette);
-        _menuButton.Size = new Size(86, 38);
-        _menuButton.Margin = new Padding(0);
-        _menuButton.Click += (_, _) => ShowMainMenu();
-
-        var left = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
+            GripStyle = ToolStripGripStyle.Hidden,
+            LayoutStyle = ToolStripLayoutStyle.HorizontalStackWithOverflow,
+            CanOverflow = true,
             AutoSize = false,
-            WrapContents = false,
+            Height = 58,
+            Padding = new Padding(10, 9, 10, 8),
             BackColor = _palette.Surface,
-            Margin = new Padding(0)
+            Font = new Font("Segoe UI", 8.75f, FontStyle.Bold),
+            Renderer = new DarkMenuRenderer(_palette)
         };
-        left.Controls.AddRange(new Control[]
+
+        _addFilesButton = BarButton("Archivos", Icons.Add, (_, _) => AddFiles());
+        _addFolderButton = BarButton("Carpeta", Icons.FolderAdd, (_, _) => AddFolder());
+        _copyButton = BarButton("Copiar…", Icons.Copy, (_, _) => StartTransfer(OperationType.Copy), true);
+        _moveButton = BarButton("Mover…", Icons.Move, (_, _) => StartTransfer(OperationType.Move));
+        _testButton = BarButton("Test", Icons.Verify, (_, _) => StartTransfer(OperationType.Test));
+        _deleteButton = BarButton("Eliminar", Icons.Delete, (_, _) => StartTransfer(OperationType.Delete));
+        _pauseButton = BarButton("Pausar", Icons.Pause, (_, _) => TogglePause());
+        _skipButton = BarButton("Saltar", Icons.ChevronRight, (_, _) => SkipCurrent());
+        _stopButton = BarButton("Detener", Icons.Stop, (_, _) => StopTransfer());
+        var spacer = new ToolStripLabel
+        {
+            Text = string.Empty,
+            Spring = true,
+            AutoSize = false,
+            Width = 12,
+            Margin = Padding.Empty
+        };
+        _optionsButton = BarButton("Opciones", Icons.Settings, (_, _) => ShowOptions());
+        _optionsButton.Margin = new Padding(0, 0, 4, 0);
+        _menuButton = BarButton("Menú", Icons.More, (_, _) => ShowMainMenu());
+        _menuButton.Margin = new Padding(0);
+
+        bar.Items.AddRange(new ToolStripItem[]
         {
             _addFilesButton, _addFolderButton, _copyButton, _moveButton, _testButton, _deleteButton,
-            _pauseButton, _skipButton, _stopButton
+            _pauseButton, _skipButton, _stopButton, spacer, _optionsButton, _menuButton
         });
-
-        var right = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            AutoSize = true,
-            WrapContents = false,
-            FlowDirection = FlowDirection.RightToLeft,
-            BackColor = _palette.Surface,
-            Margin = new Padding(0)
-        };
-        right.Controls.Add(_menuButton);
-        right.Controls.Add(_optionsButton);
-
-        bar.Controls.Add(left, 0, 0);
-        bar.Controls.Add(right, 1, 0);
-        bar.Paint += (_, e) =>
-        {
-            using var pen = new Pen(_palette.Border);
-            e.Graphics.DrawLine(pen, 0, bar.Height - 1, bar.Width, bar.Height - 1);
-        };
         return bar;
+    }
+
+    private ToolStripButton BarButton(string text, string glyph, EventHandler click, bool accent = false)
+    {
+        var foreground = accent ? Color.White : _palette.Text;
+        var font = new Font("Segoe UI", 8.75f, FontStyle.Bold);
+        var width = TextRenderer.MeasureText(text, font).Width + 48;
+        var button = new ToolStripButton(text)
+        {
+            Image = Icons.Glyph(glyph, foreground, 18),
+            ImageScaling = ToolStripItemImageScaling.None,
+            DisplayStyle = ToolStripItemDisplayStyle.ImageAndText,
+            TextImageRelation = TextImageRelation.ImageBeforeText,
+            Font = font,
+            ForeColor = foreground,
+            BackColor = accent ? _palette.Accent : _palette.Surface,
+            AutoSize = false,
+            Size = new Size(width, 36),
+            Margin = new Padding(0, 0, 4, 0),
+            Padding = new Padding(6, 0, 6, 0),
+            TextAlign = ContentAlignment.MiddleCenter,
+            ToolTipText = text.TrimEnd('…')
+        };
+        button.Click += click;
+        return button;
     }
 
     private Control BuildDestinationBar()
@@ -801,7 +777,10 @@ public sealed partial class MainForm : Form
         menu.Items.Add("Mostrar los hashes", null, (_, _) => ToggleHashes());
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Acerca de XoPy", null, (_, _) => ShowAbout());
-        menu.Show(_menuButton, new Point(0, _menuButton.Height));
+        if (_menuButton.Owner is ToolStrip owner)
+            menu.Show(owner, new Point(_menuButton.Bounds.Left, _menuButton.Bounds.Bottom));
+        else
+            menu.Show(Cursor.Position);
     }
 
     [DllImport("dwmapi.dll")]
@@ -816,7 +795,7 @@ public sealed partial class MainForm : Form
     private void ApplyDarkScrollbars()
     {
         if (!_settings.DarkTheme) return;
-        foreach (var control in new Control?[] { _list, _logBox, _targetList, _jobsList })
+        foreach (var control in new Control?[] { _list, _logBox, _targetList, _jobsList, _optionsScroll })
         {
             try
             {

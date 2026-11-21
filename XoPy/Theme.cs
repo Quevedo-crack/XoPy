@@ -339,10 +339,44 @@ internal sealed class DarkMenuRenderer : ToolStripProfessionalRenderer
 
     protected override void OnRenderToolStripBorder(ToolStripRenderEventArgs e)
     {
-        if (e.ToolStrip is MenuStrip) return;
         using var pen = new Pen(_palette.Border);
-        var bounds = new Rectangle(0, 0, e.ToolStrip.Width - 1, e.ToolStrip.Height - 1);
-        e.Graphics.DrawRectangle(pen, bounds);
+        if (e.ToolStrip is ToolStripDropDown)
+        {
+            e.Graphics.DrawRectangle(pen, new Rectangle(0, 0, e.ToolStrip.Width - 1, e.ToolStrip.Height - 1));
+            return;
+        }
+        if (e.ToolStrip is MenuStrip) return;
+        e.Graphics.DrawLine(pen, 0, e.ToolStrip.Height - 1, e.ToolStrip.Width, e.ToolStrip.Height - 1);
+    }
+
+    protected override void OnRenderButtonBackground(ToolStripItemRenderEventArgs e)
+    {
+        if (e.Item is not ToolStripButton) { base.OnRenderButtonBackground(e); return; }
+
+        var background = e.Item.BackColor;
+        if (background.IsEmpty || background == Color.Transparent) background = _palette.Surface;
+        if (e.Item.Pressed) background = Ui.Lighten(background, 26);
+        else if (e.Item.Selected) background = Ui.Lighten(background, 14);
+        if (!e.Item.Enabled) background = _palette.SurfaceAlt;
+
+        using var brush = new SolidBrush(background);
+        using var path = Ui.RoundedRectangle(new Rectangle(0, 0, Math.Max(1, e.Item.Width - 1), Math.Max(1, e.Item.Height - 1)), 5);
+        e.Graphics.FillPath(brush, path);
+    }
+
+    protected override void OnRenderOverflowButtonBackground(ToolStripItemRenderEventArgs e)
+    {
+        using var background = new SolidBrush(_palette.Raised);
+        e.Graphics.FillRectangle(background, new Rectangle(Point.Empty, e.Item.Size));
+        using var pen = new Pen(_palette.Text, 1.6f);
+        var centerX = e.Item.Width / 2;
+        var centerY = e.Item.Height / 2;
+        e.Graphics.DrawLines(pen, new[]
+        {
+            new Point(centerX - 4, centerY - 2),
+            new Point(centerX, centerY + 2),
+            new Point(centerX + 4, centerY - 2)
+        });
     }
 
     protected override void OnRenderImageMargin(ToolStripRenderEventArgs e)
@@ -363,7 +397,8 @@ internal sealed class DarkMenuRenderer : ToolStripProfessionalRenderer
 
     protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e)
     {
-        e.TextColor = e.Item.Enabled ? _palette.Text : _palette.Muted;
+        var accent = e.Item.BackColor == _palette.Accent;
+        e.TextColor = !e.Item.Enabled ? _palette.Muted : accent ? Color.White : _palette.Text;
         base.OnRenderItemText(e);
     }
 
