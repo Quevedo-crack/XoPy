@@ -45,6 +45,7 @@ jobs:
           $arguments = @('--screenshot', 'C:\xopytest\shot.png', 'C:\xopytest\informe.pdf', 'C:\xopytest\video.mp4', 'C:\xopytest\carpeta')
           $process = Start-Process -FilePath $exe -ArgumentList $arguments -PassThru
           if (-not $process.WaitForExit(60000)) { $process.Kill(); throw 'La aplicación no terminó' }
+          "exitcode=$($process.ExitCode) exited=$($process.HasExited)" | Set-Content C:\xopytest\exitcode.txt
           foreach ($extra in @('C:\xopytest\shot.png.log', 'C:\xopytest\shot.png.error.txt')) {
             if (Test-Path $extra) { Write-Host "--- $extra"; Get-Content $extra }
           }
@@ -63,6 +64,26 @@ jobs:
           git diff --cached --quiet
           if ($LASTEXITCODE -ne 0) {
             git commit -m "Añadir captura automática de la interfaz"
+            git push
+          }
+
+      - name: Guardar diagnóstico
+        if: always()
+        shell: pwsh
+        run: |
+          $out = @()
+          Get-ChildItem 'C:\xopytest' -ErrorAction SilentlyContinue | ForEach-Object { $out += "FILE: $($_.Name) ($($_.Length) bytes)" }
+          foreach ($file in @('C:\xopytest\exitcode.txt', 'C:\xopytest\shot.png.log', 'C:\xopytest\shot.png.error.txt')) {
+            if (Test-Path $file) { $out += "--- $file"; $out += Get-Content $file }
+          }
+          New-Item -ItemType Directory -Force docs | Out-Null
+          $out | Set-Content docs\diagnostics.txt
+          git config user.name "XoPy Bot"
+          git config user.email "xopy-bot@users.noreply.github.com"
+          git add docs/diagnostics.txt
+          git diff --cached --quiet
+          if ($LASTEXITCODE -ne 0) {
+            git commit -m "Diagnóstico de la captura de interfaz"
             git push
           }
 
