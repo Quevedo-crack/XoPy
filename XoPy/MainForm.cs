@@ -891,7 +891,16 @@ public sealed partial class MainForm : Form
         _list.DrawColumnHeader += ListDrawColumnHeader;
         _list.DrawItem += (_, e) => { if (_list.View != View.Details) e.DrawDefault = true; };
         _list.DrawSubItem += ListDrawSubItem;
-        _list.Resize += (_, _) => { if (IsHandleCreated) BeginInvoke(new Action(UpdateHashColumns)); };
+        _list.Resize += (_, _) =>
+        {
+            if (!IsHandleCreated || _columnUpdatePending) return;
+            _columnUpdatePending = true;
+            BeginInvoke(new Action(() =>
+            {
+                _columnUpdatePending = false;
+                if (!IsDisposed) UpdateHashColumns();
+            }));
+        };
         _list.KeyDown += ListKeyDown;
         _list.DoubleClick += ListDoubleClick;
         _list.MouseDown += ListMouseDown;

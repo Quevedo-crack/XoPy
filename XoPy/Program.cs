@@ -81,56 +81,25 @@ internal static class Program
 
     private static void RunScreenshot(StartupRequest request, string path)
     {
-        var log = path + ".log";
-        var gate = new object();
-        void Write(string message)
-        {
-            lock (gate)
-            {
-                try
-                {
-                    using var stream = new FileStream(log, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
-                    using var writer = new StreamWriter(stream);
-                    writer.WriteLine(message);
-                }
-                catch { }
-            }
-        }
-
         try
         {
+            var log = path + ".log";
             _diagnosticFile = path + ".error.txt";
-            Write($"inicio {DateTime.Now:O}");
+            File.WriteAllText(log, $"inicio {DateTime.Now:O}{Environment.NewLine}");
             using var form = new MainForm(request);
-            Write($"ventana creada {form.Size}");
+            File.AppendAllText(log, $"ventana creada {form.Size}{Environment.NewLine}");
             form.Show();
-            Write($"ventana mostrada {form.ClientSize}");
-
-            var watchdog = new Thread(() =>
-            {
-                for (var i = 0; i < 30; i++)
-                {
-                    Thread.Sleep(1000);
-                    Write($"watchdog {i}: {System.Diagnostics.Process.GetCurrentProcess().MainWindowTitle}");
-                }
-            }) { IsBackground = true };
-            watchdog.Start();
+            File.AppendAllText(log, $"ventana mostrada {form.ClientSize}{Environment.NewLine}");
 
             var deadline = DateTime.UtcNow.AddSeconds(8);
-            var tick = 0;
             while (DateTime.UtcNow < deadline)
             {
-                Write($"tick {tick}");
-                try { Application.DoEvents(); }
-                catch (Exception ex) { Write("DoEvents: " + ex); }
+                Application.DoEvents();
                 Thread.Sleep(40);
-                tick++;
             }
-            Write($"pump ok {form.ClientSize}");
 
             using var bitmap = new Bitmap(Math.Max(200, form.Width), Math.Max(150, form.Height));
             form.DrawToBitmap(bitmap, new Rectangle(0, 0, bitmap.Width, bitmap.Height));
-            Write("draw ok");
             var directory = Path.GetDirectoryName(path);
             if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
             bitmap.Save(path, ImageFormat.Png);
@@ -139,7 +108,6 @@ internal static class Program
         catch (Exception ex)
         {
             try { File.WriteAllText(path + ".error.txt", ex.ToString()); } catch { }
-            Write("error: " + ex);
             Environment.Exit(2);
         }
     }

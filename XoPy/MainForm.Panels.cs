@@ -985,6 +985,7 @@ public sealed partial class MainForm
     // ---------------------------------------------------------------- hashes y columnas
 
     private bool _updatingColumns;
+    private bool _columnUpdatePending;
 
     private void UpdateHashColumns()
     {
@@ -998,6 +999,12 @@ public sealed partial class MainForm
         {
             _updatingColumns = false;
         }
+        ResizeColumns();
+    }
+
+    private static void SetWidth(ColumnHeader column, int width)
+    {
+        if (column.Width != width) column.Width = width;
     }
 
     private void UpdateHashColumnsCore()
@@ -1005,12 +1012,11 @@ public sealed partial class MainForm
         if (_list.Columns.Count < 6) return;
         var wideEnough = _list.ClientSize.Width >= 840;
         var show = wideEnough && _settings.ShowHashes && (_settings.VerifyAfterCopy || _lastOperation == OperationType.Test);
-        _list.Columns[1].Width = show ? 88 : 96;
-        _list.Columns[2].Width = show ? 110 : 132;
-        _list.Columns[3].Width = show ? 132 : 210;
-        _list.Columns[4].Width = show ? 138 : 0;
-        _list.Columns[5].Width = show ? 138 : 0;
-        ResizeColumns();
+        SetWidth(_list.Columns[1], show ? 88 : 96);
+        SetWidth(_list.Columns[2], show ? 110 : 132);
+        SetWidth(_list.Columns[3], show ? 132 : 210);
+        SetWidth(_list.Columns[4], show ? 138 : 0);
+        SetWidth(_list.Columns[5], show ? 138 : 0);
     }
 
     private void ToggleHashes()
@@ -1217,20 +1223,28 @@ public sealed partial class MainForm
 
     private void ResizeColumns()
     {
-        if (_list is null || _list.Columns.Count < 6) return;
-        var used = _list.Columns[1].Width + _list.Columns[2].Width + _list.Columns[3].Width
-                   + _list.Columns[4].Width + _list.Columns[5].Width;
-        var available = _list.ClientSize.Width - used - 4;
-        if (available < 380)
+        if (_list is null || _list.Columns.Count < 6 || _updatingColumns) return;
+        _updatingColumns = true;
+        try
         {
-            // En ventanas pequeñas se reducen Tamaño y Progreso para que quepa el nombre.
-            _list.Columns[1].Width = 76;
-            _list.Columns[2].Width = 116;
-            _list.Columns[3].Width = 130;
-            used = _list.Columns[1].Width + _list.Columns[2].Width + _list.Columns[3].Width
-                   + _list.Columns[4].Width + _list.Columns[5].Width;
-            available = _list.ClientSize.Width - used - 4;
+            var used = _list.Columns[1].Width + _list.Columns[2].Width + _list.Columns[3].Width
+                       + _list.Columns[4].Width + _list.Columns[5].Width;
+            var available = _list.ClientSize.Width - used - 4;
+            if (available < 380)
+            {
+                // En ventanas pequeñas se reducen Tamaño y Progreso para que quepa el nombre.
+                SetWidth(_list.Columns[1], 76);
+                SetWidth(_list.Columns[2], 116);
+                SetWidth(_list.Columns[3], 130);
+                used = _list.Columns[1].Width + _list.Columns[2].Width + _list.Columns[3].Width
+                       + _list.Columns[4].Width + _list.Columns[5].Width;
+                available = _list.ClientSize.Width - used - 4;
+            }
+            SetWidth(_list.Columns[0], Math.Max(160, available));
         }
-        _list.Columns[0].Width = Math.Max(160, available);
+        finally
+        {
+            _updatingColumns = false;
+        }
     }
 }
