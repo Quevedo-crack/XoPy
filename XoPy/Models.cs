@@ -171,11 +171,17 @@ public sealed class StartupRequest
                 case "--test": request.Operation = OperationType.Test; break;
                 case "--paste": request.PasteFromClipboard = true; break;
                 case "--tray": request.StartMinimized = true; break;
+                case "--screenshot":
+                case "--screenshot-options":
+                case "--screenshot-conflict":
+                    i++;
+                    break;
                 case "--to":
                     if (i + 1 < args.Length) request.Destination = Normalize(args[++i]);
                     break;
                 default:
                     if (arg.StartsWith("--to=", StringComparison.OrdinalIgnoreCase)) request.Destination = Normalize(arg[5..]);
+                    else if (arg.StartsWith("--screenshot", StringComparison.OrdinalIgnoreCase)) break;
                     else if (!arg.StartsWith("-", StringComparison.Ordinal)) request.Paths.Add(Normalize(arg));
                     break;
             }

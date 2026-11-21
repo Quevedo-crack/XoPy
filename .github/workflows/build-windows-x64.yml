@@ -111,8 +111,8 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Guardar el resultado de la prueba
-        if: always() && github.event_name == 'workflow_dispatch' && github.ref_name != 'main'
+      - name: Guardar el resultado de la prueba si falla
+        if: failure() && github.event_name == 'workflow_dispatch' && github.ref_name != 'main'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force docs | Out-Null

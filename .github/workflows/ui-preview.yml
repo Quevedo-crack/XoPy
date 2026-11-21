@@ -93,6 +93,15 @@ jobs:
           if (-not (Test-Path $file) -or -not (Test-Path $folderFile)) { throw 'La copia no se completó' }
           if ((Get-FileHash $file).Hash -ne (Get-FileHash C:\xopytest\informe.pdf).Hash) { throw 'El contenido copiado no coincide' }
 
+      - name: Capturar la verificación de una copia
+        shell: pwsh
+        run: |
+          $exe = (Resolve-Path .\publish\XoPy.exe).Path
+          $process = Start-Process -FilePath $exe -ArgumentList @('--test', '--to', 'C:\xopytest\destino', 'C:\xopytest\informe.pdf', '--screenshot', 'C:\xopytest\verify.png') -PassThru
+          if (-not $process.WaitForExit(60000)) { $process.Kill(); throw 'La verificación no terminó' }
+          if (-not (Test-Path 'C:\xopytest\verify.png')) { throw 'No se generó la captura de verificación' }
+          Copy-Item 'C:\xopytest\verify.png' 'docs\xopy-verify.png'
+
       - name: Probar un movimiento real
         shell: pwsh
         run: |
@@ -115,15 +124,15 @@ jobs:
         run: |
           git config user.name "XoPy Bot"
           git config user.email "xopy-bot@users.noreply.github.com"
-          git add docs/xopy-preview.png docs/xopy-options*.png docs/xopy-conflict.png
+          git add docs/xopy-preview.png docs/xopy-options*.png docs/xopy-conflict.png docs/xopy-verify.png
           git diff --cached --quiet
           if ($LASTEXITCODE -ne 0) {
             git commit -m "Añadir captura automática de la interfaz"
             git push
           }
 
-      - name: Guardar diagnóstico
-        if: always()
+      - name: Guardar diagnóstico si falla
+        if: failure()
         shell: pwsh
         run: |
           $out = @()
