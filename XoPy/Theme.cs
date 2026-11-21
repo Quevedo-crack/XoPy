@@ -247,6 +247,19 @@ public static class Ui
             Margin = new Padding(0)
         };
 
+    public static void StyleNumeric(NumericUpDown numeric, Palette palette)
+    {
+        numeric.BackColor = palette.SurfaceAlt;
+        numeric.ForeColor = palette.Text;
+        numeric.BorderStyle = BorderStyle.FixedSingle;
+        foreach (Control child in numeric.Controls)
+        {
+            child.BackColor = palette.SurfaceAlt;
+            child.ForeColor = palette.Text;
+            if (child is TextBox text) text.BorderStyle = BorderStyle.None;
+        }
+    }
+
     public static Color Lighten(Color color, int amount)
         => Color.FromArgb(color.A, Math.Min(255, color.R + amount), Math.Min(255, color.G + amount), Math.Min(255, color.B + amount));
 
