@@ -24,19 +24,25 @@ internal sealed class PromptDialog : Form
         MinimizeBox = false;
         MaximizeBox = false;
         ShowInTaskbar = false;
-        ClientSize = new Size(600, 250);
+        AutoSize = true;
+        AutoSizeMode = AutoSizeMode.GrowAndShrink;
+        MinimumSize = new Size(640, 0);
+        MaximumSize = new Size(640, 1400);
 
         var layout = new TableLayoutPanel
         {
-            Dock = DockStyle.Fill,
+            Dock = DockStyle.Top,
             ColumnCount = 1,
             RowCount = 5,
             BackColor = palette.Canvas,
-            Padding = new Padding(20, 18, 20, 14)
+            Padding = new Padding(20, 18, 20, 14),
+            Width = 620,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink
         };
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
@@ -53,18 +59,21 @@ internal sealed class PromptDialog : Form
         {
             Text = message,
             AutoSize = true,
-            MaximumSize = new Size(556, 0),
+            MaximumSize = new Size(560, 0),
             ForeColor = palette.Text,
             Margin = new Padding(0, 0, 0, 8)
         };
 
         var detailBox = new TextBox
         {
-            Text = detail ?? string.Empty,
+            Text = (detail ?? string.Empty).Replace("\r\n", "\n").Replace("\n", "\r\n"),
             Multiline = true,
             ReadOnly = true,
+            WordWrap = true,
             ScrollBars = ScrollBars.Vertical,
-            Dock = DockStyle.Fill,
+            Dock = DockStyle.None,
+            Size = new Size(560, 76),
+            TabStop = false,
             BorderStyle = BorderStyle.FixedSingle,
             BackColor = palette.SurfaceAlt,
             ForeColor = palette.Muted,
@@ -117,6 +126,7 @@ internal sealed class PromptDialog : Form
         layout.Controls.Add(buttonRow, 0, 4);
         Controls.Add(layout);
 
+        Shown += (_, _) => { detailBox.Select(0, 0); ActiveControl = null; };
         AcceptButton = buttonRow.Controls.Count > 0 ? buttonRow.Controls[buttonRow.Controls.Count - 1] as Button : null;
         CancelButton = buttonRow.Controls.Count > 0 ? buttonRow.Controls[0] as Button : null;
     }
@@ -139,7 +149,7 @@ internal sealed class OptionsDialog : Form
     private readonly Palette _palette;
     private readonly TabControl _tabs;
     private readonly TextBox _destination;
-    private readonly ComboBox _theme;
+    private readonly ChoiceButton _theme;
     private readonly CheckBox _confirmDelete;
     private readonly CheckBox _minimizeToTray;
     private readonly CheckBox _startWithWindows;
@@ -149,10 +159,10 @@ internal sealed class OptionsDialog : Form
     private readonly NumericUpDown _speed;
     private readonly CheckBox _preserveTimestamps;
     private readonly CheckBox _recycleBin;
-    private readonly ComboBox _verifyAlgorithm;
+    private readonly ChoiceButton _verifyAlgorithm;
     private readonly CheckBox _verifyAfterCopy;
-    private readonly ComboBox _conflict;
-    private readonly ComboBox _onError;
+    private readonly ChoiceButton _conflict;
+    private readonly ChoiceButton _onError;
     private readonly NumericUpDown _retries;
     private readonly CheckBox _explorer;
     private readonly CheckBox _sound;
@@ -184,15 +194,15 @@ internal sealed class OptionsDialog : Form
         {
             Dock = DockStyle.Fill,
             SizeMode = TabSizeMode.Fixed,
-            ItemSize = new Size(104, 28),
-            Padding = new Point(14, 6),
+            ItemSize = new Size(106, 28),
+            Padding = new Point(12, 6),
             DrawMode = TabDrawMode.OwnerDrawFixed,
             Font = new Font("Segoe UI", 9f)
         };
         _tabs.DrawItem += DrawTab;
 
         _destination = TextBox(settings.Destination);
-        _theme = Combo(new[] { "Oscuro", "Claro" }, settings.DarkTheme ? 0 : 1);
+        _theme = new ChoiceButton(palette, new[] { "Oscuro", "Claro" }, settings.DarkTheme ? 0 : 1);
         _confirmDelete = Check("Pedir confirmación antes de eliminar", settings.ConfirmDelete);
         _minimizeToTray = Check("Minimizar en el área de notificación al cerrar la ventana", settings.MinimizeToTray);
         _startWithWindows = Check("Iniciar XoPy al encender el equipo", settings.StartWithWindows);
@@ -204,18 +214,19 @@ internal sealed class OptionsDialog : Form
         _preserveTimestamps = Check("Conservar las fechas de modificación", settings.PreserveTimestamps);
         _recycleBin = Check("Enviar a la Papelera de reciclaje al eliminar", settings.UseRecycleBin);
 
-        _verifyAlgorithm = Combo(new[]
+        _verifyAlgorithm = new ChoiceButton(palette, new[]
         {
             "Sin verificación", "CRC32", "MD5", "SHA-1", "SHA-256", "SHA-512"
         }, (int)settings.Verify);
         _verifyAfterCopy = Check("Verificar cada archivo después de copiarlo", settings.VerifyAfterCopy);
 
-        _conflict = Combo(new[]
+        _conflict = new ChoiceButton(palette, new[]
         {
             "Preguntar", "Sobrescribir siempre", "Omitir", "Cambiar nombre",
             "Sobrescribir si es más antiguo", "Sobrescribir si es más pequeño"
         }, (int)settings.Conflict);
-        _onError = Combo(new[] { "Preguntar", "Reintentar automáticamente", "Omitir el archivo", "Detener la transferencia" },
+        _onError = new ChoiceButton(palette,
+            new[] { "Preguntar", "Reintentar automáticamente", "Omitir el archivo", "Detener la transferencia" },
             (int)settings.OnError);
         _retries = Numeric(settings.RetryCount, 0, 20, 1);
 
@@ -234,10 +245,10 @@ internal sealed class OptionsDialog : Form
         var buttons = new FlowLayoutPanel
         {
             Dock = DockStyle.Fill,
-            AutoSize = true,
+            AutoSize = false,
             FlowDirection = FlowDirection.RightToLeft,
             BackColor = palette.Surface,
-            Padding = new Padding(14, 10, 14, 10)
+            Padding = new Padding(14, 11, 14, 11)
         };
         var cancel = Ui.DialogButton("Cancelar", palette);
         cancel.DialogResult = DialogResult.Cancel;
@@ -259,7 +270,7 @@ internal sealed class OptionsDialog : Form
             BackColor = palette.Canvas
         };
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 62));
         root.Controls.Add(_tabs, 0, 0);
         root.Controls.Add(buttons, 0, 1);
         Controls.Add(root);
@@ -271,23 +282,23 @@ internal sealed class OptionsDialog : Form
     private void BuildPages()
     {
         _tabs.TabPages.Add(Page("General", 6,
-            ("Carpeta de destino predeterminada", _destination),
-            ("Tema de la interfaz", _theme),
-            ("", _confirmDelete),
-            ("", _minimizeToTray),
-            ("", _startWithWindows),
-            ("", _startMinimized)));
+            ("Carpeta de destino predeterminada", _destination, 48),
+            ("Tema de la interfaz", _theme, 48),
+            ("", _confirmDelete, 40),
+            ("", _minimizeToTray, 40),
+            ("", _startWithWindows, 40),
+            ("", _startMinimized, 40)));
 
         _tabs.TabPages.Add(Page("Transferencia", 5,
-            ("Transferencias simultáneas", _parallel),
-            ("Búfer por archivo (KiB)", _buffer),
-            ("Límite de velocidad (MiB/s, 0 = sin límite)", _speed),
-            ("", _preserveTimestamps),
-            ("", _recycleBin)));
+            ("Transferencias simultáneas", _parallel, 48),
+            ("Búfer por archivo (KiB)", _buffer, 48),
+            ("Límite de velocidad (MiB/s, 0 = sin límite)", _speed, 48),
+            ("", _preserveTimestamps, 40),
+            ("", _recycleBin, 40)));
 
         var verifyPage = Page("Verificación", 3,
-            ("Algoritmo", _verifyAlgorithm),
-            ("", _verifyAfterCopy),
+            ("Algoritmo", _verifyAlgorithm, 48),
+            ("", _verifyAfterCopy, 40),
             ("", new Label
             {
                 Text = "La verificación compara el archivo copiado con el original. Con SHA-256\n" +
@@ -297,16 +308,16 @@ internal sealed class OptionsDialog : Form
                 ForeColor = _palette.Muted,
                 Font = new Font("Segoe UI", 8.5f),
                 BackColor = Color.Transparent
-            }));
+            }, 110));
         _tabs.TabPages.Add(verifyPage);
 
-        _tabs.TabPages.Add(Page("Conflictos y errores", 3,
-            ("Si el archivo ya existe", _conflict),
-            ("Si aparece un error", _onError),
-            ("Reintentos por archivo", _retries)));
+        _tabs.TabPages.Add(Page("Conflictos", 3,
+            ("Si el archivo ya existe", _conflict, 48),
+            ("Si aparece un error", _onError, 48),
+            ("Reintentos por archivo", _retries, 48)));
 
         _tabs.TabPages.Add(Page("Integración", 2,
-            ("", _explorer),
+            ("", _explorer, 40),
             ("", new Label
             {
                 Text = "El Explorador de Windows no permite interceptar Ctrl+C / Ctrl+V desde\n" +
@@ -317,13 +328,13 @@ internal sealed class OptionsDialog : Form
                 ForeColor = _palette.Muted,
                 Font = new Font("Segoe UI", 8.5f),
                 BackColor = Color.Transparent
-            })));
+            }, 120)));
 
         _tabs.TabPages.Add(Page("Al terminar", 4,
-            ("", _sound),
-            ("", _openDestination),
-            ("", _closeWhenDone),
-            ("", _shutdown)));
+            ("", _sound, 42),
+            ("", _openDestination, 42),
+            ("", _closeWhenDone, 42),
+            ("", _shutdown, 42)));
 
         _tabs.TabPages.Add(BuildFavoritesPage());
     }
@@ -372,7 +383,7 @@ internal sealed class OptionsDialog : Form
         return page;
     }
 
-    private TabPage Page(string title, int rows, params (string Label, Control Control)[] items)
+    private TabPage Page(string title, int rows, params (string Label, Control Control, int Height)[] items)
     {
         var page = new TabPage(title) { BackColor = _palette.Canvas, Padding = new Padding(18), AutoScroll = true };
         var layout = new TableLayoutPanel
@@ -382,13 +393,13 @@ internal sealed class OptionsDialog : Form
             RowCount = Math.Max(1, rows),
             BackColor = _palette.Canvas
         };
-        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 290));
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 300));
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
 
         var row = 0;
-        foreach (var (label, control) in items)
+        foreach (var (label, control, height) in items)
         {
-            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, height));
             var text = new Label
             {
                 Text = label,
@@ -396,10 +407,10 @@ internal sealed class OptionsDialog : Form
                 ForeColor = _palette.Muted,
                 BackColor = Color.Transparent,
                 Anchor = AnchorStyles.Left,
-                Margin = new Padding(0, 12, 14, 12)
+                Margin = new Padding(0, 0, 14, 0)
             };
-            control.Anchor = AnchorStyles.Left | AnchorStyles.Right;
-            control.Margin = new Padding(0, 8, 0, 8);
+            control.Anchor = control is Label ? AnchorStyles.Left : AnchorStyles.Left;
+            control.Margin = new Padding(0, 0, 0, 0);
             layout.Controls.Add(text, 0, row);
             layout.Controls.Add(control, 1, row);
             row++;
@@ -434,21 +445,6 @@ internal sealed class OptionsDialog : Form
         Width = 340
     };
 
-    private ComboBox Combo(string[] items, int selected)
-    {
-        var combo = new ComboBox
-        {
-            DropDownStyle = ComboBoxStyle.DropDownList,
-            FlatStyle = FlatStyle.Flat,
-            BackColor = _palette.Surface,
-            ForeColor = _palette.Text,
-            Width = 340
-        };
-        combo.Items.AddRange(items.Cast<object>().ToArray());
-        combo.SelectedIndex = Math.Clamp(selected, 0, items.Length - 1);
-        return combo;
-    }
-
     private CheckBox Check(string text, bool value) => new()
     {
         Text = text,
@@ -469,6 +465,13 @@ internal sealed class OptionsDialog : Form
         ForeColor = _palette.Text,
         BorderStyle = BorderStyle.FixedSingle
     };
+
+    public int TabCount => _tabs.TabCount;
+
+    public void SelectTab(int index)
+    {
+        if (index >= 0 && index < _tabs.TabCount) _tabs.SelectedIndex = index;
+    }
 
     private void CaptureValues()
     {

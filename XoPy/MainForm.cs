@@ -113,7 +113,7 @@ public sealed class MainForm : Form
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 57));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 54));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 88));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 66));
 
         var menu = BuildMenu();
         root.Controls.Add(menu, 0, 0);
@@ -460,14 +460,13 @@ public sealed class MainForm : Form
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 3,
+            RowCount = 2,
             BackColor = _palette.Surface,
             Padding = new Padding(12, 9, 12, 7),
-            Height = 88
+            Height = 66
         };
         footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 16));
         footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
-        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
 
         _progress = new ProgressStrip(_palette) { Dock = DockStyle.Fill, Height = 12, Margin = new Padding(0, 0, 0, 2) };
 
@@ -521,16 +520,6 @@ public sealed class MainForm : Form
 
         footer.Controls.Add(_progress, 0, 0);
         footer.Controls.Add(statusRow, 0, 1);
-        footer.Controls.Add(new Label
-        {
-            Text = "XoPy · copias verificadas · sin límites",
-            AutoSize = false,
-            Dock = DockStyle.Fill,
-            TextAlign = ContentAlignment.MiddleLeft,
-            ForeColor = _palette.Muted,
-            Font = new Font("Segoe UI", 7.75f)
-        }, 0, 2);
-
         return footer;
     }
 
@@ -1313,9 +1302,7 @@ public sealed class MainForm : Form
     private void ResizeColumns()
     {
         if (_list.Columns.Count < 4) return;
-        var used = _list.Columns[0].Width + _list.Columns[1].Width + _list.Columns[2].Width;
-        var available = _list.ClientSize.Width - used - SystemInformation.VerticalScrollBarWidth - 2;
-        if (available > 140) _list.Columns[3].Width = available;
+        _list.Columns[3].Width = -2;
     }
 
     private void ListColumnClick(object? sender, ColumnClickEventArgs e)

@@ -113,18 +113,23 @@ internal static class Program
                     "Aplicar a todos los conflictos");
 
             dialog.Show();
-            var deadline = DateTime.UtcNow.AddSeconds(6);
-            while (DateTime.UtcNow < deadline)
-            {
-                Application.DoEvents();
-                Thread.Sleep(40);
-            }
+            Pump(600);
 
-            using var bitmap = new Bitmap(dialog.ClientSize.Width, dialog.ClientSize.Height);
-            dialog.DrawToBitmap(bitmap, new Rectangle(0, 0, bitmap.Width, bitmap.Height));
-            var directory = Path.GetDirectoryName(path);
-            if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
-            bitmap.Save(path, ImageFormat.Png);
+            if (kind == DialogShot.Options && dialog is OptionsDialog optionsDialog)
+            {
+                var baseName = path.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ? path[..^4] : path;
+                for (var index = 0; index < optionsDialog.TabCount; index++)
+                {
+                    optionsDialog.SelectTab(index);
+                    Pump(250);
+                    Save(dialog, $"{baseName}-{index}.png");
+                }
+                Save(dialog, path);
+            }
+            else
+            {
+                Save(dialog, path);
+            }
             Environment.Exit(0);
         }
         catch (Exception ex)
@@ -132,6 +137,25 @@ internal static class Program
             try { File.WriteAllText(path + ".error.txt", ex.ToString()); } catch { }
             Environment.Exit(2);
         }
+    }
+
+    private static void Pump(int milliseconds)
+    {
+        var deadline = DateTime.UtcNow.AddMilliseconds(milliseconds);
+        while (DateTime.UtcNow < deadline)
+        {
+            Application.DoEvents();
+            Thread.Sleep(30);
+        }
+    }
+
+    private static void Save(Form form, string path)
+    {
+        using var bitmap = new Bitmap(form.ClientSize.Width, form.ClientSize.Height);
+        form.DrawToBitmap(bitmap, new Rectangle(0, 0, bitmap.Width, bitmap.Height));
+        var directory = Path.GetDirectoryName(path);
+        if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
+        bitmap.Save(path, ImageFormat.Png);
     }
 
     private static void ShowFatal(Exception? exception)

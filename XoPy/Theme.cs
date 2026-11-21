@@ -324,3 +324,76 @@ internal sealed class ProgressStrip : Control
         Ui.DrawProgress(e.Graphics, new Rectangle(0, 0, Width - 1, Height - 1), _value, _palette, _fill);
     }
 }
+
+internal sealed class ChoiceButton : Button
+{
+    private readonly string[] _items;
+    private readonly ContextMenuStrip _menu = new();
+    private readonly Palette _palette;
+    private int _selectedIndex;
+
+    public ChoiceButton(Palette palette, string[] items, int selected)
+    {
+        _palette = palette;
+        _items = items;
+        _selectedIndex = Math.Clamp(selected, 0, items.Length - 1);
+
+        Text = _items[_selectedIndex];
+        TextAlign = ContentAlignment.MiddleLeft;
+        FlatStyle = FlatStyle.Flat;
+        BackColor = palette.Surface;
+        ForeColor = palette.Text;
+        Font = new Font("Segoe UI", 9f);
+        Height = 32;
+        Width = 340;
+        Cursor = Cursors.Hand;
+        Image = Icons.Glyph(Icons.More, palette.Muted, 12);
+        ImageAlign = ContentAlignment.MiddleRight;
+        TextImageRelation = TextImageRelation.TextBeforeImage;
+        Padding = new Padding(9, 0, 6, 0);
+        FlatAppearance.BorderColor = palette.Border;
+        FlatAppearance.BorderSize = 1;
+        FlatAppearance.MouseOverBackColor = palette.Hover;
+
+        _menu.BackColor = palette.Surface;
+        _menu.ForeColor = palette.Text;
+        _menu.Font = new Font("Segoe UI", 9f);
+        _menu.Renderer = new ToolStripProfessionalRenderer(new MenuColors(palette));
+        _menu.ShowImageMargin = false;
+        Click += (_, _) => ShowMenu();
+    }
+
+    public event EventHandler? SelectedIndexChanged;
+
+    public int SelectedIndex
+    {
+        get => _selectedIndex;
+        set
+        {
+            var clamped = Math.Clamp(value, 0, _items.Length - 1);
+            if (clamped == _selectedIndex) return;
+            _selectedIndex = clamped;
+            Text = _items[_selectedIndex];
+            SelectedIndexChanged?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    private void ShowMenu()
+    {
+        _menu.Items.Clear();
+        for (var i = 0; i < _items.Length; i++)
+        {
+            var index = i;
+            var item = new ToolStripMenuItem(_items[i]) { Checked = i == _selectedIndex };
+            item.Click += (_, _) => SelectedIndex = index;
+            _menu.Items.Add(item);
+        }
+        _menu.Show(this, new Point(0, Height));
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing) _menu.Dispose();
+        base.Dispose(disposing);
+    }
+}
