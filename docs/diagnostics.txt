@@ -6,10 +6,10 @@ FILE: copiatest.txt (83 bytes)
 FILE: exitcode.txt (24 bytes)
 FILE: informe.pdf (10242 bytes)
 FILE: movetest.txt (36 bytes)
-FILE: options-0.png (15073 bytes)
+FILE: options-0.png (15108 bytes)
 FILE: options-1.png (13994 bytes)
-FILE: options-2.png (14259 bytes)
-FILE: options-3.png (11493 bytes)
+FILE: options-2.png (14292 bytes)
+FILE: options-3.png (11559 bytes)
 FILE: options-4.png (14305 bytes)
 FILE: options-5.png (11713 bytes)
 FILE: options-6.png (14138 bytes)
@@ -20,7 +20,7 @@ FILE: video.mp4 (20482 bytes)
 --- C:\xopytest\exitcode.txt
 exitcode=0 exited=True
 --- C:\xopytest\shot.png.log
-inicio 2026-11-21T20:31:07.2240486+00:00
+inicio 2026-11-21T20:33:39.2519712+00:00
 ventana creada {Width=1044, Height=720}
 ventana mostrada {Width=1028, Height=681}
 --- C:\xopytest\copiatest.txt
