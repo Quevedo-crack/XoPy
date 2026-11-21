@@ -1,0 +1,67 @@
+name: UI preview
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  screenshot:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Publicar
+        run: >
+          dotnet publish XoPy/XoPy.csproj -c Release -r win-x64 --self-contained true
+          -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:EnableCompressionInSingleFile=true -p:DebugType=none -p:DebugSymbols=false
+          -o publish
+
+      - name: Preparar archivos de prueba
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force C:\xopytest\carpeta | Out-Null
+          1..3 | ForEach-Object { Set-Content "C:\xopytest\carpeta\foto$_.jpg" ("x" * 4096) }
+          Set-Content "C:\xopytest\informe.pdf" ("y" * 10240)
+          Set-Content "C:\xopytest\video.mp4" ("z" * 20480)
+
+      - name: Capturar la ventana principal
+        shell: pwsh
+        run: |
+          $exe = (Resolve-Path .\publish\XoPy.exe).Path
+          $arguments = @('--screenshot', 'C:\xopytest\shot.png', 'C:\xopytest\informe.pdf', 'C:\xopytest\video.mp4', 'C:\xopytest\carpeta')
+          $process = Start-Process -FilePath $exe -ArgumentList $arguments -PassThru
+          if (-not $process.WaitForExit(60000)) { $process.Kill(); throw 'La aplicación no terminó' }
+          if (-not (Test-Path 'C:\xopytest\shot.png')) {
+            if (Test-Path 'C:\xopytest\shot.png.error.txt') { Get-Content 'C:\xopytest\shot.png.error.txt' }
+            throw "No se generó la captura (código $($process.ExitCode))"
+          }
+          New-Item -ItemType Directory -Force docs | Out-Null
+          Copy-Item 'C:\xopytest\shot.png' 'docs\xopy-preview.png'
+
+      - name: Guardar la captura en el repositorio
+        shell: pwsh
+        run: |
+          git config user.name "XoPy Bot"
+          git config user.email "xopy-bot@users.noreply.github.com"
+          git add docs/xopy-preview.png
+          git diff --cached --quiet
+          if ($LASTEXITCODE -ne 0) {
+            git commit -m "Añadir captura automática de la interfaz"
+            git push
+          }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xopy-preview
+          path: docs/xopy-preview.png
+          if-no-files-found: error
+          retention-days: 14
