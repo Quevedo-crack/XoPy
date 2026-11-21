@@ -510,7 +510,9 @@ public sealed partial class MainForm
             _countLabel.Text = "Lista vacía — arrastra archivos o carpetas aquí";
             return;
         }
-        _countLabel.Text = $"{_items.Count} elemento(s) · {leaves} archivo(s) · {Format.Bytes(total)}";
+        var fileSum = _items.Where(item => item.Kind == ItemKind.File).Sum(item => Math.Max(0, item.SizeBytes));
+        var folderCount = _items.Count(item => item.Kind == ItemKind.Folder);
+        _countLabel.Text = $"DIAG {_items.Count} el · {leaves} arch · {Format.Bytes(total)} · f{Format.Bytes(fileSum)} · c{folderCount}";
     }
 
     private string? _currentStatus;
