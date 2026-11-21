@@ -392,7 +392,7 @@ public sealed class MainForm : Form
             ForeColor = _palette.Text,
             HeaderStyle = ColumnHeaderStyle.Clickable,
             UseCompatibleStateImageBehavior = false,
-            SmallImageList = new ImageList { ImageSize = new Size(1, 30) },
+            SmallImageList = BuildRowImageList(),
             AllowDrop = true,
             Font = new Font("Segoe UI", 9f),
             Margin = new Padding(0, 0, 0, 8)
@@ -417,6 +417,15 @@ public sealed class MainForm : Form
         container.Controls.Add(header, 0, 0);
         container.Controls.Add(_list, 0, 1);
         return container;
+    }
+
+    private static ImageList BuildRowImageList()
+    {
+        var images = new ImageList { ImageSize = new Size(1, 30) };
+        var bitmap = new Bitmap(1, 30);
+        using (var graphics = Graphics.FromImage(bitmap)) graphics.Clear(Color.Transparent);
+        images.Images.Add(bitmap);
+        return images;
     }
 
     private void BuildListMenu()
