@@ -150,7 +150,7 @@ public sealed class MainForm : Form
         file.DropDownItems.Add(MenuItem("Abrir cola…", (_, _) => LoadQueueFile()));
         file.DropDownItems.Add(MenuItem("Guardar cola…", (_, _) => SaveQueueFile()));
         file.DropDownItems.Add(new ToolStripSeparator());
-        file.DropDownItems.Add(MenuItem("Salir", (_, _) => ExitApplication(), Keys.Alt | Keys.F4));
+        file.DropDownItems.Add(MenuItem("Salir", (_, _) => ExitApplication()));
 
         var transfer = new ToolStripMenuItem("Transferencia");
         transfer.DropDownItems.Add(MenuItem("Copiar", (_, _) => StartTransfer(OperationType.Copy), Keys.F5));
@@ -159,7 +159,7 @@ public sealed class MainForm : Form
         transfer.DropDownItems.Add(MenuItem("Verificar", (_, _) => StartTransfer(OperationType.Test), Keys.F6));
         transfer.DropDownItems.Add(new ToolStripSeparator());
         transfer.DropDownItems.Add(MenuItem("Pausar / reanudar", (_, _) => TogglePause()));
-        transfer.DropDownItems.Add(MenuItem("Detener", (_, _) => StopTransfer(), Keys.Escape));
+        transfer.DropDownItems.Add(MenuItem("Detener", (_, _) => StopTransfer()));
 
         var tools = new ToolStripMenuItem("Herramientas");
         tools.DropDownItems.Add(MenuItem("Preferencias…", (_, _) => ShowOptions()));
