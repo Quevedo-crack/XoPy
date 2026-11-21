@@ -1,6 +1,6 @@
 ; Instalador de XoPy para Windows 10/11 x64
 #define AppName "XoPy"
-#define AppVersion "2.0.0"
+#define AppVersion "2.1.0"
 #define AppPublisher "Quevedo-crack"
 #define AppExe "XoPy.exe"
 
@@ -31,7 +31,7 @@ MinVersion=10.0
 CloseApplications=yes
 RestartApplications=no
 AllowNoIcons=yes
-VersionInfoVersion=2.0.0.0
+VersionInfoVersion=2.1.0.0
 VersionInfoProductName={#AppName}
 VersionInfoDescription=Instalador de XoPy
 VersionInfoCompany={#AppPublisher}
@@ -42,7 +42,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "Crear un acceso directo en el escritorio"; GroupDescription: "Accesos directos:"
-Name: "explorer"; Description: "Añadir XoPy al menú contextual del Explorador (Copiar / Mover / Verificar / Pegar)"; GroupDescription: "Integración con Windows:"; Flags: checkedonce
+Name: "explorer"; Description: "Añadir XoPy al menú contextual del Explorador (Copiar, Copiar a…, Mover, Verificar, Pegar)"; GroupDescription: "Integración con Windows:"; Flags: checkedonce
 Name: "sendto"; Description: "Añadir XoPy al menú ""Enviar a"""; GroupDescription: "Integración con Windows:"; Flags: checkedonce
 Name: "autostart"; Description: "Iniciar XoPy al encender el equipo"; GroupDescription: "Integración con Windows:"; Flags: unchecked
 
@@ -68,6 +68,16 @@ Root: HKCU; Subkey: "Software\Classes\*\shell\XoPyMove"; ValueType: string; Valu
 Root: HKCU; Subkey: "Software\Classes\*\shell\XoPyMove"; ValueType: string; ValueName: "MultiSelectModel"; ValueData: "Player"; Tasks: explorer
 Root: HKCU; Subkey: "Software\Classes\*\shell\XoPyMove\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#AppExe}"" --move ""%1"""; Tasks: explorer
 
+Root: HKCU; Subkey: "Software\Classes\*\shell\XoPyCopyTo"; ValueType: string; ValueName: ""; ValueData: "Copiar a… con XoPy"; Flags: uninsdeletekey; Tasks: explorer
+Root: HKCU; Subkey: "Software\Classes\*\shell\XoPyCopyTo"; ValueType: string; ValueName: "Icon"; ValueData: """{app}\{#AppExe}"",0"; Tasks: explorer
+Root: HKCU; Subkey: "Software\Classes\*\shell\XoPyCopyTo"; ValueType: string; ValueName: "MultiSelectModel"; ValueData: "Player"; Tasks: explorer
+Root: HKCU; Subkey: "Software\Classes\*\shell\XoPyCopyTo\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#AppExe}"" --copy --ask-destination ""%1"""; Tasks: explorer
+
+Root: HKCU; Subkey: "Software\Classes\*\shell\XoPyMoveTo"; ValueType: string; ValueName: ""; ValueData: "Mover a… con XoPy"; Flags: uninsdeletekey; Tasks: explorer
+Root: HKCU; Subkey: "Software\Classes\*\shell\XoPyMoveTo"; ValueType: string; ValueName: "Icon"; ValueData: """{app}\{#AppExe}"",0"; Tasks: explorer
+Root: HKCU; Subkey: "Software\Classes\*\shell\XoPyMoveTo"; ValueType: string; ValueName: "MultiSelectModel"; ValueData: "Player"; Tasks: explorer
+Root: HKCU; Subkey: "Software\Classes\*\shell\XoPyMoveTo\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#AppExe}"" --move --ask-destination ""%1"""; Tasks: explorer
+
 Root: HKCU; Subkey: "Software\Classes\*\shell\XoPyVerify"; ValueType: string; ValueName: ""; ValueData: "Verificar con XoPy"; Flags: uninsdeletekey; Tasks: explorer
 Root: HKCU; Subkey: "Software\Classes\*\shell\XoPyVerify"; ValueType: string; ValueName: "Icon"; ValueData: """{app}\{#AppExe}"",0"; Tasks: explorer
 Root: HKCU; Subkey: "Software\Classes\*\shell\XoPyVerify"; ValueType: string; ValueName: "MultiSelectModel"; ValueData: "Player"; Tasks: explorer
@@ -84,6 +94,16 @@ Root: HKCU; Subkey: "Software\Classes\Directory\shell\XoPyMove"; ValueType: stri
 Root: HKCU; Subkey: "Software\Classes\Directory\shell\XoPyMove"; ValueType: string; ValueName: "MultiSelectModel"; ValueData: "Player"; Tasks: explorer
 Root: HKCU; Subkey: "Software\Classes\Directory\shell\XoPyMove\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#AppExe}"" --move ""%1"""; Tasks: explorer
 
+Root: HKCU; Subkey: "Software\Classes\Directory\shell\XoPyCopyTo"; ValueType: string; ValueName: ""; ValueData: "Copiar a… con XoPy"; Flags: uninsdeletekey; Tasks: explorer
+Root: HKCU; Subkey: "Software\Classes\Directory\shell\XoPyCopyTo"; ValueType: string; ValueName: "Icon"; ValueData: """{app}\{#AppExe}"",0"; Tasks: explorer
+Root: HKCU; Subkey: "Software\Classes\Directory\shell\XoPyCopyTo"; ValueType: string; ValueName: "MultiSelectModel"; ValueData: "Player"; Tasks: explorer
+Root: HKCU; Subkey: "Software\Classes\Directory\shell\XoPyCopyTo\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#AppExe}"" --copy --ask-destination ""%1"""; Tasks: explorer
+
+Root: HKCU; Subkey: "Software\Classes\Directory\shell\XoPyMoveTo"; ValueType: string; ValueName: ""; ValueData: "Mover a… con XoPy"; Flags: uninsdeletekey; Tasks: explorer
+Root: HKCU; Subkey: "Software\Classes\Directory\shell\XoPyMoveTo"; ValueType: string; ValueName: "Icon"; ValueData: """{app}\{#AppExe}"",0"; Tasks: explorer
+Root: HKCU; Subkey: "Software\Classes\Directory\shell\XoPyMoveTo"; ValueType: string; ValueName: "MultiSelectModel"; ValueData: "Player"; Tasks: explorer
+Root: HKCU; Subkey: "Software\Classes\Directory\shell\XoPyMoveTo\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#AppExe}"" --move --ask-destination ""%1"""; Tasks: explorer
+
 Root: HKCU; Subkey: "Software\Classes\Directory\shell\XoPyVerify"; ValueType: string; ValueName: ""; ValueData: "Verificar con XoPy"; Flags: uninsdeletekey; Tasks: explorer
 Root: HKCU; Subkey: "Software\Classes\Directory\shell\XoPyVerify"; ValueType: string; ValueName: "Icon"; ValueData: """{app}\{#AppExe}"",0"; Tasks: explorer
 Root: HKCU; Subkey: "Software\Classes\Directory\shell\XoPyVerify"; ValueType: string; ValueName: "MultiSelectModel"; ValueData: "Player"; Tasks: explorer
@@ -93,6 +113,10 @@ Root: HKCU; Subkey: "Software\Classes\Directory\shell\XoPyVerify\command"; Value
 Root: HKCU; Subkey: "Software\Classes\Directory\Background\shell\XoPyPaste"; ValueType: string; ValueName: ""; ValueData: "Pegar con XoPy"; Flags: uninsdeletekey; Tasks: explorer
 Root: HKCU; Subkey: "Software\Classes\Directory\Background\shell\XoPyPaste"; ValueType: string; ValueName: "Icon"; ValueData: """{app}\{#AppExe}"",0"; Tasks: explorer
 Root: HKCU; Subkey: "Software\Classes\Directory\Background\shell\XoPyPaste\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#AppExe}"" --paste --to ""%V"""; Tasks: explorer
+
+Root: HKCU; Subkey: "Software\Classes\Directory\Background\shell\XoPyOpen"; ValueType: string; ValueName: ""; ValueData: "Abrir XoPy aquí"; Flags: uninsdeletekey; Tasks: explorer
+Root: HKCU; Subkey: "Software\Classes\Directory\Background\shell\XoPyOpen"; ValueType: string; ValueName: "Icon"; ValueData: """{app}\{#AppExe}"",0"; Tasks: explorer
+Root: HKCU; Subkey: "Software\Classes\Directory\Background\shell\XoPyOpen\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#AppExe}"" --to ""%V"""; Tasks: explorer
 
 ; --- Registro de la aplicación ---
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\XoPy.exe"; ValueType: string; ValueName: ""; ValueData: "{app}\{#AppExe}"; Flags: uninsdeletekey

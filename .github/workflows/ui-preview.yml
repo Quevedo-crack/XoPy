@@ -55,6 +55,26 @@ jobs:
           New-Item -ItemType Directory -Force docs | Out-Null
           Copy-Item 'C:\xopytest\shot.png' 'docs\xopy-preview.png'
 
+      - name: Capturar las pestañas de la ventana
+        shell: pwsh
+        run: |
+          $exe = (Resolve-Path .\publish\XoPy.exe).Path
+          $arguments = @('--screenshot-tabs', 'C:\xopytest\tab', 'C:\xopytest\informe.pdf', 'C:\xopytest\carpeta')
+          $process = Start-Process -FilePath $exe -ArgumentList $arguments -PassThru
+          if (-not $process.WaitForExit(90000)) { $process.Kill(); throw 'No se generaron las capturas de las pestañas' }
+          if (-not (Test-Path 'C:\xopytest\tab-0.png')) { throw "Faltan las capturas de las pestañas (código $($process.ExitCode))" }
+          Get-ChildItem 'C:\xopytest\tab-*.png' | ForEach-Object { Move-Item $_.FullName ("docs\xopy-tab-" + $_.Name.Substring(4)) -Force }
+
+      - name: Capturar los menús desplegables
+        shell: pwsh
+        run: |
+          $exe = (Resolve-Path .\publish\XoPy.exe).Path
+          $process = Start-Process -FilePath $exe -ArgumentList @('--screenshot-menus', 'C:\xopytest\menu') -PassThru
+          if (-not $process.WaitForExit(60000)) { $process.Kill(); throw 'No se generaron las capturas de los menús' }
+          if (-not (Test-Path 'C:\xopytest\menu-menu.png')) { throw 'No se generó la captura del menú desplegable' }
+          Copy-Item 'C:\xopytest\menu-menu.png' 'docs\xopy-dropdown.png' -Force
+          Copy-Item 'C:\xopytest\menu-context.png' 'docs\xopy-contextmenu.png' -Force
+
       - name: Capturar los diálogos
         shell: pwsh
         run: |
@@ -93,6 +113,31 @@ jobs:
           if (-not (Test-Path $file) -or -not (Test-Path $folderFile)) { throw 'La copia no se completó' }
           if ((Get-FileHash $file).Hash -ne (Get-FileHash C:\xopytest\informe.pdf).Hash) { throw 'El contenido copiado no coincide' }
 
+      - name: Probar conflicto y destino de solo lectura
+        shell: pwsh
+        run: |
+          $exe = (Resolve-Path .\publish\XoPy.exe).Path
+          [IO.File]::WriteAllBytes('C:\xopytest\destino\video.mp4', [byte[]]::new(100))
+          (Get-Item 'C:\xopytest\destino\video.mp4').IsReadOnly = $true
+          $process = Start-Process -FilePath $exe -ArgumentList @('--copy', '--overwrite', '--to', 'C:\xopytest\destino', 'C:\xopytest\video.mp4', '--verify', '--algo', 'sha256') -PassThru
+          Start-Sleep -Seconds 12
+          if (-not $process.HasExited) { $process.Kill() }
+          $report = @()
+          $report += "tamano=$((Get-Item 'C:\xopytest\destino\video.mp4').Length)"
+          $report += "hash_igual=$((Get-FileHash 'C:\xopytest\destino\video.mp4').Hash -eq (Get-FileHash 'C:\xopytest\video.mp4').Hash)"
+          $report += "solo_lectura=$((Get-Item 'C:\xopytest\destino\video.mp4').IsReadOnly)"
+          $report | Set-Content C:\xopytest\conflictotest.txt
+          Get-Content C:\xopytest\conflictotest.txt
+          if ((Get-FileHash 'C:\xopytest\destino\video.mp4').Hash -ne (Get-FileHash 'C:\xopytest\video.mp4').Hash) { throw 'No se pudo sobrescribir el archivo de solo lectura' }
+
+          [IO.File]::WriteAllBytes('C:\xopytest\destino\video.mp4', [byte[]]::new(50))
+          $process = Start-Process -FilePath $exe -ArgumentList @('--copy', '--skip', '--to', 'C:\xopytest\destino', 'C:\xopytest\video.mp4') -PassThru
+          Start-Sleep -Seconds 10
+          $size = (Get-Item 'C:\xopytest\destino\video.mp4').Length
+          if (-not $process.HasExited) { $process.Kill() }
+          "omitido_tamano=$size" | Add-Content C:\xopytest\conflictotest.txt
+          if ($size -ne 50) { throw "La política de omisión modificó el archivo ($size bytes)" }
+
       - name: Capturar la verificación de una copia
         shell: pwsh
         run: |
@@ -124,7 +169,7 @@ jobs:
         run: |
           git config user.name "XoPy Bot"
           git config user.email "xopy-bot@users.noreply.github.com"
-          git add docs/xopy-preview.png docs/xopy-options*.png docs/xopy-conflict.png docs/xopy-verify.png
+          git add docs/xopy-preview.png docs/xopy-tab-*.png docs/xopy-dropdown.png docs/xopy-contextmenu.png docs/xopy-options*.png docs/xopy-conflict.png docs/xopy-verify.png
           git diff --cached --quiet
           if ($LASTEXITCODE -ne 0) {
             git commit -m "Añadir captura automática de la interfaz"
@@ -135,9 +180,11 @@ jobs:
         if: failure()
         shell: pwsh
         run: |
+          dotnet build XoPy/XoPy.csproj -c Release -r win-x64 --self-contained true *> build-errors.txt
           $out = @()
+          $out += Get-Content 'build-errors.txt' -ErrorAction SilentlyContinue
           Get-ChildItem 'C:\xopytest' -ErrorAction SilentlyContinue | ForEach-Object { $out += "FILE: $($_.Name) ($($_.Length) bytes)" }
-          foreach ($file in @('C:\xopytest\exitcode.txt', 'C:\xopytest\shot.png.log', 'C:\xopytest\shot.png.error.txt', 'C:\xopytest\options.png.error.txt', 'C:\xopytest\conflict.png.error.txt', 'C:\xopytest\copiatest.txt', 'C:\xopytest\movetest.txt')) {
+          foreach ($file in @('C:\xopytest\exitcode.txt', 'C:\xopytest\shot.png.log', 'C:\xopytest\shot.png.error.txt', 'C:\xopytest\tab.error.txt', 'C:\xopytest\options.png.error.txt', 'C:\xopytest\conflict.png.error.txt', 'C:\xopytest\menu.error.txt', 'C:\xopytest\copiatest.txt', 'C:\xopytest\movetest.txt', 'C:\xopytest\conflictotest.txt')) {
             if (Test-Path $file) { $out += "--- $file"; $out += Get-Content $file }
           }
           New-Item -ItemType Directory -Force docs | Out-Null
