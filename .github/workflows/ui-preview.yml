@@ -2,6 +2,11 @@ name: UI preview
 
 on:
   workflow_dispatch:
+  push:
+    branches: ["arena/**"]
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
 
 permissions:
   contents: write
