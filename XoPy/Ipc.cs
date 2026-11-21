@@ -62,7 +62,6 @@ internal static class IpcClient
             using var writer = new StreamWriter(client, new UTF8Encoding(false));
             writer.Write(request.ToJson());
             writer.Flush();
-            client.WaitForPipeDrain();
             return true;
         }
         catch

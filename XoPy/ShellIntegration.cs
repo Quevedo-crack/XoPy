@@ -64,12 +64,7 @@ public static class ShellIntegration
     {
         foreach (var verb in VerbKeys)
         {
-            try
-            {
-                using var key = Registry.CurrentUser.OpenSubKey(ClassesRoot + "\\" + verb, writable: true);
-                key?.Close();
-                Registry.CurrentUser.DeleteSubKeyTree(ClassesRoot + "\\" + verb, false);
-            }
+            try { Registry.CurrentUser.DeleteSubKeyTree(ClassesRoot + "\\" + verb, false); }
             catch { }
         }
     }

@@ -106,13 +106,14 @@ public sealed class MainForm : Form
             ColumnCount = 1,
             RowCount = 5,
             BackColor = _palette.Canvas,
-            Padding = new Padding(0)
+            Padding = new Padding(0),
+            AutoSize = false
         };
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 57));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 54));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 84));
 
         var menu = BuildMenu();
         root.Controls.Add(menu, 0, 0);
@@ -137,7 +138,9 @@ public sealed class MainForm : Form
             BackColor = _palette.Canvas,
             ForeColor = _palette.Text,
             Renderer = new ToolStripProfessionalRenderer(new MenuColors(_palette)),
-            Padding = new Padding(6, 2, 0, 2)
+            Padding = new Padding(6, 2, 0, 2),
+            AutoSize = false,
+            Height = 26
         };
 
         var file = new ToolStripMenuItem("Archivo");
@@ -155,7 +158,7 @@ public sealed class MainForm : Form
         transfer.DropDownItems.Add(MenuItem("Eliminar", (_, _) => StartTransfer(OperationType.Delete)));
         transfer.DropDownItems.Add(MenuItem("Verificar", (_, _) => StartTransfer(OperationType.Test), Keys.F6));
         transfer.DropDownItems.Add(new ToolStripSeparator());
-        transfer.DropDownItems.Add(MenuItem("Pausar / reanudar", (_, _) => TogglePause(), Keys.Space));
+        transfer.DropDownItems.Add(MenuItem("Pausar / reanudar", (_, _) => TogglePause()));
         transfer.DropDownItems.Add(MenuItem("Detener", (_, _) => StopTransfer(), Keys.Escape));
 
         var tools = new ToolStripMenuItem("Herramientas");
@@ -189,8 +192,9 @@ public sealed class MainForm : Form
             RowCount = 1,
             BackColor = _palette.Surface,
             Padding = new Padding(10, 8, 10, 8),
-            Height = 56
+            Height = 57
         };
+        bar.RowStyles.Add(new RowStyle(SizeType.Absolute, 41));
         bar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         bar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
 
@@ -246,8 +250,12 @@ public sealed class MainForm : Form
 
         bar.Controls.Add(left, 0, 0);
         bar.Controls.Add(right, 1, 0);
-
-        return WithBorder(bar);
+        bar.Paint += (_, e) =>
+        {
+            using var pen = new Pen(_palette.Border);
+            e.Graphics.DrawLine(pen, 0, bar.Height - 1, bar.Width, bar.Height - 1);
+        };
+        return bar;
     }
 
     private Control BuildDestinationBar()
@@ -258,9 +266,10 @@ public sealed class MainForm : Form
             ColumnCount = 6,
             RowCount = 1,
             BackColor = _palette.Canvas,
-            Padding = new Padding(10, 10, 10, 8),
+            Padding = new Padding(10, 9, 10, 8),
             Height = 54
         };
+        bar.RowStyles.Add(new RowStyle(SizeType.Absolute, 37));
         bar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         bar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         bar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
@@ -270,7 +279,7 @@ public sealed class MainForm : Form
 
         var label = Ui.Label("Copiar a:", _palette, 9f, true, _palette.Muted);
         label.Anchor = AnchorStyles.Left;
-        label.Margin = new Padding(0, 0, 8, 0);
+        label.Margin = new Padding(0, 8, 8, 0);
 
         _destination = new TextBox
         {
@@ -279,13 +288,15 @@ public sealed class MainForm : Form
             BackColor = _palette.Surface,
             ForeColor = _palette.Text,
             Font = new Font("Segoe UI", 9.5f),
-            Margin = new Padding(0, 3, 6, 3)
+            Margin = new Padding(0, 6, 6, 4),
+            Anchor = AnchorStyles.Left | AnchorStyles.Right
         };
         _destination.TextChanged += (_, _) => UpdateFooter();
 
         _browseButton = Ui.ToolButton("Examinar", Icons.Folder, _palette);
         _browseButton.Size = new Size(104, 30);
-        _browseButton.Margin = new Padding(0, 1, 6, 0);
+        _browseButton.Margin = new Padding(0, 3, 6, 0);
+        _browseButton.Anchor = AnchorStyles.Left;
         _browseButton.Click += (_, _) => BrowseDestination();
 
         _favorites = new ComboBox
@@ -295,7 +306,8 @@ public sealed class MainForm : Form
             Width = 168,
             BackColor = _palette.Surface,
             ForeColor = _palette.Text,
-            Margin = new Padding(0, 2, 4, 0)
+            Margin = new Padding(0, 5, 4, 0),
+            Anchor = AnchorStyles.Left
         };
         _favorites.SelectedIndexChanged += (_, _) =>
         {
@@ -304,7 +316,8 @@ public sealed class MainForm : Form
 
         _favoriteButton = Ui.IconButton(Icons.Star, _palette, "Guardar la carpeta actual en favoritos");
         _favoriteButton.Size = new Size(30, 28);
-        _favoriteButton.Margin = new Padding(0, 2, 10, 0);
+        _favoriteButton.Margin = new Padding(0, 5, 10, 0);
+        _favoriteButton.Anchor = AnchorStyles.Left;
         _favoriteButton.Click += (_, _) => AddFavorite();
 
         _verifyCheck = new CheckBox
@@ -313,8 +326,9 @@ public sealed class MainForm : Form
             AutoSize = true,
             ForeColor = _palette.Text,
             BackColor = Color.Transparent,
-            Margin = new Padding(0, 5, 0, 0),
-            Checked = _settings.VerifyAfterCopy
+            Margin = new Padding(0, 9, 0, 0),
+            Checked = _settings.VerifyAfterCopy,
+            Anchor = AnchorStyles.Left
         };
         _verifyCheck.CheckedChanged += (_, _) =>
         {
@@ -353,6 +367,7 @@ public sealed class MainForm : Form
             BackColor = _palette.Canvas,
             Height = 34
         };
+        header.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
         header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
 
@@ -457,12 +472,12 @@ public sealed class MainForm : Form
             ColumnCount = 1,
             RowCount = 3,
             BackColor = _palette.Surface,
-            Padding = new Padding(12, 8, 12, 8),
-            Height = 74
+            Padding = new Padding(12, 9, 12, 7),
+            Height = 84
         };
-        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 14));
-        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
-        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 20));
+        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 16));
+        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
+        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
 
         _progress = new ProgressStrip(_palette) { Dock = DockStyle.Fill, Height = 12, Margin = new Padding(0, 0, 0, 2) };
 
@@ -527,24 +542,6 @@ public sealed class MainForm : Form
         }, 0, 2);
 
         return footer;
-    }
-
-    private Control WithBorder(Control content)
-    {
-        var wrapper = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            ColumnCount = 1,
-            RowCount = 2,
-            BackColor = _palette.Surface,
-            AutoSize = true
-        };
-        wrapper.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        wrapper.RowStyles.Add(new RowStyle(SizeType.Absolute, 1));
-        content.Dock = DockStyle.Fill;
-        wrapper.Controls.Add(content, 0, 0);
-        wrapper.Controls.Add(new Panel { BackColor = _palette.Border, Dock = DockStyle.Fill, Height = 1 }, 0, 1);
-        return wrapper;
     }
 
     // ---------------------------------------------------------------- ajustes
@@ -1034,7 +1031,6 @@ public sealed class MainForm : Form
 
     private ConflictChoice AskConflict(ConflictPrompt prompt)
     {
-        if (_engine.IsPaused) _engine.SetPaused(false);
         var detail = $"Origen: {prompt.SourcePath} ({Format.Bytes(prompt.SourceSize)}, {prompt.SourceModified:g})\n" +
                      $"Destino: {prompt.TargetPath} ({Format.Bytes(prompt.TargetSize)}, {prompt.TargetModified:g})";
         var choice = PromptDialog.Ask(this, _palette, "Ya existe un archivo",
@@ -1108,7 +1104,10 @@ public sealed class MainForm : Form
                 ? "Transferencia cancelada."
                 : "Transferencia completada correctamente.");
 
+        var previousIcon = _tray.Icon;
         _tray.Icon = _trayIcon ?? Icons.AppIcon();
+        if (previousIcon is not null && !ReferenceEquals(previousIcon, _tray.Icon) && !ReferenceEquals(previousIcon, _trayIcon))
+            previousIcon.Dispose();
         _tray.Text = "XoPy";
         _trayPercent = -1;
 
