@@ -34,3 +34,6 @@
 packages/
 TestResults/
 BenchmarkDotNet.Artifacts/
+
+# Capturas de referencia usadas durante el desarrollo
+image-search/

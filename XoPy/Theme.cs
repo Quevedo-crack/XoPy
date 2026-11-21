@@ -33,7 +33,7 @@ public sealed class Palette
         Surface = Color.FromArgb(32, 36, 42),
         SurfaceAlt = Color.FromArgb(37, 41, 48),
         Raised = Color.FromArgb(45, 50, 58),
-        Hover = Color.FromArgb(56, 62, 72),
+        Hover = Color.FromArgb(58, 64, 75),
         Border = Color.FromArgb(58, 64, 74),
         Text = Color.FromArgb(233, 237, 243),
         Muted = Color.FromArgb(150, 159, 172),
@@ -81,20 +81,23 @@ public static class Icons
     public const string Settings = "\uE713";
     public const string More = "\uE712";
     public const string ChevronDown = "\uE70D";
+    public const string ChevronRight = "\uE76C";
     public const string Folder = "\uE8B7";
     public const string File = "\uE7C3";
     public const string Open = "\uE8E5";
     public const string History = "\uE81C";
     public const string Save = "\uE74E";
-    public const string Link = "\uE71B";
-    public const string Up = "\uE74A";
-    public const string Down = "\uE74B";
-    public const string Remove = "\uE711";
-    public const string Refresh = "\uE72C";
     public const string Star = "\uE734";
     public const string Shield = "\uE83D";
-    public const string Power = "\uE7E8";
-    public const string Info = "\uE946";
+    public const string Warning = "\uE7BA";
+    public const string Check = "\uE73E";
+    public const string Clock = "\uE823";
+    public const string Blocked = "\uE733";
+    public const string Remove = "\uE738";
+    public const string Up = "\uE70E";
+    public const string Down = "\uE70D";
+    public const string Refresh = "\uE72C";
+    public const string Expand = "\uE710";
 
     public static Image Glyph(string glyph, Color color, int size = 20)
     {
@@ -119,23 +122,39 @@ public static class Icons
         return SystemIcons.Application;
     }
 
-    public static Icon ProgressIcon(int percent, bool dark)
+    public static Icon ProgressIcon(int percent, bool dark, bool paused = false, bool error = false, bool completed = false)
     {
+        var clamped = Math.Clamp(percent, 0, 100);
         using var bitmap = new Bitmap(32, 32);
         using (var graphics = Graphics.FromImage(bitmap))
         {
             graphics.SmoothingMode = SmoothingMode.AntiAlias;
             graphics.Clear(Color.Transparent);
-            using var background = new SolidBrush(dark ? Color.FromArgb(32, 36, 42) : Color.FromArgb(250, 250, 252));
-            using var track = new Pen(dark ? Color.FromArgb(70, 78, 90) : Color.FromArgb(205, 212, 222), 4);
-            using var fill = new Pen(Color.FromArgb(48, 140, 240), 4);
-            using var font = new Font("Segoe UI", 9, FontStyle.Bold, GraphicsUnit.Pixel);
+            using var background = new SolidBrush(dark ? Color.FromArgb(30, 34, 40) : Color.FromArgb(250, 250, 252));
+            using var track = new Pen(dark ? Color.FromArgb(66, 74, 86) : Color.FromArgb(205, 212, 222), 4);
+            var color = error ? Color.FromArgb(226, 84, 82)
+                : paused ? Color.FromArgb(230, 168, 58)
+                : completed ? Color.FromArgb(56, 186, 116)
+                : Color.FromArgb(48, 140, 240);
+            using var fill = new Pen(color, 4);
             using var text = new SolidBrush(dark ? Color.White : Color.FromArgb(30, 40, 55));
             using var format = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
             graphics.FillEllipse(background, 1, 1, 30, 30);
             graphics.DrawArc(track, 4, 4, 24, 24, -90, 359);
-            if (percent > 0) graphics.DrawArc(fill, 4, 4, 24, 24, -90, Math.Min(359, 360 * percent / 100f));
-            graphics.DrawString(percent.ToString(), font, text, new RectangleF(2, 2, 28, 28), format);
+
+            if (clamped > 0) graphics.DrawArc(fill, 4, 4, 24, 24, -90, Math.Min(359, 360 * clamped / 100f));
+
+            if (paused)
+            {
+                using var bar = new SolidBrush(color);
+                graphics.FillRectangle(bar, 12, 11, 3, 10);
+                graphics.FillRectangle(bar, 17, 11, 3, 10);
+            }
+            else
+            {
+                using var font = new Font("Segoe UI", clamped >= 100 ? 8f : 9f, FontStyle.Bold, GraphicsUnit.Pixel);
+                graphics.DrawString(clamped.ToString(), font, text, new RectangleF(2, 2, 28, 28), format);
+            }
         }
 
         var handle = bitmap.GetHicon();
@@ -160,7 +179,7 @@ public static class Ui
     {
         var background = accent ?? palette.Raised;
         var foreground = accent.HasValue ? Color.White : palette.Text;
-        var button = new Button
+        return new Button
         {
             Text = text,
             Image = Icons.Glyph(glyph, foreground, 18),
@@ -178,7 +197,6 @@ public static class Ui
             Padding = new Padding(7, 0, 7, 0),
             FlatAppearance = { BorderSize = 0, MouseOverBackColor = Lighten(background, 14), MouseDownBackColor = Lighten(background, 26) }
         };
-        return button;
     }
 
     public static Button IconButton(string glyph, Palette palette, string tooltip = "")
@@ -265,6 +283,15 @@ public static class Ui
             graphics.FillPath(brush, path);
         }
     }
+
+    public static void StyleMenu(ToolStrip menu, Palette palette)
+    {
+        menu.RenderMode = ToolStripRenderMode.Professional;
+        menu.Renderer = new DarkMenuRenderer(palette);
+        menu.BackColor = palette.Surface;
+        menu.ForeColor = palette.Text;
+        menu.Font = new Font("Segoe UI", 9f);
+    }
 }
 
 internal sealed class MenuColors : ProfessionalColorTable
@@ -285,6 +312,88 @@ internal sealed class MenuColors : ProfessionalColorTable
     public override Color ImageMarginGradientEnd => _palette.Surface;
     public override Color SeparatorDark => _palette.Border;
     public override Color SeparatorLight => _palette.Border;
+    public override Color ButtonSelectedHighlight => _palette.Hover;
+    public override Color ButtonSelectedGradientBegin => _palette.Hover;
+    public override Color ButtonSelectedGradientEnd => _palette.Hover;
+    public override Color CheckBackground => _palette.Accent;
+    public override Color CheckSelectedBackground => _palette.Accent;
+    public override Color CheckPressedBackground => _palette.Accent;
+}
+
+/// <summary>Renderiza menús y desplegables con la paleta de la aplicación (texto, fondo, flechas, separadores y marcas).</summary>
+internal sealed class DarkMenuRenderer : ToolStripProfessionalRenderer
+{
+    private readonly Palette _palette;
+
+    public DarkMenuRenderer(Palette palette) : base(new MenuColors(palette))
+    {
+        _palette = palette;
+        RoundedEdges = false;
+    }
+
+    protected override void OnRenderToolStripBackground(ToolStripRenderEventArgs e)
+    {
+        using var brush = new SolidBrush(e.ToolStrip is MenuStrip ? _palette.Canvas : _palette.Surface);
+        e.Graphics.FillRectangle(brush, e.AffectedBounds);
+    }
+
+    protected override void OnRenderToolStripBorder(ToolStripRenderEventArgs e)
+    {
+        if (e.ToolStrip is MenuStrip) return;
+        using var pen = new Pen(_palette.Border);
+        var bounds = new Rectangle(0, 0, e.ToolStrip.Width - 1, e.ToolStrip.Height - 1);
+        e.Graphics.DrawRectangle(pen, bounds);
+    }
+
+    protected override void OnRenderImageMargin(ToolStripRenderEventArgs e)
+    {
+        using var brush = new SolidBrush(_palette.Surface);
+        e.Graphics.FillRectangle(brush, e.AffectedBounds);
+    }
+
+    protected override void OnRenderMenuItemBackground(ToolStripItemRenderEventArgs e)
+    {
+        var item = e.Item;
+        var selected = item.Selected && item.Enabled;
+        var background = selected ? _palette.Hover : _palette.Surface;
+        using var brush = new SolidBrush(background);
+        var bounds = new Rectangle(2, 0, Math.Max(0, e.Item.Width - 4), e.Item.Height);
+        e.Graphics.FillRectangle(brush, bounds);
+    }
+
+    protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e)
+    {
+        e.TextColor = e.Item.Enabled ? _palette.Text : _palette.Muted;
+        base.OnRenderItemText(e);
+    }
+
+    protected override void OnRenderArrow(ToolStripArrowRenderEventArgs e)
+    {
+        e.ArrowColor = _palette.Text;
+        base.OnRenderArrow(e);
+    }
+
+    protected override void OnRenderSeparator(ToolStripSeparatorRenderEventArgs e)
+    {
+        using var brush = new SolidBrush(_palette.Border);
+        e.Graphics.FillRectangle(brush, new Rectangle(6, e.Item.Height / 2, Math.Max(0, e.Item.Width - 12), 1));
+    }
+
+    protected override void OnRenderItemCheck(ToolStripItemImageRenderEventArgs e)
+    {
+        var bounds = e.ImageRectangle;
+        using var background = new SolidBrush(_palette.Accent);
+        using var path = Ui.RoundedRectangle(bounds, 3);
+        e.Graphics.FillPath(background, path);
+        TextRenderer.DrawText(e.Graphics, "\uE73E", new Font("Segoe MDL2 Assets", 9f, FontStyle.Regular, GraphicsUnit.Pixel),
+            bounds, Color.White, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+    }
+
+    protected override void OnRenderToolStripStatusLabelBackground(ToolStripItemRenderEventArgs e)
+    {
+        using var brush = new SolidBrush(_palette.Surface);
+        e.Graphics.FillRectangle(brush, new Rectangle(Point.Empty, e.Item.Size));
+    }
 }
 
 internal sealed class ProgressStrip : Control
@@ -356,10 +465,7 @@ internal sealed class ChoiceButton : Button
         FlatAppearance.BorderSize = 1;
         FlatAppearance.MouseOverBackColor = palette.Hover;
 
-        _menu.BackColor = palette.Surface;
-        _menu.ForeColor = palette.Text;
-        _menu.Font = new Font("Segoe UI", 9f);
-        _menu.Renderer = new ToolStripProfessionalRenderer(new MenuColors(palette));
+        Ui.StyleMenu(_menu, palette);
         _menu.ShowImageMargin = false;
         Click += (_, _) => ShowMenu();
     }

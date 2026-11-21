@@ -27,9 +27,12 @@ Así se ve una verificación correcta (SHA-256 comparado con el original):
 ## Funciones
 
 - **Copia, mueve, elimina y verifica** archivos o carpetas completas (con subcarpetas).
-- **Cola de transferencias** con arrastrar y soltar, tamaño total y progreso por archivo.
-- **Pausar, reanudar y detener** en cualquier momento. Los archivos a medio copiar se guardan
-  como `.xopy-part` y se eliminan si cancelas, para no dejar basura.
+- **Cola jerárquica**: al añadir una carpeta se ve la carpeta y dentro cada archivo. Puedes
+  expandirla o contraerla, **cambiar el orden** (botones ↑/↓ o Alt+↑/Alt+↓) y **quitar** elementos
+  de la cola antes de transferir.
+- **Pausar, reanudar, saltar el archivo actual y detener** en cualquier momento. Los archivos a medio
+  copiar se escriben en un temporal `.xopy-part` que se elimina si cancelas; si la carpeta no permite
+  crear el temporal (permisos, rutas largas o unidades de red) se copia directamente para no fallar.
 - **Verificación real**: CRC32, MD5, SHA-1, SHA-256 y SHA-512, comparando origen y destino.
 - **Límite de velocidad**, tamaño de búfer y transferencias simultáneas configurables.
 - **Resolución de conflictos**: preguntar, sobrescribir, omitir, cambiar nombre, sobrescribir si
@@ -37,6 +40,9 @@ Así se ve una verificación correcta (SHA-256 comparado con el original):
 - **Gestión de errores**: reintentos automáticos, omitir el archivo o detener la transferencia.
 - **Conservar fechas** y atributos, y opción de enviar a la **Papelera de reciclaje**.
 - **Favoritos**, historial de transferencias con exportación a CSV y sonido al terminar.
+- **Pestañas Lista de archivos / Destino / Opciones / Estado / Registro**, panel de trabajos y hashes
+  de origen y destino en la lista.
+- **Registro técnico** en `%LOCALAPPDATA%\XoPy\transfer.log` para diagnosticar cualquier error.
 - **Acciones al terminar**: apagar el equipo, cerrar XoPy o abrir la carpeta de destino.
 - Icono de progreso en el **área de notificación** y modo minimizado.
 - Temas **oscuro** y **claro**.
@@ -45,11 +51,15 @@ Así se ve una verificación correcta (SHA-256 comparado con el original):
 
 El instalador añade estas acciones al menú contextual (se pueden desactivar en Preferencias):
 
-- **Copiar con XoPy** (archivos y carpetas)
-- **Mover con XoPy**
+- **Copiar con XoPy** (usa el último destino configurado)
+- **Copiar a… con XoPy** (pregunta la carpeta de destino)
+- **Mover con XoPy** / **Mover a… con XoPy**
 - **Verificar con XoPy**
-- **Pegar con XoPy** (en el fondo de una carpeta)
-- **Enviar a → Copiar con XoPy / Mover con XoPy**
+- **Pegar con XoPy** y **Abrir XoPy aquí** (en el fondo de una carpeta)
+- **Enviar a → Copiar con XoPy / Mover con XoPy** (permite enviar varios archivos a la vez)
+
+En Windows 11 estas acciones aparecen en **Mostrar más opciones** (`Mayús+F10`), igual que en
+TeraCopy. Si XoPy ya está abierto, la orden se ejecuta en la ventana existente.
 
 Además XoPy se abre en una sola ventana: si ya está abierto, las nuevas órdenes del Explorador se
 añaden a la ventana existente.

@@ -4,6 +4,8 @@ namespace XoPy;
 
 public enum OperationType { Copy = 0, Move = 1, Delete = 2, Test = 3 }
 
+public enum ItemKind { File = 0, Folder = 1, DirectoryEntry = 2 }
+
 public enum ItemState { Pending = 0, Measuring = 1, Running = 2, Paused = 3, Verifying = 4, Completed = 5, Failed = 6, Skipped = 7, Cancelled = 8 }
 
 public enum ConflictPolicy
@@ -23,17 +25,25 @@ public enum VerifyAlgorithm { None = 0, Crc32 = 1, Md5 = 2, Sha1 = 3, Sha256 = 4
 public sealed class TransferItem
 {
     public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid? ParentId { get; set; }
+    public int Depth { get; set; }
+    public ItemKind Kind { get; set; } = ItemKind.File;
     public string SourcePath { get; set; } = string.Empty;
+    public string RelativePath { get; set; } = string.Empty;
     public string DestinationPath { get; set; } = string.Empty;
     public OperationType Operation { get; set; }
-    public bool IsFolder { get; set; }
     public long SizeBytes { get; set; }
     public long TransferredBytes { get; set; }
-    public int FileCount { get; set; }
     public ItemState State { get; set; } = ItemState.Pending;
     public string? Error { get; set; }
     public string? CurrentFile { get; set; }
+    public string? HashSource { get; set; }
+    public string? HashTarget { get; set; }
     public bool SizeKnown { get; set; } = true;
+    public bool IsExpanded { get; set; } = true;
+
+    [JsonIgnore]
+    public bool IsFolder => Kind == ItemKind.Folder;
 
     [JsonIgnore]
     public string Name => Path.GetFileName(Path.TrimEndingDirectorySeparator(SourcePath));
@@ -44,7 +54,8 @@ public sealed class TransferItem
         get
         {
             if (State == ItemState.Completed) return 100;
-            if (SizeBytes <= 0) return State == ItemState.Pending ? 0 : 0;
+            if (Kind == ItemKind.Folder) return 0;
+            if (SizeBytes <= 0) return 0;
             return Math.Clamp(TransferredBytes * 100d / SizeBytes, 0, 100);
         }
     }
@@ -52,7 +63,7 @@ public sealed class TransferItem
     [JsonIgnore]
     public string StateText => State switch
     {
-        ItemState.Pending => "Pendiente",
+        ItemState.Pending => Kind == ItemKind.Folder ? "En cola" : "Pendiente",
         ItemState.Measuring => "Analizando…",
         ItemState.Running => Operation switch
         {
@@ -77,7 +88,11 @@ public sealed class TransferItem
     };
 
     [JsonIgnore]
-    public string SizeText => SizeKnown ? Format.Bytes(SizeBytes) : "—";
+    public string SizeText => Kind == ItemKind.Folder
+        ? (SizeKnown ? Format.Bytes(SizeBytes) : "—")
+        : Format.Bytes(SizeBytes);
+
+    public TransferItem CloneShallow() => (TransferItem)MemberwiseClone();
 }
 
 public sealed class HistoryEntry
@@ -114,7 +129,7 @@ public sealed class AppSettings
     public string Destination { get; set; } = string.Empty;
     public bool DarkTheme { get; set; } = true;
     public ConflictPolicy Conflict { get; set; } = ConflictPolicy.Ask;
-    public ErrorPolicy OnError { get; set; } = ErrorPolicy.Ask;
+    public ErrorPolicy OnError { get; set; } = ErrorPolicy.Retry;
     public VerifyAlgorithm Verify { get; set; } = VerifyAlgorithm.Sha256;
     public bool VerifyAfterCopy { get; set; }
     public int RetryCount { get; set; } = 3;
@@ -132,6 +147,12 @@ public sealed class AppSettings
     public bool ShutdownWhenDone { get; set; }
     public bool ExplorerIntegration { get; set; }
     public bool ConfirmDelete { get; set; } = true;
+    public bool ShowHashes { get; set; } = true;
+    public int WindowWidth { get; set; }
+    public int WindowHeight { get; set; }
+    public int WindowX { get; set; } = int.MinValue;
+    public int WindowY { get; set; } = int.MinValue;
+    public bool WindowMaximized { get; set; }
     public List<string> Favorites { get; set; } = new();
 
     public static string DefaultDestination()
@@ -156,6 +177,7 @@ public sealed class StartupRequest
     public string? Destination { get; set; }
     public bool PasteFromClipboard { get; set; }
     public bool StartMinimized { get; set; }
+    public bool AskDestination { get; set; }
 
     public static StartupRequest Parse(string[] args)
     {
@@ -171,6 +193,7 @@ public sealed class StartupRequest
                 case "--test": request.Operation = OperationType.Test; break;
                 case "--paste": request.PasteFromClipboard = true; break;
                 case "--tray": request.StartMinimized = true; break;
+                case "--ask-destination": request.AskDestination = true; break;
                 case "--screenshot":
                 case "--screenshot-options":
                 case "--screenshot-conflict":
