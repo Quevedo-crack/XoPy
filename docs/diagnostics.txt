@@ -1,35 +1,50 @@
   Determining projects to restore...
-  Restored D:\a\XoPy\XoPy\XoPy\XoPy.csproj (in 26 ms).
-D:\a\XoPy\XoPy\XoPy\MainForm.Panels.cs(1084,25): warning CS8602: Dereference of a possibly null reference. [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
+  Restored D:\a\XoPy\XoPy\XoPy\XoPy.csproj (in 31 ms).
+D:\a\XoPy\XoPy\XoPy\MainForm.Panels.cs(1090,25): warning CS8602: Dereference of a possibly null reference. [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
 D:\a\XoPy\XoPy\XoPy\MainForm.cs(108,18): warning CS0414: The field 'MainForm._wasRunning' is assigned but its value is never used [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
 CSC : warning WFAC010: Remove high DPI settings from D:\a\XoPy\XoPy\XoPy\app.manifest and configure via Application.SetHighDpiMode API or 'ApplicationHighDpiMode' project property [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
   XoPy -> D:\a\XoPy\XoPy\XoPy\bin\Release\net8.0-windows\win-x64\XoPy.dll
 
 Build succeeded.
 
-D:\a\XoPy\XoPy\XoPy\MainForm.Panels.cs(1084,25): warning CS8602: Dereference of a possibly null reference. [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
+D:\a\XoPy\XoPy\XoPy\MainForm.Panels.cs(1090,25): warning CS8602: Dereference of a possibly null reference. [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
 D:\a\XoPy\XoPy\XoPy\MainForm.cs(108,18): warning CS0414: The field 'MainForm._wasRunning' is assigned but its value is never used [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
 CSC : warning WFAC010: Remove high DPI settings from D:\a\XoPy\XoPy\XoPy\app.manifest and configure via Application.SetHighDpiMode API or 'ApplicationHighDpiMode' project property [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
     3 Warning(s)
     0 Error(s)
 
-Time Elapsed 00:00:02.18
+Time Elapsed 00:00:01.40
 FILE: carpeta (1 bytes)
 FILE: exitcode.txt (25 bytes)
 FILE: informe.pdf (10242 bytes)
-FILE: shot.png.log (134 bytes)
-FILE: stack.txt (4574 bytes)
+FILE: shot.png.log (126 bytes)
+FILE: stack.txt (6021 bytes)
 FILE: video.mp4 (20482 bytes)
 --- C:\xopytest\exitcode.txt
 exitcode=-1 exited=True
 --- C:\xopytest\shot.png.log
-inicio 2026-11-21T23:31:44.4123029+00:00
+inicio 2026-11-21T23:33:44.7041237+00:00
 ventana creada {Width=1044, Height=740}
 ventana mostrada {Width=1028, Height=701}
-tick 0
 --- C:\xopytest\stack.txt
-Thread (0x5C4):
-  [Native Frames]
+Thread (0x224C):
+  CPU_TIME
+  XoPy!XoPy.MainForm.ListDrawSubItem(class System.Object,class System.Windows.Forms.DrawListViewSubItemEventArgs)
+  System.Windows.Forms.il!System.Windows.Forms.ListView.CustomDraw(value class System.Windows.Forms.Message&)
+  System.Windows.Forms.il!System.Windows.Forms.ListView.WmReflectNotify(value class System.Windows.Forms.Message&)
+  System.Windows.Forms.il!System.Windows.Forms.ListView.WndProc(value class System.Windows.Forms.Message&)
+  System.Windows.Forms.il!System.Windows.Forms.NativeWindow.Callback(value class Windows.Win32.Foundation.HWND,value class Windows.Win32.MessageId,value class Windows.Win32.Foundation.WPARAM,value class Windows.Win32.Foundation.LPARAM)
+  ?!?
+  System.Windows.Forms.il!System.Windows.Forms.Control.WmNotify(value class System.Windows.Forms.Message&)
+  System.Windows.Forms.il!System.Windows.Forms.Control.WndProc(value class System.Windows.Forms.Message&)
+  System.Windows.Forms.il!System.Windows.Forms.ScrollableControl.WndProc(value class System.Windows.Forms.Message&)
+  System.Windows.Forms.il!System.Windows.Forms.NativeWindow.Callback(value class Windows.Win32.Foundation.HWND,value class Windows.Win32.MessageId,value class Windows.Win32.Foundation.WPARAM,value class Windows.Win32.Foundation.LPARAM)
+  ?!?
+  System.Windows.Forms.il!System.Windows.Forms.NativeWindow.DefWndProc(value class System.Windows.Forms.Message&)
+  System.Windows.Forms.il!System.Windows.Forms.Control.WndProc(value class System.Windows.Forms.Message&)
+  System.Windows.Forms.il!System.Windows.Forms.ListView.WndProc(value class System.Windows.Forms.Message&)
+  System.Windows.Forms.il!System.Windows.Forms.NativeWindow.Callback(value class Windows.Win32.Foundation.HWND,value class Windows.Win32.MessageId,value class Windows.Win32.Foundation.WPARAM,value class Windows.Win32.Foundation.LPARAM)
+  ?!?
   System.Windows.Forms.il!System.Windows.Forms.NativeWindow.DefWndProc(value class System.Windows.Forms.Message&)
   System.Windows.Forms.il!System.Windows.Forms.Control.WmNotify(value class System.Windows.Forms.Message&)
   System.Windows.Forms.il!System.Windows.Forms.Control.WndProc(value class System.Windows.Forms.Message&)
@@ -42,8 +57,7 @@ Thread (0x5C4):
   System.Windows.Forms.il!System.Windows.Forms.NativeWindow.Callback(value class Windows.Win32.Foundation.HWND,value class Windows.Win32.MessageId,value class Windows.Win32.Foundation.WPARAM,value class Windows.Win32.Foundation.LPARAM)
   ?!?
   System.Windows.Forms.il!System.Windows.Forms.ListView.SetColumnWidth(int32,value class System.Windows.Forms.ColumnHeaderAutoResizeStyle)
-  XoPy!XoPy.MainForm.UpdateHashColumnsCore()
-  XoPy!XoPy.MainForm.UpdateHashColumns()
+  XoPy!XoPy.MainForm.ResizeColumns()
   System.Windows.Forms.il!System.Windows.Forms.Control.InvokeMarshaledCallbackHelper(class System.Object)
   System.Private.CoreLib.il!System.Threading.ExecutionContext.RunInternal(class System.Threading.ExecutionContext,class System.Threading.ContextCallback,class System.Object)
   System.Windows.Forms.il!System.Windows.Forms.Control.InvokeMarshaledCallbacks()
@@ -57,31 +71,24 @@ Thread (0x5C4):
   XoPy!XoPy.Program.RunScreenshot(class XoPy.StartupRequest,class System.String)
   XoPy!XoPy.Program.Main(class System.String[])
 
-Thread (0x89C):
+Thread (0xAD8):
   [Native Frames]
   ?!?
   Microsoft.Win32.SystemEvents.il!Microsoft.Win32.SystemEvents.WindowThreadProc()
 
-Thread (0x1648):
-  [Native Frames]
-  System.Diagnostics.Process.il!Interop+User32.GetWindowTextLengthW(int)
-  System.Diagnostics.Process.il!System.Diagnostics.Process.GetMainWindowTitle()
-  System.Diagnostics.Process.il!System.Diagnostics.Process.get_MainWindowTitle()
-  XoPy!XoPy.Program+<>c__DisplayClass2_0.<RunScreenshot>b__1()
-
-Thread (0x2190):
+Thread (0x1210):
   [Native Frames]
   System.Private.CoreLib.il!Interop+Kernel32.GetQueuedCompletionStatus(int,unsigned int32&,unsigned int&,int&,int32)
   System.Private.CoreLib.il!System.Threading.LowLevelLifoSemaphore.WaitForSignal(int32)
   System.Private.CoreLib.il!System.Threading.LowLevelLifoSemaphore.Wait(int32,bool)
   System.Private.CoreLib.il!System.Threading.PortableThreadPool+WorkerThread.WorkerThreadStart()
 
-Thread (0x13A8):
+Thread (0x1920):
   [Native Frames]
   System.Private.CoreLib.il!System.Threading.WaitHandle.WaitOneNoCheck(int32)
   System.Private.CoreLib.il!System.Threading.PortableThreadPool+GateThread.GateThreadStart()
 
-Thread (0x1E4C):
+Thread (0x268):
   [Native Frames]
   System.Private.CoreLib.il!Interop+Kernel32.GetQueuedCompletionStatus(int,unsigned int32&,unsigned int&,int&,int32)
   System.Private.CoreLib.il!System.Threading.LowLevelLifoSemaphore.WaitForSignal(int32)
