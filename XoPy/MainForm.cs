@@ -254,19 +254,17 @@ public sealed partial class MainForm : Form
 
     private Control BuildToolbar()
     {
-        var bar = new ToolStrip
+        var bar = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            GripStyle = ToolStripGripStyle.Hidden,
-            LayoutStyle = ToolStripLayoutStyle.HorizontalStackWithOverflow,
-            CanOverflow = true,
-            AutoSize = false,
-            Height = 58,
-            Padding = new Padding(10, 9, 10, 8),
+            ColumnCount = 2,
             BackColor = _palette.Surface,
-            Font = new Font("Segoe UI", 8.75f, FontStyle.Bold),
-            Renderer = new DarkMenuRenderer(_palette)
+            Padding = new Padding(10, 8, 10, 8),
+            RowCount = 1
         };
+        bar.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        bar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        bar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
 
         _addFilesButton = BarButton("Archivos", Icons.Add, (_, _) => AddFiles());
         _addFolderButton = BarButton("Carpeta", Icons.FolderAdd, (_, _) => AddFolder());
@@ -277,24 +275,50 @@ public sealed partial class MainForm : Form
         _pauseButton = BarButton("Pausar", Icons.Pause, (_, _) => TogglePause());
         _skipButton = BarButton("Saltar", Icons.ChevronRight, (_, _) => SkipCurrent());
         _stopButton = BarButton("Detener", Icons.Stop, (_, _) => StopTransfer());
-        var spacer = new ToolStripLabel
-        {
-            Text = string.Empty,
-            Spring = true,
-            AutoSize = false,
-            Width = 12,
-            Margin = Padding.Empty
-        };
         _optionsButton = BarButton("Opciones", Icons.Settings, (_, _) => ShowOptions());
-        _optionsButton.Margin = new Padding(0, 0, 4, 0);
+        _optionsButton.Margin = new Padding(6, 0, 4, 0);
         _menuButton = BarButton("Menú", Icons.More, (_, _) => ShowMainMenu());
         _menuButton.Margin = new Padding(0);
 
-        bar.Items.AddRange(new ToolStripItem[]
+        var left = new ToolStrip
+        {
+            Dock = DockStyle.Fill,
+            GripStyle = ToolStripGripStyle.Hidden,
+            LayoutStyle = ToolStripLayoutStyle.HorizontalStackWithOverflow,
+            CanOverflow = true,
+            AutoSize = false,
+            BackColor = _palette.Surface,
+            Font = new Font("Segoe UI", 8.75f, FontStyle.Bold),
+            Renderer = new DarkMenuRenderer(_palette),
+            Padding = new Padding(0)
+        };
+        left.Items.AddRange(new ToolStripItem[]
         {
             _addFilesButton, _addFolderButton, _copyButton, _moveButton, _testButton, _deleteButton,
-            _pauseButton, _skipButton, _stopButton, spacer, _optionsButton, _menuButton
+            _pauseButton, _skipButton, _stopButton
         });
+
+        var right = new ToolStrip
+        {
+            Dock = DockStyle.Fill,
+            GripStyle = ToolStripGripStyle.Hidden,
+            LayoutStyle = ToolStripLayoutStyle.HorizontalStackWithOverflow,
+            CanOverflow = false,
+            AutoSize = true,
+            BackColor = _palette.Surface,
+            Font = new Font("Segoe UI", 8.75f, FontStyle.Bold),
+            Renderer = new DarkMenuRenderer(_palette),
+            Padding = new Padding(0)
+        };
+        right.Items.AddRange(new ToolStripItem[] { _optionsButton, _menuButton });
+
+        bar.Controls.Add(left, 0, 0);
+        bar.Controls.Add(right, 1, 0);
+        bar.Paint += (_, e) =>
+        {
+            using var pen = new Pen(_palette.Border);
+            e.Graphics.DrawLine(pen, 0, bar.Height - 1, bar.Width, bar.Height - 1);
+        };
         return bar;
     }
 
