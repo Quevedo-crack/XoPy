@@ -522,17 +522,19 @@ internal sealed class OptionsDialog : Form
         BackColor = Color.Transparent
     };
 
-    private NumericUpDown Numeric(int value, int min, int max, int step) => new()
+    private NumericUpDown Numeric(int value, int min, int max, int step)
     {
-        Minimum = min,
-        Maximum = max,
-        Increment = step,
-        Value = Math.Clamp(value, min, max),
-        Width = 120,
-        BackColor = _palette.Surface,
-        ForeColor = _palette.Text,
-        BorderStyle = BorderStyle.FixedSingle
-    };
+        var numeric = new NumericUpDown
+        {
+            Minimum = min,
+            Maximum = max,
+            Increment = step,
+            Value = Math.Clamp(value, min, max),
+            Width = 120
+        };
+        Ui.StyleNumeric(numeric, _palette);
+        return numeric;
+    }
 
     public int TabCount => _tabs.TabCount;
 

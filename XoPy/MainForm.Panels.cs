@@ -224,33 +224,33 @@ public sealed partial class MainForm
         _optParallel = new NumericUpDown
         {
             Minimum = 1, Maximum = 16, Value = Math.Clamp(_settings.Parallelism, 1, 16),
-            Width = 90, BackColor = _palette.SurfaceAlt, ForeColor = _palette.Text,
-            BorderStyle = BorderStyle.FixedSingle, Font = new Font("Segoe UI", 9f)
+            Width = 90, Font = new Font("Segoe UI", 9f)
         };
-        AddRow(grid, "Archivos a la vez:", _optParallel, 32, "Con 2 o 4 se aprovecha mejor un disco NVMe.");
+        Ui.StyleNumeric(_optParallel, _palette);
+        AddRow(grid, "Archivos a la vez:", _optParallel, 32, "Pensado para un Ryzen 7 y NVMe: 4 va muy bien; súbelo si copias a varios discos.");
 
         _optBuffer = new NumericUpDown
         {
             Minimum = 64, Maximum = 8192, Increment = 256, Value = Math.Clamp(_settings.BufferKiB, 64, 8192),
-            Width = 110, BackColor = _palette.SurfaceAlt, ForeColor = _palette.Text,
-            BorderStyle = BorderStyle.FixedSingle, Font = new Font("Segoe UI", 9f)
+            Width = 110, Font = new Font("Segoe UI", 9f)
         };
-        AddRow(grid, "Búfer por archivo (KB):", _optBuffer, 32, "1024 KB funciona bien en la mayoría de equipos.");
+        Ui.StyleNumeric(_optBuffer, _palette);
+        AddRow(grid, "Búfer por archivo (KB):", _optBuffer, 32, "4096 KB (4 MB) es el valor recomendado con 24 GB de RAM; 1024 KB para equipos modestos.");
 
         _optRetries = new NumericUpDown
         {
             Minimum = 0, Maximum = 20, Value = Math.Clamp(_settings.RetryCount, 0, 20),
-            Width = 90, BackColor = _palette.SurfaceAlt, ForeColor = _palette.Text,
-            BorderStyle = BorderStyle.FixedSingle, Font = new Font("Segoe UI", 9f)
+            Width = 90, Font = new Font("Segoe UI", 9f)
         };
+        Ui.StyleNumeric(_optRetries, _palette);
         AddRow(grid, "Reintentos por archivo:", _optRetries, 32, null);
 
         _optSpeedLimit = new NumericUpDown
         {
             Minimum = 0, Maximum = 100000, Increment = 50, Value = Math.Clamp(_settings.SpeedLimitMiB, 0, 100000),
-            Width = 110, BackColor = _palette.SurfaceAlt, ForeColor = _palette.Text,
-            BorderStyle = BorderStyle.FixedSingle, Font = new Font("Segoe UI", 9f)
+            Width = 110, Font = new Font("Segoe UI", 9f)
         };
+        Ui.StyleNumeric(_optSpeedLimit, _palette);
         AddRow(grid, "Límite de velocidad (MB/s):", _optSpeedLimit, 32, "0 significa sin límite.");
 
         var toggles = new FlowLayoutPanel
@@ -279,9 +279,9 @@ public sealed partial class MainForm
         _optSecurePasses = new NumericUpDown
         {
             Minimum = 0, Maximum = 7, Value = Math.Clamp(_settings.SecureDeletePasses, 0, 7),
-            Width = 90, BackColor = _palette.SurfaceAlt, ForeColor = _palette.Text,
-            BorderStyle = BorderStyle.FixedSingle, Font = new Font("Segoe UI", 9f)
+            Width = 90, Font = new Font("Segoe UI", 9f)
         };
+        Ui.StyleNumeric(_optSecurePasses, _palette);
         AddRow(grid, "Pasadas de borrado seguro:", _optSecurePasses, 32,
             "0 borra de forma normal. Con 1 o 3 se sobrescribe el contenido antes de eliminar (no funciona en unidades de red).");
 
@@ -567,18 +567,18 @@ public sealed partial class MainForm
             BackColor = _palette.Surface,
             Padding = new Padding(16, 10, 16, 10)
         };
-        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
-        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
-        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
-        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
+        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));
         page.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
-        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
-        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
-        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
-        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
+        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
+        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
+        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 20));
+        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));
+        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
+        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
+        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
         page.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 128));
-        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
+        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 104));
+        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
 
         var title = Ui.Label("Estado de la transferencia", _palette, 11f, true);
         title.Anchor = AnchorStyles.Left;
@@ -597,7 +597,7 @@ public sealed partial class MainForm
         };
         progressRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         progressRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 78));
-        _stProgress = new ProgressStrip(_palette) { Dock = DockStyle.Fill, Height = 12, Margin = new Padding(0, 7, 8, 5) };
+        _stProgress = new ProgressStrip(_palette) { Dock = DockStyle.Fill, Height = 12, Margin = new Padding(0, 6, 8, 4) };
         _stPercent = new Label
         {
             Text = "0 %",
@@ -614,7 +614,7 @@ public sealed partial class MainForm
         _stEta = StatusLine();
         _stErrors = StatusLine();
 
-        _graph = new SpeedGraph(_palette) { Dock = DockStyle.Fill, Margin = new Padding(0, 6, 0, 8), Height = 110 };
+        _graph = new SpeedGraph(_palette) { Dock = DockStyle.Fill, Margin = new Padding(0, 4, 0, 6), Height = 80 };
 
         var categories = BuildCategoryGrid();
 
@@ -663,7 +663,7 @@ public sealed partial class MainForm
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 22));
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 22));
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 16));
-        for (var row = 0; row < 5; row++) grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
+        for (var row = 0; row < 5; row++) grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 20));
 
         var headers = new[] { "Categoría", "Archivos", "Bytes", "Tiempo" };
         for (var column = 0; column < 4; column++)
@@ -959,6 +959,7 @@ public sealed partial class MainForm
             buttons[i].Font = new Font("Segoe UI", 9f, active ? FontStyle.Bold : FontStyle.Regular);
         }
         _tabFiles.Parent?.Invalidate();
+        if (IsHandleCreated) BeginInvoke(new Action(ApplyDarkScrollbars));
 
         if (_tabIndex == 1) UpdateTargetTab();
         if (_tabIndex == 3) UpdateFooter();

@@ -506,13 +506,13 @@ public sealed partial class MainForm
     private void UpdateCountLabel()
     {
         if (_countLabel is null) return;
-        var leaves = _items.Where(item => item.Kind != ItemKind.Folder).ToList();
         if (_items.Count == 0)
         {
             _countLabel.Text = "Lista vacía — arrastra archivos o carpetas aquí";
             return;
         }
-        _countLabel.Text = $"{_items.Count} elemento(s) · {leaves.Count} archivo(s) · {Format.Bytes(leaves.Sum(item => Math.Max(0, item.SizeBytes)))}";
+        var files = _items.Where(item => item.Kind == ItemKind.File).ToList();
+        _countLabel.Text = $"{_items.Count} elemento(s) · {files.Count} archivo(s) · {Format.Bytes(files.Sum(item => Math.Max(0, item.SizeBytes)))}";
     }
 
     private string? _currentStatus;

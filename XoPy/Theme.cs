@@ -520,7 +520,8 @@ internal sealed class SpeedGraph : Control
         if (_samples.Count < 2)
         {
             using var idle = new SolidBrush(_palette.Muted);
-            graphics.DrawString("Sin actividad", new Font("Segoe UI", 9f), idle, new PointF(12, 10));
+            using var idleFont = new Font("Segoe UI", 9f);
+            graphics.DrawString("Sin actividad", idleFont, idle, new PointF(12, 10));
             return;
         }
 
@@ -548,7 +549,8 @@ internal sealed class SpeedGraph : Control
             graphics.DrawLines(line, points);
 
         using var label = new SolidBrush(_palette.Muted);
-        graphics.DrawString("Máx. " + Format.Speed(max), new Font("Segoe UI", 8.25f), label, new PointF(10, 6));
+        using var labelFont = new Font("Segoe UI", 8.25f);
+        graphics.DrawString("Máx. " + Format.Speed(max), labelFont, label, new PointF(10, 6));
     }
 }
 
