@@ -846,8 +846,7 @@ public sealed partial class MainForm : Form
     /// <summary>Abre el menú «Transferencia» de la barra de menús (usado por las capturas automáticas).</summary>
     public ToolStripDropDown? OpenTransferMenu()
     {
-        if (_menu.Items.Count < 2) return null;
-        var item = _menu.Items[1];
+        if (_menu.Items.Count < 2 || _menu.Items[1] is not ToolStripMenuItem item) return null;
         item.ShowDropDown();
         return item.DropDown;
     }
