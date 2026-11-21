@@ -82,7 +82,7 @@ internal static class Program
                 Thread.Sleep(40);
             }
 
-            using var bitmap = new Bitmap(form.ClientSize.Width, form.ClientSize.Height);
+            using var bitmap = new Bitmap(Math.Max(200, form.Width), Math.Max(150, form.Height));
             form.DrawToBitmap(bitmap, new Rectangle(0, 0, bitmap.Width, bitmap.Height));
             var directory = Path.GetDirectoryName(path);
             if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
@@ -151,7 +151,7 @@ internal static class Program
 
     private static void Save(Form form, string path)
     {
-        using var bitmap = new Bitmap(form.ClientSize.Width, form.ClientSize.Height);
+        using var bitmap = new Bitmap(Math.Max(200, form.Width), Math.Max(150, form.Height));
         form.DrawToBitmap(bitmap, new Rectangle(0, 0, bitmap.Width, bitmap.Height));
         var directory = Path.GetDirectoryName(path);
         if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
