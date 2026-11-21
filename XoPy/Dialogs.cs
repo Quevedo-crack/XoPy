@@ -1,4 +1,5 @@
 using System.Drawing;
+using System.Globalization;
 using System.Linq;
 using System.Text;
 using System.Windows.Forms;
@@ -657,6 +658,7 @@ internal sealed class HistoryDialog : Form
 {
     private readonly List<HistoryEntry> _entries;
     private readonly ListView _list;
+    private readonly Font _headerFont = new("Segoe UI", 9f, FontStyle.Bold);
 
     public bool Modified { get; private set; }
     public IReadOnlyList<HistoryEntry> Entries => _entries;
@@ -688,13 +690,26 @@ internal sealed class HistoryDialog : Form
             Font = new Font("Segoe UI", 9f),
             HeaderStyle = ColumnHeaderStyle.Nonclickable
         };
-        _list.Columns.Add("Fecha", 130);
-        _list.Columns.Add("Operación", 90);
-        _list.Columns.Add("Destino", 260);
-        _list.Columns.Add("Archivos", 80, HorizontalAlignment.Right);
-        _list.Columns.Add("Tamaño", 90, HorizontalAlignment.Right);
-        _list.Columns.Add("Velocidad", 100, HorizontalAlignment.Right);
-        _list.Columns.Add("Resultado", 110);
+        _list.OwnerDraw = true;
+        _list.Columns.Add("Fecha", 122);
+        _list.Columns.Add("Operación", 88);
+        _list.Columns.Add("Destino", -2); // ocupa el ancho restante: sin barra horizontal
+        _list.Columns.Add("Archivos", 74, HorizontalAlignment.Right);
+        _list.Columns.Add("Tamaño", 84, HorizontalAlignment.Right);
+        _list.Columns.Add("Velocidad", 92, HorizontalAlignment.Right);
+        _list.Columns.Add("Resultado", 100);
+        _list.DrawColumnHeader += (_, e) =>
+        {
+            using var background = new SolidBrush(palette.SurfaceAlt);
+            e.Graphics.FillRectangle(background, e.Bounds);
+            using var line = new Pen(palette.Border);
+            e.Graphics.DrawLine(line, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Right, e.Bounds.Bottom - 1);
+            var alignment = e.Header.TextAlign == HorizontalAlignment.Right ? TextFormatFlags.Right : TextFormatFlags.Left;
+            TextRenderer.DrawText(e.Graphics, e.Header.Text, _headerFont,
+                Rectangle.Inflate(e.Bounds, -10, 0), palette.Muted,
+                alignment | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+        };
+        _list.DrawItem += (_, e) => e.DrawDefault = true;
         FillList();
 
         var buttons = new FlowLayoutPanel
@@ -759,6 +774,12 @@ internal sealed class HistoryDialog : Form
         };
     }
 
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing) _headerFont.Dispose();
+        base.Dispose(disposing);
+    }
+
     private void FillList()
     {
         _list.BeginUpdate();
@@ -767,7 +788,7 @@ internal sealed class HistoryDialog : Form
         {
             var row = new ListViewItem(new[]
             {
-                entry.FinishedAt.ToString("g"),
+                entry.FinishedAt.ToString("dd/MM/yyyy HH:mm", CultureInfo.InvariantCulture),
                 entry.OperationText,
                 entry.Destination,
                 entry.FileCount.ToString(),
