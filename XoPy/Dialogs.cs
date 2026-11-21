@@ -694,7 +694,7 @@ internal sealed class HistoryDialog : Form
         _list.Columns.Add("Fecha", 122);
         _list.Columns.Add("Operación", 88);
         _list.Columns.Add("Destino", 300); // se ajusta al ancho para no dejar hueco en la cabecera
-        _list.Columns.Add("Archivos", 74, HorizontalAlignment.Right);
+        _list.Columns.Add("Archivos", 88, HorizontalAlignment.Right);
         _list.Columns.Add("Tamaño", 84, HorizontalAlignment.Right);
         _list.Columns.Add("Velocidad", 92, HorizontalAlignment.Right);
         _list.Columns.Add("Resultado", 100);
@@ -778,7 +778,7 @@ internal sealed class HistoryDialog : Form
 
     private void FitDestinationColumn()
     {
-        const int fixedWidth = 122 + 88 + 74 + 84 + 92 + 100;
+        const int fixedWidth = 122 + 88 + 88 + 84 + 92 + 100;
         var width = Math.Max(140, _list.ClientSize.Width - fixedWidth - 4);
         if (_list.Columns[2].Width != width) _list.Columns[2].Width = width;
     }
