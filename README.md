@@ -1,5 +1,7 @@
 # XoPy
 
+![Interfaz de XoPy](docs/xopy-preview.png)
+
 XoPy es un gestor de copias gratuito para **Windows 10/11 de 64 bits**, inspirado en TeraCopy:
 misma idea de interfaz compacta, misma forma de trabajar y las mismas opciones que se usan a diario,
 pero sin pagos, sin límites de prueba y sin funciones bloqueadas.
@@ -12,7 +14,11 @@ También está disponible la versión portable (un único `.exe`, sin instalar):
 <https://github.com/Quevedo-crack/XoPy/releases/latest/download/XoPy.exe>
 
 El instalador es autocontenido: no hace falta tener .NET instalado. Está compilado para
-Windows x64 y funciona en Windows 11 con procesadores AMD Ryzen, Intel, etc.
+Windows x64 y funciona en Windows 11 (AMD Ryzen, Intel, etc.) sin requisitos adicionales.
+
+Preferencias e integración con el Explorador:
+
+![Preferencias de XoPy](docs/xopy-options-0.png)
 
 ## Funciones
 

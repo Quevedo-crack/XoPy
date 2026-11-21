@@ -322,6 +322,7 @@ public sealed class MainForm : Form
             Checked = _settings.VerifyAfterCopy,
             Anchor = AnchorStyles.Left
         };
+        new ToolTip().SetToolTip(_verifyCheck, "Compara cada archivo copiado con el original usando " + Format.Algorithm(_settings.Verify));
         _verifyCheck.CheckedChanged += (_, _) =>
         {
             _settings.VerifyAfterCopy = _verifyCheck.Checked;
@@ -400,6 +401,7 @@ public sealed class MainForm : Form
             UseCompatibleStateImageBehavior = false,
             SmallImageList = BuildRowImageList(),
             AllowDrop = true,
+            ShowItemToolTips = true,
             Font = new Font("Segoe UI", 9f),
             Margin = new Padding(0, 0, 0, 8)
         };
@@ -1166,6 +1168,11 @@ public sealed class MainForm : Form
 
         if (_engine.IsRunning)
         {
+            var current = _items.Where(item => item.State is ItemState.Running or ItemState.Verifying)
+                .Select(item => item.CurrentFile).FirstOrDefault(path => !string.IsNullOrEmpty(path));
+            if (!string.IsNullOrEmpty(current))
+                SetStatus((_engine.IsPaused ? "En pausa · " : string.Empty) + Path.GetFileName(current));
+
             var total = _engine.TotalBytes;
             var percent = total > 0 ? (int)Math.Clamp(_engine.DoneBytes * 100 / total, 0, 100) : 0;
             if (percent != _trayPercent)

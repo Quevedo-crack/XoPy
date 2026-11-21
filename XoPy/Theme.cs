@@ -80,6 +80,7 @@ public static class Icons
     public const string Stop = "\uE71A";
     public const string Settings = "\uE713";
     public const string More = "\uE712";
+    public const string ChevronDown = "\uE70D";
     public const string Folder = "\uE8B7";
     public const string File = "\uE7C3";
     public const string Open = "\uE8E5";
@@ -347,7 +348,7 @@ internal sealed class ChoiceButton : Button
         Height = 32;
         Width = 340;
         Cursor = Cursors.Hand;
-        Image = Icons.Glyph(Icons.More, palette.Muted, 12);
+        Image = Icons.Glyph(Icons.ChevronDown, palette.Muted, 12);
         ImageAlign = ContentAlignment.MiddleRight;
         TextImageRelation = TextImageRelation.TextBeforeImage;
         Padding = new Padding(9, 0, 6, 0);
