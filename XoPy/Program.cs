@@ -81,26 +81,37 @@ internal static class Program
 
     private static void RunScreenshot(StartupRequest request, string path)
     {
+        var log = path + ".log";
+        var gate = new object();
+        void Write(string message)
+        {
+            lock (gate)
+            {
+                try
+                {
+                    using var stream = new FileStream(log, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
+                    using var writer = new StreamWriter(stream);
+                    writer.WriteLine(message);
+                }
+                catch { }
+            }
+        }
+
         try
         {
-            var log = path + ".log";
             _diagnosticFile = path + ".error.txt";
-            File.WriteAllText(log, $"inicio {DateTime.Now:O}{Environment.NewLine}");
+            Write($"inicio {DateTime.Now:O}");
             using var form = new MainForm(request);
-            File.AppendAllText(log, $"ventana creada {form.Size}{Environment.NewLine}");
+            Write($"ventana creada {form.Size}");
             form.Show();
-            File.AppendAllText(log, $"ventana mostrada {form.ClientSize}{Environment.NewLine}");
+            Write($"ventana mostrada {form.ClientSize}");
+
             var watchdog = new Thread(() =>
             {
-                for (var i = 0; i < 25; i++)
+                for (var i = 0; i < 30; i++)
                 {
                     Thread.Sleep(1000);
-                    try
-                    {
-                        var title = System.Diagnostics.Process.GetCurrentProcess().MainWindowTitle;
-                        File.AppendAllText(log, $"watchdog {i}: {title}{Environment.NewLine}");
-                    }
-                    catch { }
+                    Write($"watchdog {i}: {System.Diagnostics.Process.GetCurrentProcess().MainWindowTitle}");
                 }
             }) { IsBackground = true };
             watchdog.Start();
@@ -109,15 +120,17 @@ internal static class Program
             var tick = 0;
             while (DateTime.UtcNow < deadline)
             {
-                Application.DoEvents();
+                Write($"tick {tick}");
+                try { Application.DoEvents(); }
+                catch (Exception ex) { Write("DoEvents: " + ex); }
                 Thread.Sleep(40);
-                if (++tick % 25 == 0) File.AppendAllText(log, $"tick {tick}{Environment.NewLine}");
+                tick++;
             }
-            File.AppendAllText(log, $"pump ok {form.ClientSize}{Environment.NewLine}");
+            Write($"pump ok {form.ClientSize}");
 
             using var bitmap = new Bitmap(Math.Max(200, form.Width), Math.Max(150, form.Height));
             form.DrawToBitmap(bitmap, new Rectangle(0, 0, bitmap.Width, bitmap.Height));
-            File.AppendAllText(log, "draw ok" + Environment.NewLine);
+            Write("draw ok");
             var directory = Path.GetDirectoryName(path);
             if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
             bitmap.Save(path, ImageFormat.Png);
@@ -126,6 +139,7 @@ internal static class Program
         catch (Exception ex)
         {
             try { File.WriteAllText(path + ".error.txt", ex.ToString()); } catch { }
+            Write("error: " + ex);
             Environment.Exit(2);
         }
     }
