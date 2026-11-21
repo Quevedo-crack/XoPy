@@ -563,9 +563,9 @@ public sealed partial class MainForm
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 12,
+            RowCount = 11,
             BackColor = _palette.Surface,
-            Padding = new Padding(16, 10, 16, 10)
+            Padding = new Padding(16, 10, 16, 8)
         };
         page.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));
         page.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
@@ -575,10 +575,9 @@ public sealed partial class MainForm
         page.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));
         page.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
         page.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
-        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
         page.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 104));
-        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
+        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 100));
+        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 20));
 
         var title = Ui.Label("Estado de la transferencia", _palette, 11f, true);
         title.Anchor = AnchorStyles.Left;
@@ -614,11 +613,25 @@ public sealed partial class MainForm
         _stEta = StatusLine();
         _stErrors = StatusLine();
 
-        _graph = new SpeedGraph(_palette) { Dock = DockStyle.Fill, Margin = new Padding(0, 4, 0, 6), Height = 80 };
+        var speedRow = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            RowCount = 1,
+            BackColor = _palette.Surface,
+            Margin = new Padding(0)
+        };
+        speedRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 55));
+        speedRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 45));
+        _stEta.TextAlign = ContentAlignment.MiddleRight;
+        speedRow.Controls.Add(_stSpeed, 0, 0);
+        speedRow.Controls.Add(_stEta, 1, 0);
+
+        _graph = new SpeedGraph(_palette) { Dock = DockStyle.Fill, Margin = new Padding(0, 4, 0, 6), Height = 90 };
 
         var categories = BuildCategoryGrid();
 
-        var hint = Ui.Label("Los detalles de cada archivo (incluido el hash de origen y destino) están en la pestaña Lista de archivos. El registro completo se guarda en %LOCALAPPDATA%\\XoPy\\transfer.log.",
+        var hint = Ui.Label("Los hashes de cada archivo están en la pestaña Lista de archivos. El registro completo se guarda en %LOCALAPPDATA%\\XoPy\\transfer.log.",
             _palette, 8.5f, false, _palette.Muted);
         hint.Dock = DockStyle.Fill;
         hint.AutoSize = false;
@@ -631,12 +644,11 @@ public sealed partial class MainForm
         page.Controls.Add(_stTarget, 0, 3);
         page.Controls.Add(_stTotals, 0, 4);
         page.Controls.Add(progressRow, 0, 5);
-        page.Controls.Add(_stSpeed, 0, 6);
-        page.Controls.Add(_stEta, 0, 7);
-        page.Controls.Add(_stErrors, 0, 8);
-        page.Controls.Add(_graph, 0, 9);
-        page.Controls.Add(categories, 0, 10);
-        page.Controls.Add(hint, 0, 11);
+        page.Controls.Add(speedRow, 0, 6);
+        page.Controls.Add(_stErrors, 0, 7);
+        page.Controls.Add(_graph, 0, 8);
+        page.Controls.Add(categories, 0, 9);
+        page.Controls.Add(hint, 0, 10);
         return page;
     }
 

@@ -118,9 +118,9 @@ public sealed partial class MainForm
                 RebuildRows();
                 UpdateFooter();
                 UpdateButtons();
-                var fileCount = _items.Count(item => item.Kind == ItemKind.File);
-                var fileBytes = _items.Where(item => item.Kind == ItemKind.File).Sum(item => Math.Max(0, item.SizeBytes));
-                SetStatus($"{_items.Count} elemento(s) en la lista · {fileCount} archivo(s) · {Format.Bytes(fileBytes)}");
+                SetStatus(_items.Count == 0
+                    ? "Listo para transferir."
+                    : $"Lista preparada: {_items.Count(item => item.Kind == ItemKind.File)} archivo(s) listos para transferir.");
             }
 
             UpdateJobs();
