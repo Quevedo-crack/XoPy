@@ -1,22 +1,17 @@
 FILE: carpeta (1 bytes)
 FILE: exitcode.txt (24 bytes)
 FILE: informe.pdf (10242 bytes)
-FILE: shot.png.error.txt (880 bytes)
+FILE: shot.png.error.txt (483 bytes)
 FILE: shot.png.log (42 bytes)
 FILE: video.mp4 (20482 bytes)
 --- C:\xopytest\exitcode.txt
 exitcode=2 exited=True
 --- C:\xopytest\shot.png.log
-inicio 2026-11-21T20:27:21.2805616+00:00
+inicio 2026-11-21T20:29:16.3904187+00:00
 --- C:\xopytest\shot.png.error.txt
-System.ArgumentException: Additional Rows or Columns cannot be created.  TableLayoutPanel is full and GrowStyle is 'FixedSize'.
-   at System.Windows.Forms.Layout.TableLayout.AssignRowsAndColumns(ContainerInfo containerInfo)
-   at System.Windows.Forms.Layout.TableLayout.LayoutCore(IArrangedElement container, LayoutEventArgs args)
-   at System.Windows.Forms.Control.OnLayout(LayoutEventArgs levent)
-   at System.Windows.Forms.TableLayoutPanel.OnLayout(LayoutEventArgs levent)
-   at System.Windows.Forms.Control.PerformLayout(LayoutEventArgs args)
-   at System.Windows.Forms.Control.ControlCollection.Add(Control value)
-   at System.Windows.Forms.TableLayoutControlCollection.Add(Control control, Int32 column, Int32 row)
+System.ArgumentOutOfRangeException: Index was out of range. Must be non-negative and less than the size of the collection. (Parameter 'index')
+   at System.Collections.Generic.List`1.set_Item(Int32 index, T value)
+   at System.Windows.Forms.TableLayoutStyleCollection.System.Collections.IList.set_Item(Int32 index, Object value)
    at XoPy.MainForm.BuildUi()
    at XoPy.MainForm..ctor(StartupRequest request)
    at XoPy.Program.RunScreenshot(StartupRequest request, String path)
