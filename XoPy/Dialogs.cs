@@ -106,10 +106,14 @@ internal sealed class PromptDialog : Form
             buttonRow.Controls.Add(button);
         }
 
+        Control checkControl = _checkBox is null
+            ? new Panel { Height = 0, BackColor = Color.Transparent }
+            : _checkBox;
+
         layout.Controls.Add(heading, 0, 0);
         layout.Controls.Add(body, 0, 1);
         layout.Controls.Add(detailBox, 0, 2);
-        layout.Controls.Add(_checkBox ?? new Panel { Height = 0, BackColor = Color.Transparent }, 0, 3);
+        layout.Controls.Add(checkControl, 0, 3);
         layout.Controls.Add(buttonRow, 0, 4);
         Controls.Add(layout);
 
@@ -240,7 +244,7 @@ internal sealed class OptionsDialog : Form
         var ok = Ui.DialogButton("Guardar", palette, true);
         ok.Click += (_, _) =>
         {
-            Capture();
+            CaptureValues();
             DialogResult = DialogResult.OK;
             Close();
         };
@@ -466,7 +470,7 @@ internal sealed class OptionsDialog : Form
         BorderStyle = BorderStyle.FixedSingle
     };
 
-    private void Capture()
+    private void CaptureValues()
     {
         Result.Destination = _destination.Text.Trim();
         Result.DarkTheme = _theme.SelectedIndex == 0;
