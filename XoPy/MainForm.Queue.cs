@@ -118,7 +118,9 @@ public sealed partial class MainForm
                 RebuildRows();
                 UpdateFooter();
                 UpdateButtons();
-                SetStatus($"{_items.Count} elemento(s) en la lista · {Format.Bytes(_items.Sum(item => Math.Max(0, item.SizeBytes)))}");
+                var fileCount = _items.Count(item => item.Kind == ItemKind.File);
+                var fileBytes = _items.Where(item => item.Kind == ItemKind.File).Sum(item => Math.Max(0, item.SizeBytes));
+                SetStatus($"{_items.Count} elemento(s) en la lista · {fileCount} archivo(s) · {Format.Bytes(fileBytes)}");
             }
 
             UpdateJobs();
@@ -510,9 +512,7 @@ public sealed partial class MainForm
             _countLabel.Text = "Lista vacía — arrastra archivos o carpetas aquí";
             return;
         }
-        var fileSum = _items.Where(item => item.Kind == ItemKind.File).Sum(item => Math.Max(0, item.SizeBytes));
-        var folderCount = _items.Count(item => item.Kind == ItemKind.Folder);
-        _countLabel.Text = $"DIAG {_items.Count} el · {leaves} arch · {Format.Bytes(total)} · f{Format.Bytes(fileSum)} · c{folderCount}";
+        _countLabel.Text = $"{_items.Count} elemento(s) · {leaves} archivo(s) · {Format.Bytes(total)}";
     }
 
     private string? _currentStatus;
