@@ -275,9 +275,9 @@ public sealed partial class MainForm : Form
         _pauseButton = BarButton("Pausar", Icons.Pause, (_, _) => TogglePause());
         _skipButton = BarButton("Saltar", Icons.ChevronRight, (_, _) => SkipCurrent());
         _stopButton = BarButton("Detener", Icons.Stop, (_, _) => StopTransfer());
-        _optionsButton = BarButton("Opciones", Icons.Settings, (_, _) => ShowOptions());
+        _optionsButton = BarButton("Opciones", Icons.Settings, (_, _) => ShowOptions(), false, true);
         _optionsButton.Margin = new Padding(6, 0, 4, 0);
-        _menuButton = BarButton("Menú", Icons.More, (_, _) => ShowMainMenu());
+        _menuButton = BarButton("Menú", Icons.More, (_, _) => ShowMainMenu(), false, true);
         _menuButton.Margin = new Padding(0);
 
         var left = new ToolStrip
@@ -322,16 +322,16 @@ public sealed partial class MainForm : Form
         return bar;
     }
 
-    private ToolStripButton BarButton(string text, string glyph, EventHandler click, bool accent = false)
+    private ToolStripButton BarButton(string text, string glyph, EventHandler click, bool accent = false, bool iconOnly = false)
     {
         var foreground = accent ? Color.White : _palette.Text;
         var font = new Font("Segoe UI", 8.75f, FontStyle.Bold);
-        var width = TextRenderer.MeasureText(text, font).Width + 44;
+        var width = iconOnly ? 40 : TextRenderer.MeasureText(text, font).Width + 44;
         var button = new ToolStripButton(text)
         {
             Image = Icons.Glyph(glyph, foreground, 18),
             ImageScaling = ToolStripItemImageScaling.None,
-            DisplayStyle = ToolStripItemDisplayStyle.ImageAndText,
+            DisplayStyle = iconOnly ? ToolStripItemDisplayStyle.Image : ToolStripItemDisplayStyle.ImageAndText,
             TextImageRelation = TextImageRelation.ImageBeforeText,
             Font = font,
             ForeColor = foreground,
@@ -341,6 +341,7 @@ public sealed partial class MainForm : Form
             Margin = new Padding(0, 0, 3, 0),
             Padding = new Padding(6, 0, 6, 0),
             TextAlign = ContentAlignment.MiddleCenter,
+            AccessibleName = text,
             ToolTipText = TooltipFor(text)
         };
         button.Click += click;
