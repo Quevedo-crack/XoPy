@@ -874,8 +874,11 @@ public sealed partial class MainForm : Form
         var workingArea = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1920, 1080);
         var width = _settings.WindowWidth >= MinimumSize.Width ? _settings.WindowWidth : 1440;
         var height = _settings.WindowHeight >= MinimumSize.Height ? _settings.WindowHeight : 920;
-        width = Math.Min(width, workingArea.Width - 20);
-        height = Math.Min(height, workingArea.Height - 20);
+        if (!_startupRequest.Screenshot)
+        {
+            width = Math.Min(width, workingArea.Width - 20);
+            height = Math.Min(height, workingArea.Height - 20);
+        }
 
         var x = _settings.WindowX != int.MinValue ? _settings.WindowX : workingArea.X + (workingArea.Width - width) / 2;
         var y = _settings.WindowY != int.MinValue ? _settings.WindowY : workingArea.Y + (workingArea.Height - height) / 2;

@@ -178,6 +178,7 @@ public sealed class StartupRequest
     public bool PasteFromClipboard { get; set; }
     public bool StartMinimized { get; set; }
     public bool AskDestination { get; set; }
+    public bool Screenshot { get; set; }
 
     public static StartupRequest Parse(string[] args)
     {
@@ -197,6 +198,9 @@ public sealed class StartupRequest
                 case "--screenshot":
                 case "--screenshot-options":
                 case "--screenshot-conflict":
+                case "--screenshot-tabs":
+                case "--screenshot-menus":
+                    request.Screenshot = true;
                     i++;
                     break;
                 case "--to":
@@ -204,7 +208,7 @@ public sealed class StartupRequest
                     break;
                 default:
                     if (arg.StartsWith("--to=", StringComparison.OrdinalIgnoreCase)) request.Destination = Normalize(arg[5..]);
-                    else if (arg.StartsWith("--screenshot", StringComparison.OrdinalIgnoreCase)) break;
+                    else if (arg.StartsWith("--screenshot", StringComparison.OrdinalIgnoreCase)) request.Screenshot = true;
                     else if (!arg.StartsWith("-", StringComparison.Ordinal)) request.Paths.Add(Normalize(arg));
                     break;
             }
