@@ -194,7 +194,7 @@ internal sealed class OptionsDialog : Form
         MinimizeBox = false;
         MaximizeBox = false;
         var workArea = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1280, 720);
-        ClientSize = new Size(760, Math.Min(632, Math.Max(520, workArea.Height - 90)));
+        ClientSize = new Size(760, Math.Min(660, Math.Max(520, workArea.Height - 70)));
 
         _tabs = new TabControl
         {
@@ -345,18 +345,18 @@ internal sealed class OptionsDialog : Form
         extraPanel.Controls.Add(extraButtons, 0, 1);
 
         _tabs.TabPages.Add(Page("Transferencia", 13,
-            ("Transferencias simultáneas", _parallel, 48),
-            ("Búfer por archivo (KiB)", _buffer, 48),
-            ("Límite de velocidad (MiB/s, 0 = sin límite)", _speed, 48),
-            ("", _preserveTimestamps, 40),
-            ("", _recycleBin, 40),
-            ("", _copyLocked, 36),
-            ("", _nativeCopy, 36),
-            ("", _resumePartials, 36),
-            ("", _writeChecksums, 36),
-            ("Pasadas de borrado seguro (0 = normal)", _securePasses, 44),
-            ("Script al finalizar", _completionScript, 44),
-            ("Destinos adicionales", extraPanel, 120),
+            ("Transferencias simultáneas", _parallel, 44),
+            ("Búfer por archivo (KiB)", _buffer, 44),
+            ("Límite de velocidad (MiB/s, 0 = sin límite)", _speed, 44),
+            ("", _preserveTimestamps, 36),
+            ("", _recycleBin, 36),
+            ("", _copyLocked, 32),
+            ("", _nativeCopy, 32),
+            ("", _resumePartials, 32),
+            ("", _writeChecksums, 32),
+            ("Pasadas de borrado seguro (0 = normal)", _securePasses, 40),
+            ("Script al finalizar", _completionScript, 40),
+            ("Destinos adicionales", extraPanel, 104),
             ("", new Label
             {
                 Text = "Los destinos adicionales reciben una copia completa de lo que se copie o mueva.\n" +
@@ -365,7 +365,7 @@ internal sealed class OptionsDialog : Form
                 ForeColor = _palette.Muted,
                 Font = new Font("Segoe UI", 8.5f),
                 BackColor = Color.Transparent
-            }, 52)));
+            }, 40)));
 
         var verifyPage = Page("Verificación", 3,
             ("Algoritmo", _verifyAlgorithm, 48),
