@@ -244,7 +244,7 @@ jobs:
           $out = @()
           $out += Get-Content 'build-errors.txt' -ErrorAction SilentlyContinue
           Get-ChildItem 'C:\xopytest' -ErrorAction SilentlyContinue | ForEach-Object { $out += "FILE: $($_.Name) ($($_.Length) bytes)" }
-          foreach ($file in @('C:\xopytest\exitcode.txt', 'C:\xopytest\shot.png.log', 'C:\xopytest\shot.png.error.txt', 'C:\xopytest\tab.error.txt', 'C:\xopytest\options.png.error.txt', 'C:\xopytest\conflict.png.error.txt', 'C:\xopytest\menu.error.txt', 'C:\xopytest\copiatest.txt', 'C:\xopytest\movetest.txt', 'C:\xopytest\conflictotest.txt')) {
+          foreach ($file in @('C:\xopytest\exitcode.txt', 'C:\xopytest\shot.png.log', 'C:\xopytest\shot.png.error.txt', 'C:\xopytest\tab.error.txt', 'C:\xopytest\options.png.error.txt', 'C:\xopytest\conflict.png.error.txt', 'C:\xopytest\menu.error.txt', 'C:\xopytest\copiatest.txt', 'C:\xopytest\movetest.txt', 'C:\xopytest\conflictotest.txt', 'C:\xopytest\stack.txt', 'C:\xopytest\jerarquiatest.txt', 'C:\xopytest\reanudartest.txt')) {
             if (Test-Path $file) { $out += "--- $file"; $out += Get-Content $file }
           }
           New-Item -ItemType Directory -Force docs | Out-Null
