@@ -987,6 +987,17 @@ public sealed partial class MainForm
     private bool _updatingColumns;
     private bool _columnUpdatePending;
 
+    private void ScheduleColumnUpdate()
+    {
+        if (!IsHandleCreated || _columnUpdatePending) return;
+        _columnUpdatePending = true;
+        BeginInvoke(new Action(() =>
+        {
+            _columnUpdatePending = false;
+            if (!IsDisposed) UpdateHashColumns();
+        }));
+    }
+
     private void UpdateHashColumns()
     {
         if (_list is null || _list.Columns.Count < 6 || _updatingColumns) return;
