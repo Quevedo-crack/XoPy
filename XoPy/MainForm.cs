@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Drawing;
+using System.Runtime.InteropServices;
 using System.Drawing.Drawing2D;
 using System.IO;
 using System.Linq;
@@ -104,10 +105,10 @@ public sealed class MainForm : Form
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 5,
             BackColor = _palette.Canvas,
             Padding = new Padding(0),
-            AutoSize = false
+            AutoSize = false,
+            GrowStyle = TableLayoutPanelGrowStyle.FixedSize
         };
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 57));
@@ -128,6 +129,7 @@ public sealed class MainForm : Form
 
         DragEnter += (_, e) => e.Effect = e.Data?.GetDataPresent(DataFormats.FileDrop) == true ? DragDropEffects.Copy : DragDropEffects.None;
         DragDrop += (_, e) => DropPaths(e);
+        Shown += (_, _) => ResizeColumns();
     }
 
     private MenuStrip BuildMenu()
@@ -189,10 +191,10 @@ public sealed class MainForm : Form
         {
             Dock = DockStyle.Fill,
             ColumnCount = 2,
-            RowCount = 1,
             BackColor = _palette.Surface,
             Padding = new Padding(10, 8, 10, 8),
-            Height = 57
+            Height = 57,
+            GrowStyle = TableLayoutPanelGrowStyle.FixedSize
         };
         bar.RowStyles.Add(new RowStyle(SizeType.Absolute, 41));
         bar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
@@ -264,10 +266,10 @@ public sealed class MainForm : Form
         {
             Dock = DockStyle.Fill,
             ColumnCount = 5,
-            RowCount = 1,
             BackColor = _palette.Canvas,
             Padding = new Padding(10, 9, 10, 8),
-            Height = 54
+            Height = 54,
+            GrowStyle = TableLayoutPanelGrowStyle.FixedSize
         };
         bar.RowStyles.Add(new RowStyle(SizeType.Absolute, 37));
         bar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
@@ -340,10 +342,10 @@ public sealed class MainForm : Form
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 2,
             BackColor = _palette.Canvas,
             Padding = new Padding(10, 0, 10, 0),
-            Margin = new Padding(0)
+            Margin = new Padding(0),
+            GrowStyle = TableLayoutPanelGrowStyle.FixedSize
         };
         container.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         container.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
@@ -352,9 +354,9 @@ public sealed class MainForm : Form
         {
             Dock = DockStyle.Fill,
             ColumnCount = 2,
-            RowCount = 1,
             BackColor = _palette.Canvas,
-            Height = 34
+            Height = 34,
+            GrowStyle = TableLayoutPanelGrowStyle.FixedSize
         };
         header.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
         header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
@@ -410,7 +412,10 @@ public sealed class MainForm : Form
         _list.DrawItem += (_, e) => { if (_list.View != View.Details) e.DrawDefault = true; };
         _list.DrawSubItem += ListDrawSubItem;
         _list.ColumnClick += ListColumnClick;
-        _list.Resize += (_, _) => ResizeColumns();
+        _list.Resize += (_, _) =>
+        {
+            if (IsHandleCreated) BeginInvoke(new Action(ResizeColumns));
+        };
         _list.KeyDown += ListKeyDown;
         _list.DoubleClick += ListDoubleClick;
         _list.DragEnter += (_, e) => e.Effect = e.Data?.GetDataPresent(DataFormats.FileDrop) == true ? DragDropEffects.Copy : DragDropEffects.None;
@@ -460,10 +465,10 @@ public sealed class MainForm : Form
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 2,
             BackColor = _palette.Surface,
             Padding = new Padding(12, 9, 12, 7),
-            Height = 66
+            Height = 66,
+            GrowStyle = TableLayoutPanelGrowStyle.FixedSize
         };
         footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 16));
         footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
@@ -521,6 +526,22 @@ public sealed class MainForm : Form
         footer.Controls.Add(_progress, 0, 0);
         footer.Controls.Add(statusRow, 0, 1);
         return footer;
+    }
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
+
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        if (!_settings.DarkTheme) return;
+        try
+        {
+            var enabled = 1;
+            if (DwmSetWindowAttribute(Handle, 20, ref enabled, sizeof(int)) != 0)
+                DwmSetWindowAttribute(Handle, 19, ref enabled, sizeof(int));
+        }
+        catch { }
     }
 
     // ---------------------------------------------------------------- ajustes
@@ -1302,7 +1323,9 @@ public sealed class MainForm : Form
     private void ResizeColumns()
     {
         if (_list.Columns.Count < 4) return;
-        _list.Columns[3].Width = -2;
+        var used = _list.Columns[0].Width + _list.Columns[1].Width + _list.Columns[2].Width;
+        var available = _list.ClientSize.Width - used - 2;
+        if (available > 140) _list.Columns[3].Width = available;
     }
 
     private void ListColumnClick(object? sender, ColumnClickEventArgs e)

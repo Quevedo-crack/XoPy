@@ -33,12 +33,12 @@ internal sealed class PromptDialog : Form
         {
             Dock = DockStyle.Top,
             ColumnCount = 1,
-            RowCount = 5,
             BackColor = palette.Canvas,
             Padding = new Padding(20, 18, 20, 14),
             Width = 620,
             AutoSize = true,
-            AutoSizeMode = AutoSizeMode.GrowAndShrink
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            GrowStyle = TableLayoutPanelGrowStyle.FixedSize
         };
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -188,13 +188,13 @@ internal sealed class OptionsDialog : Form
         ShowInTaskbar = false;
         MinimizeBox = false;
         MaximizeBox = false;
-        ClientSize = new Size(700, 540);
+        ClientSize = new Size(760, 560);
 
         _tabs = new TabControl
         {
             Dock = DockStyle.Fill,
             SizeMode = TabSizeMode.Fixed,
-            ItemSize = new Size(106, 28),
+            ItemSize = new Size(100, 28),
             Padding = new Point(12, 6),
             DrawMode = TabDrawMode.OwnerDrawFixed,
             Font = new Font("Segoe UI", 9f)
@@ -266,8 +266,8 @@ internal sealed class OptionsDialog : Form
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 2,
-            BackColor = palette.Canvas
+            BackColor = palette.Canvas,
+            GrowStyle = TableLayoutPanelGrowStyle.FixedSize
         };
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 62));
@@ -390,8 +390,8 @@ internal sealed class OptionsDialog : Form
         {
             Dock = DockStyle.Fill,
             ColumnCount = 2,
-            RowCount = Math.Max(1, rows),
-            BackColor = _palette.Canvas
+            BackColor = _palette.Canvas,
+            GrowStyle = TableLayoutPanelGrowStyle.FixedSize
         };
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 300));
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
@@ -642,12 +642,12 @@ internal sealed class HistoryDialog : Form
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 2,
             BackColor = palette.Canvas,
-            Padding = new Padding(12)
+            Padding = new Padding(12),
+            GrowStyle = TableLayoutPanelGrowStyle.FixedSize
         };
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 58));
         root.Controls.Add(list, 0, 0);
         root.Controls.Add(buttons, 0, 1);
         Controls.Add(root);
