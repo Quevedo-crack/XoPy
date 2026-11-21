@@ -193,7 +193,8 @@ internal sealed class OptionsDialog : Form
         ShowInTaskbar = false;
         MinimizeBox = false;
         MaximizeBox = false;
-        ClientSize = new Size(760, 560);
+        var workArea = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1280, 720);
+        ClientSize = new Size(760, Math.Min(632, Math.Max(520, workArea.Height - 90)));
 
         _tabs = new TabControl
         {
