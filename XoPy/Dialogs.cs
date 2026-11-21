@@ -38,13 +38,10 @@ internal sealed class PromptDialog : Form
             Width = 620,
             AutoSize = true,
             AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            RowCount = 5,
             GrowStyle = TableLayoutPanelGrowStyle.FixedSize
         };
-        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        for (var row = 0; row < 5; row++) layout.RowStyles[row] = new RowStyle(SizeType.AutoSize);
 
         var heading = new Label
         {
@@ -267,10 +264,11 @@ internal sealed class OptionsDialog : Form
             Dock = DockStyle.Fill,
             ColumnCount = 1,
             BackColor = palette.Canvas,
+            RowCount = 2,
             GrowStyle = TableLayoutPanelGrowStyle.FixedSize
         };
-        root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 62));
+        root.RowStyles[0] = new RowStyle(SizeType.Percent, 100);
+        root.RowStyles[1] = new RowStyle(SizeType.Absolute, 62);
         root.Controls.Add(_tabs, 0, 0);
         root.Controls.Add(buttons, 0, 1);
         Controls.Add(root);
@@ -396,10 +394,11 @@ internal sealed class OptionsDialog : Form
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 300));
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
 
+        layout.RowCount = Math.Max(1, items.Length);
         var row = 0;
         foreach (var (label, control, height) in items)
         {
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, height));
+            layout.RowStyles[row] = new RowStyle(SizeType.Absolute, height);
             var text = new Label
             {
                 Text = label,
@@ -644,10 +643,11 @@ internal sealed class HistoryDialog : Form
             ColumnCount = 1,
             BackColor = palette.Canvas,
             Padding = new Padding(12),
+            RowCount = 2,
             GrowStyle = TableLayoutPanelGrowStyle.FixedSize
         };
-        root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 58));
+        root.RowStyles[0] = new RowStyle(SizeType.Percent, 100);
+        root.RowStyles[1] = new RowStyle(SizeType.Absolute, 58);
         root.Controls.Add(list, 0, 0);
         root.Controls.Add(buttons, 0, 1);
         Controls.Add(root);
