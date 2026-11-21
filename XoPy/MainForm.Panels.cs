@@ -688,10 +688,11 @@ public sealed partial class MainForm
     {
         if (_list is null || _list.Columns.Count < 6) return;
         var show = _settings.ShowHashes && (_settings.VerifyAfterCopy || _lastOperation == OperationType.Test);
-        _list.Columns[4].Width = show ? 152 : 0;
-        _list.Columns[5].Width = show ? 152 : 0;
-        _list.Columns[2].Width = show ? 120 : 132;
-        _list.Columns[3].Width = show ? 152 : 210;
+        _list.Columns[1].Width = show ? 88 : 96;
+        _list.Columns[2].Width = show ? 110 : 132;
+        _list.Columns[3].Width = show ? 132 : 210;
+        _list.Columns[4].Width = show ? 138 : 0;
+        _list.Columns[5].Width = show ? 138 : 0;
         ResizeColumns();
     }
 
@@ -903,6 +904,6 @@ public sealed partial class MainForm
         var used = _list.Columns[1].Width + _list.Columns[2].Width + _list.Columns[3].Width
                    + _list.Columns[4].Width + _list.Columns[5].Width;
         var available = _list.ClientSize.Width - used - 4;
-        _list.Columns[0].Width = Math.Max(240, available);
+        _list.Columns[0].Width = Math.Max(200, available);
     }
 }

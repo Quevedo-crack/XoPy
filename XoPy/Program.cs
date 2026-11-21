@@ -32,6 +32,13 @@ internal static class Program
             return;
         }
 
+        var menusShot = FindOption(args, "--screenshot-menus");
+        if (menusShot is not null)
+        {
+            RunMenuScreenshots(menusShot);
+            return;
+        }
+
         var optionsShot = FindOption(args, "--screenshot-options");
         if (optionsShot is not null)
         {
@@ -101,6 +108,47 @@ internal static class Program
             try { File.WriteAllText(path + ".error.txt", ex.ToString()); } catch { }
             Environment.Exit(2);
         }
+    }
+
+    private static void RunMenuScreenshots(string prefix)
+    {
+        try
+        {
+            using var form = new MainForm(new StartupRequest());
+            form.Show();
+            Pump(2500);
+
+            var dropDown = form.OpenTransferMenu();
+            Pump(500);
+            if (dropDown is not null)
+            {
+                SaveControl(dropDown, prefix + "-menu.png");
+                dropDown.Close();
+            }
+            Pump(200);
+
+            using var context = form.BuildMainMenuForShot();
+            context.Show(form, new Point(40, 40));
+            Pump(500);
+            SaveControl(context, prefix + "-context.png");
+            context.Close();
+            Pump(100);
+            Environment.Exit(0);
+        }
+        catch (Exception ex)
+        {
+            try { File.WriteAllText(prefix + ".error.txt", ex.ToString()); } catch { }
+            Environment.Exit(2);
+        }
+    }
+
+    private static void SaveControl(Control control, string path)
+    {
+        using var bitmap = new Bitmap(Math.Max(120, control.Width), Math.Max(60, control.Height));
+        control.DrawToBitmap(bitmap, new Rectangle(0, 0, bitmap.Width, bitmap.Height));
+        var directory = Path.GetDirectoryName(path);
+        if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
+        bitmap.Save(path, ImageFormat.Png);
     }
 
     private static void RunTabScreenshots(StartupRequest request, string prefix)

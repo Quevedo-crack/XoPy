@@ -149,7 +149,7 @@ public sealed partial class MainForm : Form
         BackColor = _palette.Canvas;
         ForeColor = _palette.Text;
         Font = new Font("Segoe UI", 9f);
-        MinimumSize = new Size(1180, 720);
+        MinimumSize = new Size(1280, 720);
         DoubleBuffered = true;
         KeyPreview = true;
         AllowDrop = true;
@@ -326,7 +326,7 @@ public sealed partial class MainForm : Form
     {
         var foreground = accent ? Color.White : _palette.Text;
         var font = new Font("Segoe UI", 8.75f, FontStyle.Bold);
-        var width = TextRenderer.MeasureText(text, font).Width + 48;
+        var width = TextRenderer.MeasureText(text, font).Width + 44;
         var button = new ToolStripButton(text)
         {
             Image = Icons.Glyph(glyph, foreground, 18),
@@ -338,7 +338,7 @@ public sealed partial class MainForm : Form
             BackColor = accent ? _palette.Accent : _palette.Surface,
             AutoSize = false,
             Size = new Size(width, 36),
-            Margin = new Padding(0, 0, 4, 0),
+            Margin = new Padding(0, 0, 3, 0),
             Padding = new Padding(6, 0, 6, 0),
             TextAlign = ContentAlignment.MiddleCenter,
             ToolTipText = text.TrimEnd('…')
@@ -730,7 +730,8 @@ public sealed partial class MainForm : Form
             ShowItemToolTips = true,
             Font = new Font("Segoe UI", 9f),
             Margin = new Padding(0),
-            LabelEdit = false
+            LabelEdit = false,
+            GridLines = false
         };
         _list.Columns.Add("Nombre", 520);
         _list.Columns.Add("Tamaño", 96, HorizontalAlignment.Right);
@@ -791,6 +792,15 @@ public sealed partial class MainForm : Form
 
     private void ShowMainMenu()
     {
+        var menu = BuildMainMenu();
+        if (_menuButton.Owner is ToolStrip owner)
+            menu.Show(owner, new Point(_menuButton.Bounds.Left, _menuButton.Bounds.Bottom));
+        else
+            menu.Show(Cursor.Position);
+    }
+
+    private ContextMenuStrip BuildMainMenu()
+    {
         var menu = new ContextMenuStrip { ShowImageMargin = false };
         Ui.StyleMenu(menu, _palette);
         menu.Items.Add("Preferencias…", null, (_, _) => ShowOptions());
@@ -801,10 +811,7 @@ public sealed partial class MainForm : Form
         menu.Items.Add("Mostrar los hashes", null, (_, _) => ToggleHashes());
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Acerca de XoPy", null, (_, _) => ShowAbout());
-        if (_menuButton.Owner is ToolStrip owner)
-            menu.Show(owner, new Point(_menuButton.Bounds.Left, _menuButton.Bounds.Bottom));
-        else
-            menu.Show(Cursor.Position);
+        return menu;
     }
 
     [DllImport("dwmapi.dll")]
@@ -833,6 +840,18 @@ public sealed partial class MainForm : Form
     /// <summary>Selecciona una pestaña (0 Lista, 1 Destino, 2 Opciones, 3 Estado, 4 Registro).</summary>
     public void ShowTab(int index) => SelectTab(index);
 
+    /// <summary>Construye el menú «Menú» de la barra (usado por las capturas automáticas).</summary>
+    public ContextMenuStrip BuildMainMenuForShot() => BuildMainMenu();
+
+    /// <summary>Abre el menú «Transferencia» de la barra de menús (usado por las capturas automáticas).</summary>
+    public ToolStripDropDown? OpenTransferMenu()
+    {
+        if (_menu.Items.Count < 2) return null;
+        var item = _menu.Items[1];
+        item.ShowDropDown();
+        return item.DropDown;
+    }
+
     public int TabCount => _pages.Length;
 
     protected override void OnHandleCreated(EventArgs e)
@@ -854,8 +873,8 @@ public sealed partial class MainForm : Form
     private void ApplyWindowGeometry()
     {
         var workingArea = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1920, 1080);
-        var width = _settings.WindowWidth >= MinimumSize.Width ? _settings.WindowWidth : 1400;
-        var height = _settings.WindowHeight >= MinimumSize.Height ? _settings.WindowHeight : 900;
+        var width = _settings.WindowWidth >= MinimumSize.Width ? _settings.WindowWidth : 1440;
+        var height = _settings.WindowHeight >= MinimumSize.Height ? _settings.WindowHeight : 920;
         width = Math.Min(width, workingArea.Width - 20);
         height = Math.Min(height, workingArea.Height - 20);
 
