@@ -84,6 +84,7 @@ internal static class Program
         try
         {
             var log = path + ".log";
+            _diagnosticFile = path + ".error.txt";
             File.WriteAllText(log, $"inicio {DateTime.Now:O}{Environment.NewLine}");
             using var form = new MainForm(request);
             File.AppendAllText(log, $"ventana creada {form.Size}{Environment.NewLine}");
@@ -95,9 +96,11 @@ internal static class Program
                 Application.DoEvents();
                 Thread.Sleep(40);
             }
+            File.AppendAllText(log, $"pump ok {form.ClientSize}{Environment.NewLine}");
 
             using var bitmap = new Bitmap(Math.Max(200, form.Width), Math.Max(150, form.Height));
             form.DrawToBitmap(bitmap, new Rectangle(0, 0, bitmap.Width, bitmap.Height));
+            File.AppendAllText(log, "draw ok" + Environment.NewLine);
             var directory = Path.GetDirectoryName(path);
             if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
             bitmap.Save(path, ImageFormat.Png);
@@ -235,9 +238,17 @@ internal static class Program
         bitmap.Save(path, ImageFormat.Png);
     }
 
+    private static string? _diagnosticFile;
+
     private static void ShowFatal(Exception? exception)
     {
         if (exception is null) return;
+        var file = _diagnosticFile;
+        if (!string.IsNullOrEmpty(file))
+        {
+            try { File.WriteAllText(file, exception.ToString()); } catch { }
+            Environment.Exit(3);
+        }
         try
         {
             MessageBox.Show("XoPy ha encontrado un problema:\n\n" + exception.Message,
