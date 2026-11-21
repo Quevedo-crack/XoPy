@@ -600,10 +600,11 @@ public sealed partial class MainForm
         return true;
     }
 
-    private void RemoveSelected()
+    private void RemoveSelected() => RemoveItems(SelectedItems());
+
+    private void RemoveItems(IReadOnlyCollection<TransferItem> selected)
     {
         if (_engine.IsRunning) { SetStatus("Detén la transferencia antes de modificar la lista."); return; }
-        var selected = SelectedItems();
         if (selected.Count == 0) { SetStatus("Selecciona uno o varios elementos."); return; }
 
         var remove = new HashSet<Guid>();
@@ -1474,8 +1475,7 @@ public sealed partial class MainForm
             report.AppendLine("FALLO: ordenar por tamaño no dejó b, carpeta, a.");
 
         var before = _items.Count;
-        SelectRows(new[] { child1.Id });
-        RemoveSelected();
+        RemoveItems(new[] { child1 });
         if (_items.Any(item => item.Id == child1.Id) || _items.Count != before - 1)
             report.AppendLine("FALLO: quitar de la lista no eliminó solo el elemento seleccionado.");
         if (_items.Count(item => item.Kind == ItemKind.File) != 3)
