@@ -454,7 +454,9 @@ internal sealed class OptionsDialog : Form
         var page = new TabPage(title) { BackColor = _palette.Canvas, Padding = new Padding(18), AutoScroll = true };
         var layout = new TableLayoutPanel
         {
-            Dock = DockStyle.Fill,
+            Dock = DockStyle.Top,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
             ColumnCount = 2,
             BackColor = _palette.Canvas,
             GrowStyle = TableLayoutPanelGrowStyle.FixedSize

@@ -458,7 +458,6 @@ public sealed partial class MainForm
         }
 
         if (changed || _engine.IsRunning) _list.Invalidate();
-        UpdateCountLabel();
     }
 
     private static string BuildTooltip(TransferItem item)
@@ -503,7 +502,7 @@ public sealed partial class MainForm
         }
     }
 
-    private void UpdateCountLabel()
+    private void UpdateCountLabel(int leaves, long total)
     {
         if (_countLabel is null) return;
         if (_items.Count == 0)
@@ -511,8 +510,7 @@ public sealed partial class MainForm
             _countLabel.Text = "Lista vacía — arrastra archivos o carpetas aquí";
             return;
         }
-        var files = _items.Where(item => item.Kind == ItemKind.File).ToList();
-        _countLabel.Text = $"{_items.Count} elemento(s) · {files.Count} archivo(s) · {Format.Bytes(files.Sum(item => Math.Max(0, item.SizeBytes)))}";
+        _countLabel.Text = $"{_items.Count} elemento(s) · {leaves} archivo(s) · {Format.Bytes(total)}";
     }
 
     private string? _currentStatus;
@@ -1289,6 +1287,7 @@ public sealed partial class MainForm
             if (leaves.Count > 0 && leaves.All(item => item.State is ItemState.Completed or ItemState.Skipped)) percent = 100;
         }
 
+        UpdateCountLabel(leaves.Count, total);
         _progress.Value = percent;
         _progress.FillColor = _items.Any(item => item.State == ItemState.Failed) && !_engine.IsRunning
             ? _palette.Warning
