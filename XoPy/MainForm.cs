@@ -108,14 +108,13 @@ public sealed class MainForm : Form
             BackColor = _palette.Canvas,
             Padding = new Padding(0),
             AutoSize = false,
-            RowCount = 5,
-            GrowStyle = TableLayoutPanelGrowStyle.FixedSize
+            RowCount = 5
         };
-        root.RowStyles[0] = new RowStyle(SizeType.Absolute, 26);
-        root.RowStyles[1] = new RowStyle(SizeType.Absolute, 57);
-        root.RowStyles[2] = new RowStyle(SizeType.Absolute, 54);
-        root.RowStyles[3] = new RowStyle(SizeType.Percent, 100);
-        root.RowStyles[4] = new RowStyle(SizeType.Absolute, 66);
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 57));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 54));
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 66));
 
         var menu = BuildMenu();
         root.Controls.Add(menu, 0, 0);
@@ -195,10 +194,9 @@ public sealed class MainForm : Form
             BackColor = _palette.Surface,
             Padding = new Padding(10, 8, 10, 8),
             Height = 57,
-            RowCount = 1,
-            GrowStyle = TableLayoutPanelGrowStyle.FixedSize
+            RowCount = 1
         };
-        bar.RowStyles[0] = new RowStyle(SizeType.Absolute, 41);
+        bar.RowStyles.Add(new RowStyle(SizeType.Absolute, 41));
         bar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         bar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
 
@@ -271,10 +269,9 @@ public sealed class MainForm : Form
             BackColor = _palette.Canvas,
             Padding = new Padding(10, 9, 10, 8),
             Height = 54,
-            RowCount = 1,
-            GrowStyle = TableLayoutPanelGrowStyle.FixedSize
+            RowCount = 1
         };
-        bar.RowStyles[0] = new RowStyle(SizeType.Absolute, 37);
+        bar.RowStyles.Add(new RowStyle(SizeType.Absolute, 37));
         bar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         bar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         bar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
@@ -348,11 +345,10 @@ public sealed class MainForm : Form
             BackColor = _palette.Canvas,
             Padding = new Padding(10, 0, 10, 0),
             Margin = new Padding(0),
-            RowCount = 2,
-            GrowStyle = TableLayoutPanelGrowStyle.FixedSize
+            RowCount = 2
         };
-        container.RowStyles[0] = new RowStyle(SizeType.Absolute, 34);
-        container.RowStyles[1] = new RowStyle(SizeType.Percent, 100);
+        container.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
+        container.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
         var header = new TableLayoutPanel
         {
@@ -360,10 +356,9 @@ public sealed class MainForm : Form
             ColumnCount = 2,
             BackColor = _palette.Canvas,
             Height = 34,
-            RowCount = 1,
-            GrowStyle = TableLayoutPanelGrowStyle.FixedSize
+            RowCount = 1
         };
-        header.RowStyles[0] = new RowStyle(SizeType.Absolute, 34);
+        header.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
         header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
 
@@ -473,11 +468,10 @@ public sealed class MainForm : Form
             BackColor = _palette.Surface,
             Padding = new Padding(12, 9, 12, 7),
             Height = 66,
-            RowCount = 2,
-            GrowStyle = TableLayoutPanelGrowStyle.FixedSize
+            RowCount = 2
         };
-        footer.RowStyles[0] = new RowStyle(SizeType.Absolute, 16);
-        footer.RowStyles[1] = new RowStyle(SizeType.Absolute, 32);
+        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 16));
+        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
 
         _progress = new ProgressStrip(_palette) { Dock = DockStyle.Fill, Height = 12, Margin = new Padding(0, 0, 0, 2) };
 
