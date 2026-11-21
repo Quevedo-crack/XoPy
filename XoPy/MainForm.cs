@@ -30,7 +30,8 @@ public sealed class MainForm : Form
 
     private ListView _list = null!;
     private TextBox _destination = null!;
-    private ComboBox _favorites = null!;
+    private Button _favoritesButton = null!;
+    private readonly ContextMenuStrip _favoritesMenu = new();
     private CheckBox _verifyCheck = null!;
     private Button _addFilesButton = null!;
     private Button _addFolderButton = null!;
@@ -42,7 +43,6 @@ public sealed class MainForm : Form
     private Button _stopButton = null!;
     private Button _optionsButton = null!;
     private Button _browseButton = null!;
-    private Button _favoriteButton = null!;
     private Button _removeButton = null!;
     private Button _clearButton = null!;
     private Label _statusLabel = null!;
@@ -113,7 +113,7 @@ public sealed class MainForm : Form
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 57));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 54));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 84));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 88));
 
         var menu = BuildMenu();
         root.Controls.Add(menu, 0, 0);
@@ -224,7 +224,7 @@ public sealed class MainForm : Form
         _stopButton = Ui.ToolButton("Detener", Icons.Stop, _palette);
         _stopButton.Click += (_, _) => StopTransfer();
 
-        _optionsButton = Ui.ToolButton("Preferencias", Icons.Settings, _palette);
+        _optionsButton = Ui.ToolButton("Opciones", Icons.Settings, _palette);
         _optionsButton.Click += (_, _) => ShowOptions();
         _optionsButton.Margin = new Padding(0);
 
@@ -263,7 +263,7 @@ public sealed class MainForm : Form
         var bar = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            ColumnCount = 6,
+            ColumnCount = 5,
             RowCount = 1,
             BackColor = _palette.Canvas,
             Padding = new Padding(10, 9, 10, 8),
@@ -299,26 +299,16 @@ public sealed class MainForm : Form
         _browseButton.Anchor = AnchorStyles.Left;
         _browseButton.Click += (_, _) => BrowseDestination();
 
-        _favorites = new ComboBox
-        {
-            DropDownStyle = ComboBoxStyle.DropDownList,
-            FlatStyle = FlatStyle.Flat,
-            Width = 168,
-            BackColor = _palette.Surface,
-            ForeColor = _palette.Text,
-            Margin = new Padding(0, 5, 4, 0),
-            Anchor = AnchorStyles.Left
-        };
-        _favorites.SelectedIndexChanged += (_, _) =>
-        {
-            if (_favorites.SelectedItem is string path && Directory.Exists(path)) _destination.Text = path;
-        };
+        _favoritesButton = Ui.ToolButton("Favoritos", Icons.Star, _palette);
+        _favoritesButton.Size = new Size(118, 30);
+        _favoritesButton.Margin = new Padding(0, 3, 6, 0);
+        _favoritesButton.Anchor = AnchorStyles.Left;
+        _favoritesButton.Click += (_, _) => ShowFavoritesMenu();
 
-        _favoriteButton = Ui.IconButton(Icons.Star, _palette, "Guardar la carpeta actual en favoritos");
-        _favoriteButton.Size = new Size(30, 28);
-        _favoriteButton.Margin = new Padding(0, 5, 10, 0);
-        _favoriteButton.Anchor = AnchorStyles.Left;
-        _favoriteButton.Click += (_, _) => AddFavorite();
+        _favoritesMenu.BackColor = _palette.Surface;
+        _favoritesMenu.ForeColor = _palette.Text;
+        _favoritesMenu.Renderer = new ToolStripProfessionalRenderer(new MenuColors(_palette));
+        _favoritesMenu.Font = new Font("Segoe UI", 9f);
 
         _verifyCheck = new CheckBox
         {
@@ -339,9 +329,8 @@ public sealed class MainForm : Form
         bar.Controls.Add(label, 0, 0);
         bar.Controls.Add(_destination, 1, 0);
         bar.Controls.Add(_browseButton, 2, 0);
-        bar.Controls.Add(_favorites, 3, 0);
-        bar.Controls.Add(_favoriteButton, 4, 0);
-        bar.Controls.Add(_verifyCheck, 5, 0);
+        bar.Controls.Add(_favoritesButton, 3, 0);
+        bar.Controls.Add(_verifyCheck, 4, 0);
         return bar;
     }
 
@@ -421,6 +410,7 @@ public sealed class MainForm : Form
         _list.DrawItem += (_, e) => { if (_list.View != View.Details) e.DrawDefault = true; };
         _list.DrawSubItem += ListDrawSubItem;
         _list.ColumnClick += ListColumnClick;
+        _list.Resize += (_, _) => ResizeColumns();
         _list.KeyDown += ListKeyDown;
         _list.DoubleClick += ListDoubleClick;
         _list.DragEnter += (_, e) => e.Effect = e.Data?.GetDataPresent(DataFormats.FileDrop) == true ? DragDropEffects.Copy : DragDropEffects.None;
@@ -473,7 +463,7 @@ public sealed class MainForm : Form
             RowCount = 3,
             BackColor = _palette.Surface,
             Padding = new Padding(12, 9, 12, 7),
-            Height = 84
+            Height = 88
         };
         footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 16));
         footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
@@ -551,20 +541,32 @@ public sealed class MainForm : Form
         _destination.Text = _settings.Destination;
         _verifyCheck.Checked = _settings.VerifyAfterCopy;
         _verifyCheck.Text = $"Verificar ({Format.Algorithm(_settings.Verify)})";
-        RefreshFavorites();
     }
 
-    private void RefreshFavorites()
+    private void ShowFavoritesMenu()
     {
-        _favorites.Items.Clear();
-        foreach (var favorite in _settings.Favorites.Where(Directory.Exists).Distinct(StringComparer.OrdinalIgnoreCase))
-            _favorites.Items.Add(favorite);
-        if (_favorites.Items.Count > 0)
+        _favoritesMenu.Items.Clear();
+        var favorites = _settings.Favorites.Where(Directory.Exists).ToList();
+        if (favorites.Count == 0)
         {
-            var match = _favorites.Items.Cast<string>().FirstOrDefault(path =>
-                string.Equals(path.TrimEnd(Path.DirectorySeparatorChar), _settings.Destination.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase));
-            if (match is not null) _favorites.SelectedItem = match;
+            _favoritesMenu.Items.Add(new ToolStripMenuItem("Sin favoritos todavía") { Enabled = false });
         }
+        foreach (var favorite in favorites)
+        {
+            var path = favorite;
+            var item = new ToolStripMenuItem(path);
+            item.Click += (_, _) =>
+            {
+                _destination.Text = path;
+                SetStatus("Destino: " + path);
+            };
+            _favoritesMenu.Items.Add(item);
+        }
+        _favoritesMenu.Items.Add(new ToolStripSeparator());
+        var add = new ToolStripMenuItem("Guardar la carpeta actual en favoritos");
+        add.Click += (_, _) => AddFavorite();
+        _favoritesMenu.Items.Add(add);
+        _favoritesMenu.Show(_favoritesButton, new Point(0, _favoritesButton.Height));
     }
 
     private void AddFavorite()
@@ -574,8 +576,7 @@ public sealed class MainForm : Form
         if (!_settings.Favorites.Any(existing => string.Equals(existing, path, StringComparison.OrdinalIgnoreCase)))
             _settings.Favorites.Add(path);
         _store.Save(_settings);
-        RefreshFavorites();
-        SetStatus("Carpeta añadida a favoritos.");
+        SetStatus("Carpeta añadida a favoritos: " + path);
     }
 
     private void WireEngine()
@@ -1186,8 +1187,7 @@ public sealed class MainForm : Form
         _pauseButton.Enabled = running;
         _stopButton.Enabled = running;
         _browseButton.Enabled = !running;
-        _favorites.Enabled = !running;
-        _favoriteButton.Enabled = !running;
+        _favoritesButton.Enabled = !running;
         _verifyCheck.Enabled = !running;
         _removeButton.Enabled = !running && _items.Count > 0;
         _clearButton.Enabled = !running && _items.Count > 0;
@@ -1309,6 +1309,14 @@ public sealed class MainForm : Form
         ItemState.Measuring => _palette.Warning,
         _ => _palette.Muted
     };
+
+    private void ResizeColumns()
+    {
+        if (_list.Columns.Count < 4) return;
+        var used = _list.Columns[0].Width + _list.Columns[1].Width + _list.Columns[2].Width;
+        var available = _list.ClientSize.Width - used - SystemInformation.VerticalScrollBarWidth - 2;
+        if (available > 140) _list.Columns[3].Width = available;
+    }
 
     private void ListColumnClick(object? sender, ColumnClickEventArgs e)
     {
@@ -1578,6 +1586,7 @@ public sealed class MainForm : Form
             _tray.Dispose();
             _trayMenu.Dispose();
             _listMenu.Dispose();
+            _favoritesMenu.Dispose();
             if (_trayIcon is not null) _trayIcon.Dispose();
         }
         base.Dispose(disposing);

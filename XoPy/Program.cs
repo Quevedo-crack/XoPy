@@ -25,6 +25,20 @@ internal static class Program
             return;
         }
 
+        var optionsShot = FindOption(args, "--screenshot-options");
+        if (optionsShot is not null)
+        {
+            RunDialogScreenshot(optionsShot, DialogShot.Options);
+            return;
+        }
+
+        var conflictShot = FindOption(args, "--screenshot-conflict");
+        if (conflictShot is not null)
+        {
+            RunDialogScreenshot(conflictShot, DialogShot.Conflict);
+            return;
+        }
+
         var mutex = new Mutex(true, Ipc.MutexName, out var isFirstInstance);
         if (!isFirstInstance)
         {
@@ -70,6 +84,44 @@ internal static class Program
 
             using var bitmap = new Bitmap(form.ClientSize.Width, form.ClientSize.Height);
             form.DrawToBitmap(bitmap, new Rectangle(0, 0, bitmap.Width, bitmap.Height));
+            var directory = Path.GetDirectoryName(path);
+            if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
+            bitmap.Save(path, ImageFormat.Png);
+            Environment.Exit(0);
+        }
+        catch (Exception ex)
+        {
+            try { File.WriteAllText(path + ".error.txt", ex.ToString()); } catch { }
+            Environment.Exit(2);
+        }
+    }
+
+    private enum DialogShot { Options, Conflict }
+
+    private static void RunDialogScreenshot(string path, DialogShot kind)
+    {
+        try
+        {
+            var palette = Palette.For(true);
+            Form dialog = kind == DialogShot.Options
+                ? new OptionsDialog(new SettingsStore().Load(), palette)
+                : new PromptDialog(palette, "Ya existe un archivo",
+                    "El archivo de destino ya existe. ¿Qué quieres hacer con \"informe.pdf\"?",
+                    "Origen: C:\\Datos\\informe.pdf (10,0 KB, 21/11/2026 10:12)\n" +
+                    "Destino: D:\\Copias\\informe.pdf (8,4 KB, 03/09/2026 18:40)",
+                    new[] { "Sobrescribir", "Omitir", "Cambiar nombre", "Cancelar" },
+                    "Aplicar a todos los conflictos");
+
+            dialog.Show();
+            var deadline = DateTime.UtcNow.AddSeconds(6);
+            while (DateTime.UtcNow < deadline)
+            {
+                Application.DoEvents();
+                Thread.Sleep(40);
+            }
+
+            using var bitmap = new Bitmap(dialog.ClientSize.Width, dialog.ClientSize.Height);
+            dialog.DrawToBitmap(bitmap, new Rectangle(0, 0, bitmap.Width, bitmap.Height));
             var directory = Path.GetDirectoryName(path);
             if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
             bitmap.Save(path, ImageFormat.Png);

@@ -12,7 +12,7 @@ internal sealed class PromptDialog : Form
     public int SelectedIndex { get; private set; }
     public bool CheckboxChecked => _checkBox?.Checked ?? false;
 
-    private PromptDialog(Palette palette, string title, string message, string? detail, string[] buttons, string? checkboxText)
+    public PromptDialog(Palette palette, string title, string message, string? detail, string[] buttons, string? checkboxText)
     {
         _palette = palette;
         Text = title;
