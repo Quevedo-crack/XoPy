@@ -1,12 +1,26 @@
 FILE: carpeta (1 bytes)
+FILE: destino (1 bytes)
+FILE: destino2 (1 bytes)
+FILE: conflict.png (9577 bytes)
+FILE: copiatest.txt (83 bytes)
 FILE: exitcode.txt (24 bytes)
 FILE: informe.pdf (10242 bytes)
-FILE: shot.png (24302 bytes)
+FILE: movetest.txt (36 bytes)
+FILE: options.png (13670 bytes)
+FILE: shot.png (24329 bytes)
 FILE: shot.png.log (126 bytes)
 FILE: video.mp4 (20482 bytes)
 --- C:\xopytest\exitcode.txt
 exitcode=0 exited=True
 --- C:\xopytest\shot.png.log
-inicio 2026-11-21T20:17:35.3799028+00:00
+inicio 2026-11-21T20:19:28.6553690+00:00
 ventana creada {Width=1044, Height=720}
 ventana mostrada {Width=1028, Height=681}
+--- C:\xopytest\copiatest.txt
+archivo_copiado=True
+carpeta_copiada=True
+tamano_copiado=10242
+hash_igual=True
+--- C:\xopytest\movetest.txt
+movido=True
+origen_eliminado=True
