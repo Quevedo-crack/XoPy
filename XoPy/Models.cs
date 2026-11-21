@@ -133,8 +133,8 @@ public sealed class AppSettings
     public VerifyAlgorithm Verify { get; set; } = VerifyAlgorithm.Sha256;
     public bool VerifyAfterCopy { get; set; }
     public int RetryCount { get; set; } = 3;
-    public int Parallelism { get; set; } = 2;
-    public int BufferKiB { get; set; } = 1024;
+    public int Parallelism { get; set; } = 4;
+    public int BufferKiB { get; set; } = 4096;
     public int SpeedLimitMiB { get; set; }
     public bool PreserveTimestamps { get; set; } = true;
     public bool UseRecycleBin { get; set; } = true;
@@ -148,6 +148,12 @@ public sealed class AppSettings
     public bool ExplorerIntegration { get; set; }
     public bool ConfirmDelete { get; set; } = true;
     public bool ShowHashes { get; set; } = true;
+    public bool CopyLockedFiles { get; set; } = true;
+    public bool ResumePartials { get; set; } = true;
+    public int SecureDeletePasses { get; set; }
+    public bool WriteChecksumFile { get; set; }
+    public string CompletionScript { get; set; } = string.Empty;
+    public List<string> ExtraDestinations { get; set; } = new();
     public int WindowWidth { get; set; }
     public int WindowHeight { get; set; }
     public int WindowX { get; set; } = int.MinValue;
@@ -168,6 +174,10 @@ public sealed class QueueSnapshot
     public string Destination { get; set; } = string.Empty;
     public OperationType Operation { get; set; }
     public List<string> Sources { get; set; } = new();
+    public List<string> ExtraDestinations { get; set; } = new();
+    public bool VerifyAfterCopy { get; set; }
+    public VerifyAlgorithm Verify { get; set; } = VerifyAlgorithm.Sha256;
+    public DateTime SavedAt { get; set; } = DateTime.Now;
 }
 
 public sealed class StartupRequest
@@ -182,6 +192,12 @@ public sealed class StartupRequest
     public ConflictPolicy? Conflict { get; set; }
     public VerifyAlgorithm? VerifyAlgorithm { get; set; }
     public bool VerifyAfterCopy { get; set; }
+    public bool CopyLockedFiles { get; set; }
+    public bool ResumePartials { get; set; }
+    public bool WriteChecksumFile { get; set; }
+    public int? SecureDeletePasses { get; set; }
+    public string? CompletionScript { get; set; }
+    public List<string> ExtraDestinations { get; set; } = new();
 
     public static StartupRequest Parse(string[] args)
     {
@@ -198,6 +214,18 @@ public sealed class StartupRequest
                 case "--paste": request.PasteFromClipboard = true; break;
                 case "--tray": request.StartMinimized = true; break;
                 case "--ask-destination": request.AskDestination = true; break;
+                case "--locked": request.CopyLockedFiles = true; break;
+                case "--no-resume": request.ResumePartials = false; break;
+                case "--checksums": request.WriteChecksumFile = true; break;
+                case "--to2":
+                    if (i + 1 < args.Length) request.ExtraDestinations.Add(Normalize(args[++i]));
+                    break;
+                case "--script":
+                    if (i + 1 < args.Length) request.CompletionScript = Normalize(args[++i]);
+                    break;
+                case "--secure":
+                    if (i + 1 < args.Length && int.TryParse(args[++i], out var passes)) request.SecureDeletePasses = passes;
+                    break;
                 case "--overwrite": request.Conflict = ConflictPolicy.Overwrite; break;
                 case "--skip": request.Conflict = ConflictPolicy.Skip; break;
                 case "--rename": request.Conflict = ConflictPolicy.Rename; break;

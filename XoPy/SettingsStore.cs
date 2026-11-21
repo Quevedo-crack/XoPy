@@ -9,6 +9,7 @@ public sealed class SettingsStore
     public string DataFolder { get; } = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "XoPy");
     public string SettingsFile => Path.Combine(DataFolder, "settings.json");
     public string HistoryFile => Path.Combine(DataFolder, "history.json");
+    public string LastQueueFile => Path.Combine(DataFolder, "ultima-cola.xopyq");
 
     public AppSettings Load()
     {
@@ -27,6 +28,11 @@ public sealed class SettingsStore
         }
 
         settings.Favorites ??= new List<string>();
+        settings.ExtraDestinations ??= new List<string>();
+        settings.ExtraDestinations = settings.ExtraDestinations
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
         if (settings.Favorites.Count == 0)
         {
             settings.Favorites.Add(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory));
@@ -43,6 +49,8 @@ public sealed class SettingsStore
         settings.BufferKiB = Math.Clamp(settings.BufferKiB, 64, 8192);
         settings.SpeedLimitMiB = Math.Clamp(settings.SpeedLimitMiB, 0, 100000);
         settings.RetryCount = Math.Clamp(settings.RetryCount, 0, 20);
+        settings.SecureDeletePasses = Math.Clamp(settings.SecureDeletePasses, 0, 7);
+        settings.CompletionScript ??= string.Empty;
         return settings;
     }
 

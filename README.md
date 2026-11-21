@@ -2,7 +2,7 @@
 
 ![Interfaz de XoPy](docs/xopy-preview.png)
 
-XoPy es un gestor de copias gratuito para **Windows 10/11 de 64 bits**, inspirado en TeraCopy:
+XoPy es un gestor de copias gratuito y sin versiones de pago para **Windows 10/11 de 64 bits**, inspirado en TeraCopy:
 misma idea de interfaz compacta, misma forma de trabajar y las mismas opciones que se usan a diario,
 pero sin pagos, sin límites de prueba y sin funciones bloqueadas.
 
@@ -38,14 +38,33 @@ XoPy.exe --paste --to "D:\Copias"
 
 - `--overwrite`, `--skip`, `--rename` fuerzan la política de conflictos de esa ejecución.
 - `--verify` y `--algo crc32|md5|sha1|sha256|sha512` activan la verificación al copiar.
+- `--to2 "E:\Espejo"` añade un segundo destino (se puede repetir) y `--checksums` genera el archivo
+  de checksums al terminar.
+- `--locked` fuerza la lectura de archivos bloqueados, `--no-resume` desactiva la reanudación y
+  `--secure N` sobrescribe N veces antes de borrar. `--script "C:\ruta\tarea.ps1"` se ejecuta al finalizar.
 - `--ask-destination` abre el selector de carpeta antes de empezar (es lo que hace «Copiar a… con XoPy»).
 
 ## Funciones
 
 - **Copia, mueve, elimina y verifica** archivos o carpetas completas (con subcarpetas).
-- **Cola jerárquica**: al añadir una carpeta se ve la carpeta y dentro cada archivo. Puedes
-  expandirla o contraerla, **cambiar el orden** (botones ↑/↓ o Alt+↑/Alt+↓) y **quitar** elementos
-  de la cola antes de transferir.
+- **Cola jerárquica**: al añadir una carpeta se ve la carpeta y dentro cada archivo, con sus
+  subcarpetas. Puedes expandirla o contraerla, **reordenar** (botones ↑/↓ o Alt+↑/Alt+↓) sin separar
+  un archivo de su carpeta, **ordenar** por nombre, tamaño, tipo o carpeta de destino (menú Cola o el
+  botón ⇅) y **quitar** elementos de la cola antes de transferir.
+- **La estructura se conserva**: copiar `C:\Fotos` crea `Destino\Fotos\sub\archivo.jpg`, nunca
+  archivos sueltos en la raíz del destino. Las carpetas vacías también se crean.
+- **Varios destinos por tarea**: cada archivo se copia a la vez en el destino principal y en los
+  destinos adicionales configurados en Opciones.
+- **Archivos bloqueados**: se abren con permisos de copia de seguridad (`SeBackupPrivilege`) para
+  poder copiar archivos en uso.
+- **Reanudar**: si una copia se interrumpe, el siguiente intento continúa desde el byte donde se
+  quedó el archivo `.xopy-part`. La cola se guarda sola al cerrar y se puede reabrir desde
+  Archivo → «Abrir la última cola y reanudar».
+- **Checksums y tareas finales**: genera archivos `.sfv/.md5/.sha1/.sha256/.sha512`, ejecuta un
+  script al terminar (PowerShell, BAT o EXE) y permite el borrado seguro con 1–7 pasadas.
+- **Informes HTML y CSV** de la transferencia en curso y del historial.
+- **Ajustes por defecto para equipos modernos** (4 transferencias simultáneas y búfer de 4 MB,
+  pensados para un Ryzen 7 con 24 GB de RAM y NVMe). Todo se puede cambiar en Opciones.
 - **Pausar, reanudar, saltar el archivo actual y detener** en cualquier momento. Los archivos a medio
   copiar se escriben en un temporal `.xopy-part` que se elimina si cancelas; si la carpeta no permite
   crear el temporal (permisos, rutas largas o unidades de red) se copia directamente para no fallar.
@@ -56,8 +75,10 @@ XoPy.exe --paste --to "D:\Copias"
 - **Gestión de errores**: reintentos automáticos, omitir el archivo o detener la transferencia.
 - **Conservar fechas** y atributos, y opción de enviar a la **Papelera de reciclaje**.
 - **Favoritos**, historial de transferencias con exportación a CSV y sonido al terminar.
-- **Pestañas Lista de archivos / Destino / Opciones / Estado / Registro**, panel de trabajos y hashes
-  de origen y destino en la lista.
+- **Pestañas Lista de archivos / Destino / Opciones / Estado / Registro**, encabezado «Copiando /
+  Destino» con porcentaje por archivo, gráfica de velocidad y tabla de categorías (Correctos,
+  Verificados, Fallidos, Total). Sin parpadeo: doble búfer y actualizaciones incrementales.
+- **Icono de bandeja con el porcentaje** de la copia, como SuperCopier.
 - **Registro técnico** en `%LOCALAPPDATA%\XoPy\transfer.log` para diagnosticar cualquier error.
 - **Acciones al terminar**: apagar el equipo, cerrar XoPy o abrir la carpeta de destino.
 - Icono de progreso en el **área de notificación** y modo minimizado.

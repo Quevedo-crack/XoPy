@@ -3,6 +3,7 @@ using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Media;
+using System.Text;
 using System.Text.Json;
 using System.Windows.Forms;
 
@@ -117,7 +118,9 @@ public sealed partial class MainForm
                 RebuildRows();
                 UpdateFooter();
                 UpdateButtons();
-                SetStatus($"{_items.Count} elemento(s) en la lista · {Format.Bytes(_items.Sum(item => Math.Max(0, item.SizeBytes)))}");
+                SetStatus(_items.Count == 0
+                    ? "Listo para transferir."
+                    : $"Lista preparada: {_items.Count(item => item.Kind == ItemKind.File)} archivo(s) listos para transferir.");
             }
 
             UpdateJobs();
@@ -154,27 +157,38 @@ public sealed partial class MainForm
         ApplyScan(folder, result);
     }
 
+    private sealed class ScanNode
+    {
+        public string Path = string.Empty;
+        public string Name = string.Empty;
+        public string Relative = string.Empty;
+        public long Size;
+        public bool IsDirectory;
+        public readonly List<ScanNode> Children = new();
+    }
+
     private sealed class ScanResult
     {
-        public List<ScanEntry> Entries { get; } = new();
+        public ScanNode? Root;
         public long Bytes;
+        public int Files;
         public bool Complete = true;
         public string? Error;
     }
-
-    private sealed record ScanEntry(string Path, string Relative, long Size, bool IsDirectory);
 
     private static ScanResult ScanFolderCore(string root)
     {
         var result = new ScanResult();
         var rootName = Path.GetFileName(Path.TrimEndingDirectorySeparator(root));
-        var stack = new Stack<(string Directory, string Relative)>();
-        stack.Push((root, string.Empty));
-        var any = false;
+        if (string.IsNullOrEmpty(rootName)) rootName = root;
+
+        var rootNode = new ScanNode { Path = root, Name = rootName, Relative = rootName, IsDirectory = true };
+        var stack = new Stack<(ScanNode Node, string Directory)>();
+        stack.Push((rootNode, root));
 
         while (stack.Count > 0)
         {
-            var (directory, relative) = stack.Pop();
+            var (node, directory) = stack.Pop();
             string[] files;
             string[] directories;
             try
@@ -195,9 +209,16 @@ public sealed partial class MainForm
                 {
                     var info = new FileInfo(file);
                     if ((info.Attributes & FileAttributes.ReparsePoint) != 0) continue;
-                    result.Entries.Add(new ScanEntry(info.FullName, CombineRelative(rootName, relative, info.Name), info.Length, false));
+                    node.Children.Add(new ScanNode
+                    {
+                        Path = info.FullName,
+                        Name = info.Name,
+                        Relative = Path.Combine(node.Relative, info.Name),
+                        Size = info.Length,
+                        IsDirectory = false
+                    });
                     result.Bytes += info.Length;
-                    any = true;
+                    result.Files++;
                 }
                 catch
                 {
@@ -211,65 +232,117 @@ public sealed partial class MainForm
                 {
                     var info = new DirectoryInfo(child);
                     if ((info.Attributes & FileAttributes.ReparsePoint) != 0) continue;
-                    stack.Push((info.FullName, Path.Combine(relative, info.Name)));
-                    any = true;
+                    var childNode = new ScanNode
+                    {
+                        Path = info.FullName,
+                        Name = info.Name,
+                        Relative = Path.Combine(node.Relative, info.Name),
+                        IsDirectory = true
+                    };
+                    node.Children.Add(childNode);
+                    stack.Push((childNode, info.FullName));
                 }
                 catch
                 {
                     result.Complete = false;
                 }
             }
-
-            if (files.Length == 0 && directories.Length == 0 && relative.Length > 0)
-                result.Entries.Add(new ScanEntry(directory, CombineRelative(rootName, relative, string.Empty), 0, true));
         }
 
-        if (!any && result.Entries.Count == 0)
-            result.Entries.Add(new ScanEntry(root, rootName, 0, true));
-
-        result.Entries.Sort((left, right) => string.Compare(left.Relative, right.Relative, StringComparison.OrdinalIgnoreCase));
+        SortNodes(rootNode);
+        ComputeNodeSize(rootNode);
+        result.Root = rootNode;
         return result;
     }
 
-    private static string CombineRelative(string rootName, string relative, string name)
+    private static void SortNodes(ScanNode node)
     {
-        var parts = new List<string> { rootName };
-        if (!string.IsNullOrEmpty(relative)) parts.Add(relative);
-        if (!string.IsNullOrEmpty(name)) parts.Add(name);
-        return string.Join(Path.DirectorySeparatorChar, parts);
+        node.Children.Sort((left, right) =>
+        {
+            if (left.IsDirectory != right.IsDirectory) return left.IsDirectory ? -1 : 1;
+            return StringComparer.OrdinalIgnoreCase.Compare(left.Name, right.Name);
+        });
+        foreach (var child in node.Children) SortNodes(child);
+    }
+
+    private static long ComputeNodeSize(ScanNode node)
+    {
+        var size = 0L;
+        foreach (var child in node.Children)
+            size += child.IsDirectory ? ComputeNodeSize(child) : child.Size;
+        node.Size = size;
+        return size;
     }
 
     private void ApplyScan(TransferItem folder, ScanResult result)
     {
         var index = _items.IndexOf(folder);
-        if (index < 0) return;
+        if (index < 0 || result.Root is null) return;
 
-        var children = new List<TransferItem>();
-        foreach (var entry in result.Entries)
+        var rows = new List<TransferItem>();
+        if (!result.Complete && result.Root.Children.Count == 0)
         {
-            children.Add(new TransferItem
+            folder.SizeKnown = false;
+            folder.Error = result.Error;
+            folder.State = ItemState.Failed;
+            RebuildRows();
+            UpdateFooter();
+            return;
+        }
+        if (result.Root.Children.Count == 0)
+        {
+            // Carpeta vacía: se crea en el destino como entrada de directorio.
+            rows.Add(new TransferItem
             {
                 ParentId = folder.Id,
                 Depth = folder.Depth + 1,
-                Kind = entry.IsDirectory ? ItemKind.DirectoryEntry : ItemKind.File,
-                SourcePath = entry.Path,
-                RelativePath = entry.Relative,
-                SizeBytes = entry.Size,
+                Kind = ItemKind.DirectoryEntry,
+                SourcePath = folder.SourcePath,
+                RelativePath = folder.RelativePath,
+                SizeBytes = 0,
                 SizeKnown = true,
                 State = ItemState.Pending
             });
         }
+        else
+        {
+            AppendScanRows(result.Root, folder, rows);
+        }
 
-        _items.InsertRange(index + 1, children);
+        _items.InsertRange(index + 1, rows);
         folder.SizeBytes = result.Bytes;
         folder.SizeKnown = result.Complete;
         folder.Error = result.Error;
-        folder.State = children.Count == 0 && !result.Complete ? ItemState.Failed : ItemState.Pending;
+        folder.State = ItemState.Pending;
 
         RebuildRows();
         UpdateFooter();
         UpdateButtons();
         UpdateJobs();
+    }
+
+    private static void AppendScanRows(ScanNode node, TransferItem parent, List<TransferItem> rows)
+    {
+        foreach (var child in node.Children)
+        {
+            var isLeafDirectory = child.IsDirectory && child.Children.Count == 0;
+            var item = new TransferItem
+            {
+                ParentId = parent.Id,
+                Depth = parent.Depth + 1,
+                Kind = child.IsDirectory && !isLeafDirectory ? ItemKind.Folder
+                    : isLeafDirectory ? ItemKind.DirectoryEntry
+                    : ItemKind.File,
+                SourcePath = child.Path,
+                RelativePath = child.Relative,
+                SizeBytes = child.Size,
+                SizeKnown = true,
+                State = ItemState.Pending,
+                IsExpanded = true
+            };
+            rows.Add(item);
+            if (child.IsDirectory && !isLeafDirectory) AppendScanRows(child, item, rows);
+        }
     }
 
     private List<TransferItem> Children(TransferItem parent) => _items.Where(item => item.ParentId == parent.Id).ToList();
@@ -302,9 +375,16 @@ public sealed partial class MainForm
 
     private bool IsVisibleRow(TransferItem item)
     {
-        if (item.ParentId is null) return true;
-        var parent = _items.FirstOrDefault(candidate => candidate.Id == item.ParentId.Value);
-        return parent is not null && parent.IsExpanded;
+        var parentId = item.ParentId;
+        var guard = 0;
+        while (parentId is not null && guard++ < 64)
+        {
+            var parent = _items.FirstOrDefault(candidate => candidate.Id == parentId.Value);
+            if (parent is null) return false;
+            if (!parent.IsExpanded) return false;
+            parentId = parent.ParentId;
+        }
+        return true;
     }
 
     private void RebuildRows()
@@ -345,6 +425,14 @@ public sealed partial class MainForm
         if (_list is null || !IsHandleCreated) return;
         RefreshFolders();
 
+        var changed = false;
+        void SetText(ListViewItem.ListViewSubItem subItem, string text)
+        {
+            if (string.Equals(subItem.Text, text, StringComparison.Ordinal)) return;
+            subItem.Text = text;
+            changed = true;
+        }
+
         _list.BeginUpdate();
         try
         {
@@ -357,12 +445,13 @@ public sealed partial class MainForm
                     var count = Children(item).Count;
                     if (count > 0) state += $" · {count}";
                 }
-                row.SubItems[1].Text = item.SizeText;
-                row.SubItems[2].Text = state;
-                row.SubItems[3].Text = $"{RowPercent(item):0} %";
-                row.SubItems[4].Text = item.HashSource ?? string.Empty;
-                row.SubItems[5].Text = item.HashTarget ?? string.Empty;
-                row.ToolTipText = BuildTooltip(item);
+                SetText(row.SubItems[1], item.SizeText);
+                SetText(row.SubItems[2], state);
+                SetText(row.SubItems[3], $"{RowPercent(item):0} %");
+                SetText(row.SubItems[4], item.HashSource ?? string.Empty);
+                SetText(row.SubItems[5], item.HashTarget ?? string.Empty);
+                var tooltip = BuildTooltip(item);
+                if (!string.Equals(row.ToolTipText, tooltip, StringComparison.Ordinal)) row.ToolTipText = tooltip;
             }
         }
         finally
@@ -370,8 +459,7 @@ public sealed partial class MainForm
             _list.EndUpdate();
         }
 
-        _list.Invalidate();
-        UpdateCountLabel();
+        if (changed || _engine.IsRunning) _list.Invalidate();
     }
 
     private static string BuildTooltip(TransferItem item)
@@ -386,7 +474,7 @@ public sealed partial class MainForm
 
     private void RefreshFolders()
     {
-        foreach (var folder in _items.Where(item => item.Kind == ItemKind.Folder).ToList())
+        foreach (var folder in _items.Where(item => item.Kind == ItemKind.Folder).OrderByDescending(item => item.Depth).ToList())
         {
             var children = Children(folder);
             if (children.Count == 0) continue;
@@ -396,7 +484,7 @@ public sealed partial class MainForm
 
             if (folder.Operation == OperationType.Delete && folder.State == ItemState.Completed)
             {
-                foreach (var child in children)
+                foreach (var child in Descendants(folder).Prepend(folder))
                 {
                     child.Operation = OperationType.Delete;
                     child.State = ItemState.Completed;
@@ -416,16 +504,15 @@ public sealed partial class MainForm
         }
     }
 
-    private void UpdateCountLabel()
+    private void UpdateCountLabel(int leaves, long total)
     {
         if (_countLabel is null) return;
-        var leaves = _items.Where(item => item.Kind != ItemKind.Folder).ToList();
         if (_items.Count == 0)
         {
             _countLabel.Text = "Lista vacía — arrastra archivos o carpetas aquí";
             return;
         }
-        _countLabel.Text = $"{_items.Count} elemento(s) · {leaves.Count} archivo(s) · {Format.Bytes(leaves.Sum(item => Math.Max(0, item.SizeBytes)))}";
+        _countLabel.Text = $"{_items.Count} elemento(s) · {leaves} archivo(s) · {Format.Bytes(total)}";
     }
 
     private string? _currentStatus;
@@ -434,7 +521,7 @@ public sealed partial class MainForm
     {
         _currentStatus = message;
         if (_statusLabel is null) return;
-        _statusLabel.Text = message;
+        if (!string.Equals(_statusLabel.Text, message, StringComparison.Ordinal)) _statusLabel.Text = message;
     }
 
     private void ToggleExpand(TransferItem item)
@@ -493,23 +580,13 @@ public sealed partial class MainForm
         (siblings[index], siblings[target]) = (siblings[target], siblings[index]);
 
         var rebuilt = new List<TransferItem>();
-        if (parent is null)
+        void AddNode(TransferItem node)
         {
-            foreach (var sibling in siblings)
-            {
-                rebuilt.Add(sibling);
-                rebuilt.AddRange(Children(sibling));
-            }
+            rebuilt.Add(node);
+            var children = ReferenceEquals(node, parent) ? siblings : Children(node);
+            foreach (var child in children) AddNode(child);
         }
-        else
-        {
-            foreach (var root in RootItems())
-            {
-                rebuilt.Add(root);
-                if (ReferenceEquals(root, parent)) rebuilt.AddRange(siblings);
-                else rebuilt.AddRange(Children(root));
-            }
-        }
+        foreach (var root in RootItems()) AddNode(root);
 
         _items.Clear();
         _items.AddRange(rebuilt);
@@ -727,9 +804,13 @@ public sealed partial class MainForm
         {
             foreach (var item in basis)
             {
-                if (item.Kind == ItemKind.Folder) leaves.AddRange(Children(item));
+                if (item.Kind == ItemKind.Folder) leaves.AddRange(Descendants(item));
                 else leaves.Add(item);
             }
+
+            // Elementos de carpetas que se hayan añadido sueltos (no seleccionadas como bloque).
+            foreach (var folder in _items.Where(item => item.Kind == ItemKind.Folder))
+                leaves.AddRange(Children(folder));
             leaves = leaves
                 .Where(item => item.Kind == ItemKind.File || (item.Kind == ItemKind.DirectoryEntry && operation != OperationType.Test))
                 .Distinct()
@@ -807,18 +888,25 @@ public sealed partial class MainForm
             Destination = destination,
             Conflict = _settings.Conflict,
             OnError = _settings.OnError,
-            Verify = _settings.Verify,
+            Verify = _settings.WriteChecksumFile && _settings.Verify == VerifyAlgorithm.None ? VerifyAlgorithm.Sha256 : _settings.Verify,
             VerifyAfterCopy = _settings.VerifyAfterCopy,
+            ComputeHashes = _settings.WriteChecksumFile,
             RetryCount = _settings.RetryCount,
             Parallelism = _settings.Parallelism,
             BufferSize = _settings.BufferKiB * 1024,
             SpeedLimitBytesPerSecond = _settings.SpeedLimitMiB * 1024L * 1024L,
             PreserveTimestamps = _settings.PreserveTimestamps,
-            UseRecycleBin = _settings.UseRecycleBin
+            UseRecycleBin = _settings.UseRecycleBin,
+            CopyLockedFiles = _settings.CopyLockedFiles,
+            ResumePartials = _settings.ResumePartials,
+            SecureDeletePasses = _settings.SecureDeletePasses,
+            Destinations = ExtraDestinations(operation)
         };
 
         _lastOperation = operation;
         _lastDestination = destination;
+        SaveQueueFile(_store.LastQueueFile, silent: true);
+        _graph.Reset();
         _completedAt = DateTime.MinValue;
         _trayPercent = -1;
         _trayError = false;
@@ -849,6 +937,23 @@ public sealed partial class MainForm
         });
         UpdateJobs();
         UpdateButtons();
+    }
+
+    private List<string> ExtraDestinations(OperationType operation)
+    {
+        var list = new List<string>();
+        if (operation == OperationType.Delete) return list;
+        foreach (var candidate in _settings.ExtraDestinations)
+        {
+            try
+            {
+                if (!Directory.Exists(candidate)) continue;
+                var full = Path.GetFullPath(candidate);
+                if (!list.Contains(full, StringComparer.OrdinalIgnoreCase)) list.Add(full);
+            }
+            catch { }
+        }
+        return list;
     }
 
     private void TogglePause()
@@ -1017,6 +1122,8 @@ public sealed partial class MainForm
             catch { }
         }
 
+        if (failed == 0 && cancelled == 0) RunCompletionTask(failed);
+
         if (_lastOperation == OperationType.Move && failed == 0)
             CleanupMovedSourceFolders();
 
@@ -1182,6 +1289,7 @@ public sealed partial class MainForm
             if (leaves.Count > 0 && leaves.All(item => item.State is ItemState.Completed or ItemState.Skipped)) percent = 100;
         }
 
+        UpdateCountLabel(leaves.Count, total);
         _progress.Value = percent;
         _progress.FillColor = _items.Any(item => item.State == ItemState.Failed) && !_engine.IsRunning
             ? _palette.Warning
@@ -1222,6 +1330,8 @@ public sealed partial class MainForm
         if (_statusLabel is not null && _engine.IsRunning && !string.IsNullOrWhiteSpace(_currentStatus))
             _statusLabel.Text = _currentStatus;
 
+        UpdateTransferHeader(leaves, runningLeaf, done, total, percent);
+        if (_engine.IsRunning) _graph?.Add(_engine.SpeedBytesPerSecond);
         UpdateStatusTab(percent, done, total, runningLeaf?.RelativePath ?? string.Empty);
     }
 
@@ -1250,6 +1360,7 @@ public sealed partial class MainForm
         var themeChanged = dialog.Result.DarkTheme != _settings.DarkTheme;
         dialog.ApplyTo(_settings);
         _store.Save(_settings);
+        RefreshExtraDestinations();
 
         try
         {
@@ -1332,23 +1443,38 @@ public sealed partial class MainForm
         MessageBox.Show(this, message, "XoPy", MessageBoxButtons.OK, MessageBoxIcon.Error);
     }
 
-    private void SaveQueueFile()
+    private void SaveQueueFile() => SaveQueueFile(null);
+
+    private void SaveQueueFile(string? path, bool silent = false)
     {
-        if (_saveQueue.ShowDialog(this) != DialogResult.OK) return;
+        string file;
+        if (path is null)
+        {
+            if (_saveQueue.ShowDialog(this) != DialogResult.OK) return;
+            file = _saveQueue.FileName;
+        }
+        else file = path;
+
         try
         {
             var snapshot = new QueueSnapshot
             {
                 Destination = _destination.Text.Trim(),
                 Operation = OperationType.Copy,
-                Sources = RootItems().Select(item => item.SourcePath).ToList()
+                Sources = RootItems().Select(item => item.SourcePath).ToList(),
+                ExtraDestinations = _settings.ExtraDestinations.ToList(),
+                VerifyAfterCopy = _settings.VerifyAfterCopy,
+                Verify = _settings.Verify,
+                SavedAt = DateTime.Now
             };
-            File.WriteAllText(_saveQueue.FileName, JsonSerializer.Serialize(snapshot, new JsonSerializerOptions { WriteIndented = true }));
-            SetStatus("Cola guardada en " + _saveQueue.FileName);
+            var directory = Path.GetDirectoryName(file);
+            if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
+            File.WriteAllText(file, JsonSerializer.Serialize(snapshot, new JsonSerializerOptions { WriteIndented = true }));
+            if (!silent) SetStatus("Cola guardada en " + file);
         }
         catch (Exception ex)
         {
-            ShowError("No se pudo guardar la cola: " + ex.Message);
+            if (!silent) ShowError("No se pudo guardar la cola: " + ex.Message);
         }
     }
 
@@ -1356,24 +1482,292 @@ public sealed partial class MainForm
     {
         if (_engine.IsRunning) { SetStatus("Detén la transferencia antes de abrir otra cola."); return; }
         if (_loadQueue.ShowDialog(this) != DialogResult.OK) return;
+        var loaded = LoadQueueSnapshot(_loadQueue.FileName);
+        if (loaded) SetStatus("Cola cargada.");
+    }
+
+    private bool LoadQueueSnapshot(string file, bool startAfterLoad = false)
+    {
         try
         {
-            var snapshot = JsonSerializer.Deserialize<QueueSnapshot>(File.ReadAllText(_loadQueue.FileName));
-            if (snapshot is null) { ShowError("El archivo no contiene una cola válida."); return; }
+            if (!File.Exists(file)) { ShowError("No existe la cola guardada: " + file); return false; }
+            var snapshot = JsonSerializer.Deserialize<QueueSnapshot>(File.ReadAllText(file));
+            if (snapshot is null) { ShowError("El archivo no contiene una cola válida."); return false; }
 
             _items.Clear();
             _rows.Clear();
             _list.Items.Clear();
 
-            if (!string.IsNullOrWhiteSpace(snapshot.Destination) && Directory.Exists(snapshot.Destination))
+            if (!string.IsNullOrWhiteSpace(snapshot.Destination))
                 _destination.Text = snapshot.Destination;
+            if (snapshot.ExtraDestinations is not null)
+            {
+                _settings.ExtraDestinations = snapshot.ExtraDestinations;
+                RefreshExtraDestinations();
+            }
+            _verifyCheck.Checked = snapshot.VerifyAfterCopy;
+            if (startAfterLoad) _settings.Verify = snapshot.Verify;
+
             _ = AddPathsAsync(snapshot.Sources);
-            SetStatus("Cola cargada.");
+            if (startAfterLoad)
+            {
+                SetStatus("Reanudando la cola guardada…");
+                _ = StartAfterScan(OperationType.Copy);
+            }
+            return true;
         }
         catch (Exception ex)
         {
             ShowError("No se pudo abrir la cola: " + ex.Message);
+            return false;
         }
+    }
+
+    private async Task StartAfterScan(OperationType operation)
+    {
+        if (_pendingScans.Count > 0)
+        {
+            try { await Task.WhenAll(_pendingScans.ToArray()); } catch { }
+        }
+        await StartTransferAsync(operation);
+    }
+
+    private void ResumeLastQueue()
+    {
+        if (_engine.IsRunning) { SetStatus("Detén la transferencia antes de reanudar la cola."); return; }
+        if (!File.Exists(_store.LastQueueFile))
+        {
+            SetStatus("Todavía no hay ninguna cola guardada.");
+            return;
+        }
+        LoadQueueSnapshot(_store.LastQueueFile, startAfterLoad: true);
+    }
+
+    private enum QueueSortField { Name, Size, Type, Destination }
+
+    private void SortQueue(QueueSortField field, bool invert = false)
+    {
+        if (_items.Count < 2) { SetStatus("La lista está vacía."); return; }
+        if (_engine.IsRunning) { SetStatus("Detén la transferencia para ordenar la cola."); return; }
+
+        Comparison<TransferItem> comparison = field switch
+        {
+            QueueSortField.Size => (left, right) => left.SizeBytes.CompareTo(right.SizeBytes),
+            QueueSortField.Type => (left, right) => string.Compare(TypeKey(left), TypeKey(right), StringComparison.OrdinalIgnoreCase),
+            QueueSortField.Destination => (left, right) => string.Compare(DestinationKey(left), DestinationKey(right), StringComparison.OrdinalIgnoreCase),
+            _ => (left, right) => StringComparer.OrdinalIgnoreCase.Compare(left.Name, right.Name)
+        };
+        int Order(TransferItem left, TransferItem right) => invert ? comparison(right, left) : comparison(left, right);
+
+        var roots = RootItems();
+        roots.Sort(Order);
+
+        var children = new Dictionary<Guid, List<TransferItem>>();
+        foreach (var item in _items.Where(item => item.ParentId is not null))
+        {
+            if (!children.TryGetValue(item.ParentId!.Value, out var list))
+                children[item.ParentId.Value] = list = new List<TransferItem>();
+            list.Add(item);
+        }
+        foreach (var list in children.Values) list.Sort(Order);
+
+        var rebuilt = new List<TransferItem>();
+        void AddNode(TransferItem node)
+        {
+            rebuilt.Add(node);
+            if (children.TryGetValue(node.Id, out var kids))
+                foreach (var child in kids) AddNode(child);
+        }
+        foreach (var root in roots) AddNode(root);
+
+        _items.Clear();
+        _items.AddRange(rebuilt);
+        RebuildRows();
+        UpdateFooter();
+        var label = field switch
+        {
+            QueueSortField.Size => "tamaño",
+            QueueSortField.Type => "tipo",
+            QueueSortField.Destination => "carpeta de destino",
+            _ => "nombre"
+        };
+        SetStatus($"Cola ordenada por {label}{(invert ? " (descendente)" : string.Empty)}. Las carpetas conservan sus archivos.");
+    }
+
+    private static string TypeKey(TransferItem item)
+    {
+        var extension = Path.GetExtension(item.Name);
+        return string.IsNullOrEmpty(extension) ? "\uFFFF" + item.Name : extension + "\u0000" + item.Name;
+    }
+
+    private static string DestinationKey(TransferItem item) =>
+        string.IsNullOrWhiteSpace(item.RelativePath) ? item.Name : item.RelativePath;
+
+    // ---------------------------------------------------------------- informes y tareas finales
+
+    private void ExportReportHtml()
+    {
+        using var dialog = new SaveFileDialog
+        {
+            Title = "Exportar informe",
+            Filter = "Página HTML (*.html)|*.html",
+            FileName = $"xopy-informe-{DateTime.Now:yyyyMMdd-HHmm}.html"
+        };
+        if (dialog.ShowDialog(this) != DialogResult.OK) return;
+        try
+        {
+            File.WriteAllText(dialog.FileName, BuildHtmlReport());
+            SetStatus("Informe guardado en " + dialog.FileName);
+        }
+        catch (Exception ex)
+        {
+            ShowError("No se pudo guardar el informe: " + ex.Message);
+        }
+    }
+
+    private void ExportReportCsv()
+    {
+        using var dialog = new SaveFileDialog
+        {
+            Title = "Exportar informe",
+            Filter = "Hoja de cálculo CSV (*.csv)|*.csv",
+            FileName = $"xopy-informe-{DateTime.Now:yyyyMMdd-HHmm}.csv"
+        };
+        if (dialog.ShowDialog(this) != DialogResult.OK) return;
+        try
+        {
+            var builder = new StringBuilder();
+            builder.AppendLine("Nombre;Origen;Destino;Operacion;Tamano_bytes;Estado;Error;Hash_origen;Hash_destino");
+            foreach (var item in _items.Where(item => item.Kind != ItemKind.Folder))
+            {
+                builder.Append(Csv(item.Name)).Append(';')
+                    .Append(Csv(item.SourcePath)).Append(';')
+                    .Append(Csv(item.DestinationPath)).Append(';')
+                    .Append(item.Operation).Append(';')
+                    .Append(item.SizeBytes).Append(';')
+                    .Append(Csv(item.StateText)).Append(';')
+                    .Append(Csv(item.Error ?? string.Empty)).Append(';')
+                    .Append(Csv(item.HashSource ?? string.Empty)).Append(';')
+                    .Append(Csv(item.HashTarget ?? string.Empty)).AppendLine();
+            }
+            File.WriteAllText(dialog.FileName, builder.ToString(), new UTF8Encoding(true));
+            SetStatus("Informe CSV guardado en " + dialog.FileName);
+        }
+        catch (Exception ex)
+        {
+            ShowError("No se pudo guardar el informe: " + ex.Message);
+        }
+    }
+
+    private static string Csv(string value) => "\"" + value.Replace("\"", "\"\"") + "\"";
+
+    private string BuildHtmlReport()
+    {
+        var builder = new StringBuilder();
+        var failed = _items.Count(item => item.State == ItemState.Failed);
+        builder.AppendLine("<!DOCTYPE html><html lang=\"es\"><head><meta charset=\"utf-8\">")
+            .AppendLine("<title>Informe de XoPy</title><style>")
+            .AppendLine("body{font-family:'Segoe UI',sans-serif;background:#16181d;color:#e6e8ee;margin:32px}")
+            .AppendLine("h1{font-size:22px;margin:0 0 4px}h2{font-size:15px;margin:24px 0 8px;color:#9aa3b2}")
+            .AppendLine("table{border-collapse:collapse;width:100%;font-size:13px}")
+            .AppendLine("th,td{border-bottom:1px solid #2b2f38;padding:6px 8px;text-align:left}")
+            .AppendLine("th{color:#9aa3b2;font-weight:600}.ok{color:#57d38c}.bad{color:#ff7a7a}.muted{color:#9aa3b2}")
+            .AppendLine("</style></head><body>")
+            .AppendLine($"<h1>Informe de transferencia</h1><div class=\"muted\">{DateTime.Now:yyyy-MM-dd HH:mm} · {_lastOperation} → {_lastDestination}</div>")
+            .AppendLine($"<p>{_items.Count(item => item.State == ItemState.Completed && item.Kind == ItemKind.File)} archivo(s) copiados · {Format.Bytes(_sessionBytes)} · {Format.Duration(_sessionElapsed)} · {failed} error(es)</p>")
+            .AppendLine("<table><tr><th>Nombre</th><th>Tamaño</th><th>Estado</th><th>Origen</th><th>Destino</th></tr>");
+        foreach (var item in _items.Where(item => item.Kind != ItemKind.Folder))
+        {
+            var css = item.State == ItemState.Failed ? "bad" : item.State == ItemState.Completed ? "ok" : "muted";
+            builder.AppendLine($"<tr><td>{Html(item.Name)}</td><td>{Format.Bytes(item.SizeBytes)}</td><td class=\"{css}\">{Html(item.StateText)}</td><td>{Html(item.SourcePath)}</td><td>{Html(item.DestinationPath)}</td></tr>");
+        }
+        builder.AppendLine("</table></body></html>");
+        return builder.ToString();
+    }
+
+    private static string Html(string value) => System.Net.WebUtility.HtmlEncode(value);
+
+    private void RunCompletionTask(int failed)
+    {
+        WriteChecksumManifest();
+        RunCompletionScript(failed);
+    }
+
+    private void WriteChecksumManifest()
+    {
+        if (!_settings.WriteChecksumFile) return;
+        try
+        {
+            var algorithm = _settings.Verify == VerifyAlgorithm.None ? VerifyAlgorithm.Sha256 : _settings.Verify;
+            var rows = _items
+                .Where(item => item.Kind == ItemKind.File && item.State == ItemState.Completed && !string.IsNullOrWhiteSpace(item.HashSource))
+                .ToList();
+            if (rows.Count == 0)
+            {
+                SetStatus("No hay hashes disponibles todavía para crear el archivo de checksums.");
+                return;
+            }
+
+            var extension = algorithm switch
+            {
+                VerifyAlgorithm.Crc32 => "sfv",
+                VerifyAlgorithm.Md5 => "md5",
+                VerifyAlgorithm.Sha1 => "sha1",
+                VerifyAlgorithm.Sha512 => "sha512",
+                _ => "sha256"
+            };
+            var directory = string.IsNullOrWhiteSpace(_lastDestination) ? _destination.Text.Trim() : _lastDestination;
+            Directory.CreateDirectory(directory);
+            var file = Path.Combine(directory, $"XoPy-checksums-{DateTime.Now:yyyyMMdd-HHmmss}.{extension}");
+            var builder = new StringBuilder();
+            foreach (var item in rows)
+            {
+                var relative = string.IsNullOrWhiteSpace(item.RelativePath) ? item.Name : item.RelativePath;
+                builder.Append(item.HashSource).Append(" *").AppendLine(relative);
+            }
+            var temp = file + ".tmp";
+            File.WriteAllText(temp, builder.ToString());
+            File.Move(temp, file, true);
+            FileLog.Write("Archivo de checksums creado: " + file);
+            SetStatus("Archivo de checksums creado: " + file);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write("No se pudo crear el archivo de checksums: " + ex.Message);
+        }
+    }
+
+    private void RunCompletionScript(int failed)
+    {
+        var script = _settings.CompletionScript;
+        if (string.IsNullOrWhiteSpace(script) || !File.Exists(script)) return;
+        try
+        {
+            var arguments = $"\"{_lastDestination}\" {failed} \"{_lastOperation}\"";
+            ProcessStartInfo info;
+            if (script.EndsWith(".ps1", StringComparison.OrdinalIgnoreCase))
+                info = new ProcessStartInfo("powershell.exe", $"-NoProfile -ExecutionPolicy Bypass -File \"{script}\" {arguments}");
+            else if (script.EndsWith(".bat", StringComparison.OrdinalIgnoreCase) || script.EndsWith(".cmd", StringComparison.OrdinalIgnoreCase))
+                info = new ProcessStartInfo("cmd.exe", $"/c \"\"{script}\" {arguments}\"");
+            else
+                info = new ProcessStartInfo(script, arguments);
+            info.UseShellExecute = true;
+            Process.Start(info);
+            FileLog.Write("Script al finalizar lanzado: " + script);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write("No se pudo lanzar el script al finalizar: " + ex.Message);
+        }
+    }
+
+    private void RefreshExtraDestinations()
+    {
+        if (_extraDestinations is null) return;
+        _extraDestinations.BeginUpdate();
+        _extraDestinations.Items.Clear();
+        foreach (var path in _settings.ExtraDestinations) _extraDestinations.Items.Add(path);
+        _extraDestinations.EndUpdate();
     }
 
     // ---------------------------------------------------------------- ventana y bandeja
@@ -1414,6 +1808,7 @@ public sealed partial class MainForm
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
         SaveWindowGeometry();
+        if (_items.Count > 0) SaveQueueFile(_store.LastQueueFile, silent: true);
 
         if (!_exitRequested && _settings.MinimizeToTray && e.CloseReason == CloseReason.UserClosing)
         {
