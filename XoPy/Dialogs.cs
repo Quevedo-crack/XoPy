@@ -200,7 +200,7 @@ internal sealed class OptionsDialog : Form
         {
             Dock = DockStyle.Fill,
             SizeMode = TabSizeMode.Fixed,
-            ItemSize = new Size(100, 28),
+            ItemSize = new Size(92, 28),
             Padding = new Point(12, 6),
             DrawMode = TabDrawMode.OwnerDrawFixed,
             Font = new Font("Segoe UI", 9f)
@@ -344,7 +344,7 @@ internal sealed class OptionsDialog : Form
         extraPanel.Controls.Add(_extraDestinations, 0, 0);
         extraPanel.Controls.Add(extraButtons, 0, 1);
 
-        _tabs.TabPages.Add(Page("Transferencia", 13,
+        _tabs.TabPages.Add(Page("Transferencia", 11,
             ("Transferencias simultáneas", _parallel, 44),
             ("Búfer por archivo (KiB)", _buffer, 44),
             ("Límite de velocidad (MiB/s, 0 = sin límite)", _speed, 44),
@@ -355,17 +355,19 @@ internal sealed class OptionsDialog : Form
             ("", _resumePartials, 32),
             ("", _writeChecksums, 32),
             ("Pasadas de borrado seguro (0 = normal)", _securePasses, 40),
-            ("Script al finalizar", _completionScript, 40),
-            ("Destinos adicionales", extraPanel, 104),
+            ("Script al finalizar", _completionScript, 40)));
+
+        _tabs.TabPages.Add(Page("Destinos", 3,
+            ("Carpetas que reciben una copia de todo", extraPanel, 260),
             ("", new Label
             {
-                Text = "Los destinos adicionales reciben una copia completa de lo que se copie o mueva.\n" +
-                       "El script recibe como argumentos la carpeta de destino, los errores y la operación.",
+                Text = "Cada destino adicional recibe una copia completa de lo que se copie o mueva.\n" +
+                       "El script final recibe la carpeta de destino, los errores y la operación.",
                 AutoSize = true,
                 ForeColor = _palette.Muted,
                 Font = new Font("Segoe UI", 8.5f),
                 BackColor = Color.Transparent
-            }, 40)));
+            }, 44)));
 
         var verifyPage = Page("Verificación", 3,
             ("Algoritmo", _verifyAlgorithm, 48),
