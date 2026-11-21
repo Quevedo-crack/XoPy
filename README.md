@@ -20,6 +20,10 @@ Preferencias e integración con el Explorador:
 
 ![Preferencias de XoPy](docs/xopy-options-0.png)
 
+Así se ve una verificación correcta (SHA-256 comparado con el original):
+
+![Verificación en XoPy](docs/xopy-verify.png)
+
 ## Funciones
 
 - **Copia, mueve, elimina y verifica** archivos o carpetas completas (con subcarpetas).
