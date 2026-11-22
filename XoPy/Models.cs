@@ -206,6 +206,7 @@ public sealed class StartupRequest
     public string? Destination { get; set; }
     public bool PasteFromClipboard { get; set; }
     public bool StartMinimized { get; set; }
+    public bool NoShellHook { get; set; }
     public bool AskDestination { get; set; }
     public bool Screenshot { get; set; }
     public ConflictPolicy? Conflict { get; set; }
@@ -232,6 +233,7 @@ public sealed class StartupRequest
                 case "--delete": request.Operation = OperationType.Delete; break;
                 case "--test": request.Operation = OperationType.Test; break;
                 case "--paste": request.PasteFromClipboard = true; break;
+                case "--no-shell-hook": request.NoShellHook = true; break;
                 case "--tray": request.StartMinimized = true; break;
                 case "--ask-destination": request.AskDestination = true; break;
                 case "--locked": request.CopyLockedFiles = true; break;

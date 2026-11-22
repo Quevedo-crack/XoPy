@@ -119,6 +119,7 @@ public sealed partial class MainForm : Form
     private bool _jobsCollapsed;
     private OperationType? _followUpOperation;
     private ShellPasteHook? _pasteHook;
+    private bool _shellHookInstalled;
     private CopyEngineKind? _engineOverride;
     private bool _trayPaused;
     private bool _trayError;
@@ -1238,17 +1239,36 @@ public sealed partial class MainForm : Form
                     }
                     catch { }
                 };
-                _pasteHook.Install();
+                // El hook de teclado se instala después de que la ventana se muestra (en OnShown)
+                // para evitar desbordamiento de pila durante el arranque.
+                _shellHookInstalled = false;
             }
             else if (_pasteHook is not null)
             {
                 _pasteHook.Dispose();
                 _pasteHook = null;
+                _shellHookInstalled = false;
             }
         }
         catch (Exception ex)
         {
             FileLog.Write("No se pudo activar el copiador de Windows: " + ex.Message);
+        }
+    }
+
+    /// <summary>Instala el hook de pegado de teclado tras mostrarse la ventana.</summary>
+    private void InstallShellHookIfNeeded()
+    {
+        if (_shellHookInstalled || _pasteHook is null) return;
+        if (_startupRequest.NoShellHook) return;
+        try
+        {
+            _pasteHook.Install();
+            _shellHookInstalled = true;
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write("No se pudo instalar el hook de pegado: " + ex.Message);
         }
     }
 
@@ -1306,9 +1326,13 @@ public sealed partial class MainForm : Form
                 Activate();
                 BringToFront();
             }
-            catch { }
-        }
-        _ = HandleExternalAsync(_startupRequest, true);
+        catch { }
+    }
+
+    // Instalar el hook de pegado ahora que la ventana está lista, no durante el constructor.
+    InstallShellHookIfNeeded();
+
+    _ = HandleExternalAsync(_startupRequest, true);
     }
 
     public void HandleExternalRequest(StartupRequest request) => _ = HandleExternalAsync(request, false);
