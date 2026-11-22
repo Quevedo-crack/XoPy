@@ -60,7 +60,7 @@ Name: "{autodesktop}\\XoPy"; Filename: "{app}\\{#AppExe}"; Comment: "Gestor de c
 ; XoPy no crea verbos de menú contextual ni entradas «Pegar».
 Root: HKCU; Subkey: "Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\XoPy.exe"; ValueType: string; ValueName: ""; ValueData: "{app}\\{#AppExe}"; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\XoPy.exe"; ValueType: string; ValueName: "Path"; ValueData: "{app}"; Flags: uninsdeletekey
-Root: HKCU; Subkey: "Software\\Microsoft\\Windows\\CurrentVersion\\Run"; ValueType: string; ValueName: "XoPy"; ValueData: ""{app}\\{#AppExe}""; Flags: uninsdeletevalue; Tasks: autostart
+Root: HKCU; Subkey: "Software\\Microsoft\\Windows\\CurrentVersion\\Run"; ValueType: string; ValueName: "XoPy"; ValueData: """{app}\\{#AppExe}"""; Flags: uninsdeletevalue; Tasks: autostart
 
 [Run]
 Filename: "{app}\\{#AppExe}"; Description: "Iniciar XoPy"; Flags: postinstall nowait skipifsilent
