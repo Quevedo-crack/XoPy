@@ -57,7 +57,7 @@ Type: files; Name: "{sendto}\*XoPy*.lnk"
 { Codigo de limpieza desactivado temporalmente para diagnostico }
 
 [Run]
-Filename: "{app}\{#AppExe}"; Description: "Iniciar XoPy"; Flags: postinstall nowait skipifsilent
+{ Ejecutar despues de instalar temporalmente desactivado }
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"
