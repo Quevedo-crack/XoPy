@@ -17,5 +17,12 @@ Type: files; Name: "{sendto}\*XoPy*.lnk"
 [Icons]
 Name: "{autoprograms}\XoPy"; Filename: "{app}\XoPy.exe"; Comment: "Gestor de copias XoPy"
 
+[Registry]
+; Ruta de la aplicación
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\XoPy.exe"; ValueType: string; ValueData: "{app}\XoPy.exe"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\XoPy.exe"; ValueType: string; ValueName: "Path"; ValueData: "{app}"; Flags: uninsdeletekey
+; Inicio automático opcional
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "XoPy"; ValueData: """"{app}\XoPy.exe""""; Flags: uninsdeletevalue; Tasks: autostart
+
 [Files]
 Source: "..\publish\XoPy.exe"; DestDir: "{app}"; Flags: ignoreversion
