@@ -775,9 +775,99 @@ public sealed partial class MainForm
         }
     }
 
-    private async Task StartTransferAsync(OperationType operation)
+    private void HandleBusy(OperationType operation)
     {
-        if (_engine.IsRunning) { SetStatus("Ya hay una transferencia en curso."); return; }
+        if (!_settings.AskWhenBusy)
+        {
+            SetStatus("Ya hay una transferencia en curso.");
+            return;
+        }
+
+        var answer = MessageBox.Show(this,
+            "Ya hay una transferencia en curso.\n\n" +
+            "Sí: añadir estos elementos a la copia actual (se harán en cuanto termine).\n" +
+            "No: abrir otra ventana de XoPy para copiarlos a la vez.",
+            "XoPy", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
+        if (answer == DialogResult.Cancel) return;
+        if (answer == DialogResult.Yes)
+        {
+            _followUpOperation = operation;
+            SetStatus("Se copiarán en cuanto termine la transferencia en curso.");
+            return;
+        }
+
+        LaunchSeparateWindow(operation);
+    }
+
+    private void LaunchSeparateWindow(OperationType operation)
+    {
+        var sources = BasisItems().Select(item => item.SourcePath)
+            .Where(path => !string.IsNullOrWhiteSpace(path)).ToList();
+        if (sources.Count == 0)
+        {
+            SetStatus("No hay nada que copiar en otra ventana.");
+            return;
+        }
+
+        var arguments = new StringBuilder("--multi ");
+        arguments.Append(operation switch
+        {
+            OperationType.Move => "--move ",
+            OperationType.Test => "--test ",
+            OperationType.Delete => "--delete ",
+            _ => "--copy "
+        });
+        var destination = _destination.Text.Trim();
+        if (destination.Length > 0) arguments.Append("--to \"").Append(destination).Append("\" ");
+        if (_settings.VerifyAfterCopy) arguments.Append("--verify ");
+        foreach (var source in sources) arguments.Append('"').Append(source).Append("\" ");
+
+        try
+        {
+            Process.Start(new ProcessStartInfo(Application.ExecutablePath, arguments.ToString()) { UseShellExecute = false });
+            SetStatus("Abriendo otra ventana de XoPy para copiar en paralelo…");
+        }
+        catch (Exception ex)
+        {
+            SetStatus("No se pudo abrir otra ventana: " + CopyEngine.Describe(ex));
+        }
+    }
+
+    private void RestartElevated()
+    {
+        try
+        {
+            var info = new ProcessStartInfo(Application.ExecutablePath)
+            {
+                UseShellExecute = true,
+                Verb = "runas"
+            };
+            if (_items.Count > 0)
+            {
+                var arguments = new StringBuilder("--multi --copy ");
+                var destination = _destination.Text.Trim();
+                if (destination.Length > 0) arguments.Append("--to \"").Append(destination).Append("\" ");
+                foreach (var path in RootItems().Select(item => item.SourcePath))
+                    arguments.Append('"').Append(path).Append("\" ");
+                info.Arguments = arguments.ToString();
+            }
+
+            Process.Start(info);
+            ExitApplication();
+        }
+        catch (Exception ex)
+        {
+            ShowError("No se pudo reiniciar como administrador: " + CopyEngine.Describe(ex));
+        }
+    }
+
+    private async Task StartTransferAsync(OperationType operation, bool onlyPending = false)
+    {
+        if (_engine.IsRunning)
+        {
+            HandleBusy(operation);
+            return;
+        }
 
         if (_pendingScans.Count > 0)
         {
@@ -888,6 +978,16 @@ public sealed partial class MainForm
             target.Error = null;
         }
 
+        if (onlyPending && operation != OperationType.Delete)
+        {
+            leaves = leaves.Where(item => item.State != ItemState.Completed).ToList();
+            if (leaves.Count == 0)
+            {
+                SetStatus("No hay archivos nuevos que copiar.");
+                return;
+            }
+        }
+
         var targets = operation == OperationType.Delete ? deleteTargets : leaves;
         if (targets.Count == 0) { SetStatus("No hay elementos que transferir."); return; }
 
@@ -906,7 +1006,7 @@ public sealed partial class MainForm
             PreserveTimestamps = _settings.PreserveTimestamps,
             UseRecycleBin = _settings.UseRecycleBin,
             CopyLockedFiles = _settings.CopyLockedFiles,
-            NativeCopy = _settings.NativeCopy,
+            Engine = _engineOverride ?? _settings.Engine,
             ResumePartials = _settings.ResumePartials,
             SecureDeletePasses = _settings.SecureDeletePasses,
             Destinations = ExtraDestinations(operation)
@@ -1120,6 +1220,7 @@ public sealed partial class MainForm
         UpdateButtons();
         UpdateJobs();
         RefreshLog();
+        if (IsHandleCreated) Taskbar.Clear(Handle);
 
         if (_settings.PlaySoundWhenDone)
         {
@@ -1135,6 +1236,15 @@ public sealed partial class MainForm
 
         if (_lastOperation == OperationType.Move && failed == 0)
             CleanupMovedSourceFolders();
+
+        if (_followUpOperation is { } followUp)
+        {
+            _followUpOperation = null;
+            if (failed == 0 && cancelled == 0 && _items.Any(item => item.Kind != ItemKind.Folder && item.State != ItemState.Completed))
+            {
+                try { BeginInvoke(new Action(() => StartTransfer(followUp))); } catch { }
+            }
+        }
 
         if (_settings.OpenDestinationWhenDone && failed == 0 && cancelled == 0 && _lastOperation is OperationType.Copy or OperationType.Move)
             OpenFolder(string.IsNullOrWhiteSpace(_lastDestination) ? _destination.Text.Trim() : _lastDestination);
@@ -1182,6 +1292,27 @@ public sealed partial class MainForm
     }
 
     // ---------------------------------------------------------------- temporizador
+
+    private void ToggleJobsPanel()
+    {
+        ApplyJobsCollapsed(!_jobsCollapsed);
+        _settings.CollapseJobs = _jobsCollapsed;
+        _store.Save(_settings);
+        SetStatus(_jobsCollapsed ? "Columna de trabajos oculta. Pulsa « para mostrarla." : "Columna de trabajos visible.");
+    }
+
+    private void ApplyJobsCollapsed(bool collapsed)
+    {
+        _jobsCollapsed = collapsed;
+        try
+        {
+            if (_contentGrid is not null && _contentGrid.ColumnStyles.Count > 0)
+                _contentGrid.ColumnStyles[0].Width = collapsed ? 0 : 228;
+            if (_jobsPanel is not null) _jobsPanel.Visible = !collapsed;
+            if (_collapseButton is not null) _collapseButton.Text = collapsed ? "\u00BB" : "\u00AB";
+        }
+        catch { }
+    }
 
     private void TimerTick()
     {
@@ -1307,10 +1438,14 @@ public sealed partial class MainForm
             ? "Sin archivos en la lista"
             : $"{leaves.Count} archivo(s) · {Format.Bytes(done)} de {Format.Bytes(total)} · {percent:0.0} %";
 
-        if (_engine.IsRunning)
+        if (_engine.IsRunning && _engine.IsPaused)
+        {
+            _speedLabel.Text = "En pausa · 0 B/s";
+        }
+        else if (_engine.IsRunning)
         {
             var speed = _engine.SpeedBytesPerSecond;
-            var remaining = speed > 1 && total > done ? TimeSpan.FromSeconds((total - done) / speed) : TimeSpan.Zero;
+            var remaining = _engine.Remaining;
             _speedLabel.Text = $"{Format.Speed(speed)}  ·  quedan {Format.Duration(remaining)}";
         }
         else
@@ -1378,6 +1513,8 @@ public sealed partial class MainForm
         catch { }
 
         LoadSettingsIntoUi();
+        ApplyCopierReplacement();
+        ApplyJobsCollapsed(_settings.CollapseJobs);
         UpdateHashColumns();
         UpdateButtons();
         UpdateFooter();
@@ -1473,6 +1610,18 @@ public sealed partial class MainForm
         var roots = RootItems();
         if (!roots.SequenceEqual(new[] { b, folder, a }))
             report.AppendLine("FALLO: ordenar por tamaño no dejó b, carpeta, a.");
+
+        SortQueue(QueueSortField.Name);
+        if (!RootItems().SequenceEqual(new[] { a, b, folder }))
+            report.AppendLine("FALLO: el orden por nombre no dejó a, b, carpeta.");
+
+        SortQueue(QueueSortField.Source);
+        if (RootItems().Count != 3)
+            report.AppendLine("FALLO: ordenar por carpeta de origen perdió elementos.");
+
+        SortQueue(QueueSortField.Destination);
+        if (RootItems().Count != 3)
+            report.AppendLine("FALLO: ordenar por carpeta de destino perdió elementos.");
 
         var before = _items.Count;
         RemoveItems(new[] { child1 });
@@ -1627,7 +1776,7 @@ public sealed partial class MainForm
         LoadQueueSnapshot(_store.LastQueueFile, startAfterLoad: true);
     }
 
-    private enum QueueSortField { Name, Size, Type, Destination }
+    private enum QueueSortField { Name, Size, Type, Destination, Source, State }
 
     private void SortQueue(QueueSortField field, bool invert = false)
     {
@@ -1639,6 +1788,8 @@ public sealed partial class MainForm
             QueueSortField.Size => (left, right) => left.SizeBytes.CompareTo(right.SizeBytes),
             QueueSortField.Type => (left, right) => string.Compare(TypeKey(left), TypeKey(right), StringComparison.OrdinalIgnoreCase),
             QueueSortField.Destination => (left, right) => string.Compare(DestinationKey(left), DestinationKey(right), StringComparison.OrdinalIgnoreCase),
+            QueueSortField.Source => (left, right) => string.Compare(SourceKey(left), SourceKey(right), StringComparison.OrdinalIgnoreCase),
+            QueueSortField.State => (left, right) => left.State.CompareTo(right.State),
             _ => (left, right) => StringComparer.OrdinalIgnoreCase.Compare(left.Name, right.Name)
         };
         int Order(TransferItem left, TransferItem right) => invert ? comparison(right, left) : comparison(left, right);
@@ -1673,6 +1824,8 @@ public sealed partial class MainForm
             QueueSortField.Size => "tamaño",
             QueueSortField.Type => "tipo",
             QueueSortField.Destination => "carpeta de destino",
+            QueueSortField.Source => "carpeta de origen",
+            QueueSortField.State => "estado",
             _ => "nombre"
         };
         SetStatus($"Cola ordenada por {label}{(invert ? " (descendente)" : string.Empty)}. Las carpetas conservan sus archivos.");
@@ -1682,6 +1835,12 @@ public sealed partial class MainForm
     {
         var extension = Path.GetExtension(item.Name);
         return string.IsNullOrEmpty(extension) ? "\uFFFF" + item.Name : extension + "\u0000" + item.Name;
+    }
+
+    private static string SourceKey(TransferItem item)
+    {
+        var directory = Path.GetDirectoryName(item.SourcePath);
+        return string.IsNullOrEmpty(directory) ? item.Name : directory;
     }
 
     private static string DestinationKey(TransferItem item) =>
@@ -1926,6 +2085,8 @@ public sealed partial class MainForm
             _favoritesMenu.Dispose();
             _percentIcon?.Dispose();
             _baseIcon?.Dispose();
+            _pasteHook?.Dispose();
+            _pasteHook = null;
         }
         base.Dispose(disposing);
     }

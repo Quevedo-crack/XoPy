@@ -122,6 +122,59 @@ public static class Icons
         return SystemIcons.Application;
     }
 
+    /// <summary>Icono cuadrado con el porcentaje grande, para el botón de la barra de tareas.</summary>
+    public static Icon PercentBadge(int percent, bool dark, bool paused = false, bool error = false)
+    {
+        var clamped = Math.Clamp(percent, 0, 100);
+        using var bitmap = new Bitmap(32, 32);
+        using (var graphics = Graphics.FromImage(bitmap))
+        {
+            graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
+            graphics.Clear(Color.Transparent);
+            var color = error ? Color.FromArgb(214, 66, 64)
+                : paused ? Color.FromArgb(214, 148, 38)
+                : clamped >= 100 ? Color.FromArgb(38, 160, 96)
+                : Color.FromArgb(48, 140, 240);
+            using var background = new SolidBrush(color);
+            using var path = RoundedRect(new Rectangle(0, 0, 32, 32), 7);
+            graphics.FillPath(background, path);
+            using var format = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
+            using var text = new SolidBrush(Color.White);
+            var label = clamped >= 100 ? "100" : clamped.ToString();
+            using var font = new Font("Segoe UI", label.Length >= 3 ? 12f : 14f, FontStyle.Bold, GraphicsUnit.Pixel);
+            graphics.DrawString(label, font, text, new RectangleF(0, -1, 32, 32), format);
+            if (clamped < 100)
+            {
+                using var small = new Font("Segoe UI", 8f, FontStyle.Bold, GraphicsUnit.Pixel);
+                graphics.DrawString("%", small, text, new RectangleF(15, 13, 16, 16), format);
+            }
+        }
+
+        var handle = bitmap.GetHicon();
+        try
+        {
+            using var borrowed = Icon.FromHandle(handle);
+            return (Icon)borrowed.Clone();
+        }
+        finally
+        {
+            DestroyIcon(handle);
+        }
+    }
+
+    private static GraphicsPath RoundedRect(Rectangle bounds, int radius)
+    {
+        var path = new GraphicsPath();
+        var size = radius * 2;
+        path.AddArc(bounds.Left, bounds.Top, size, size, 180, 90);
+        path.AddArc(bounds.Right - size, bounds.Top, size, size, 270, 90);
+        path.AddArc(bounds.Right - size, bounds.Bottom - size, size, size, 0, 90);
+        path.AddArc(bounds.Left, bounds.Bottom - size, size, size, 90, 90);
+        path.CloseFigure();
+        return path;
+    }
+
     public static Icon ProgressIcon(int percent, bool dark, bool paused = false, bool error = false, bool completed = false)
     {
         var clamped = Math.Clamp(percent, 0, 100);
@@ -152,8 +205,8 @@ public static class Icons
             }
             else
             {
-                using var font = new Font("Segoe UI", clamped >= 100 ? 8f : 9f, FontStyle.Bold, GraphicsUnit.Pixel);
-                graphics.DrawString(clamped.ToString(), font, text, new RectangleF(2, 2, 28, 28), format);
+                using var font = new Font("Segoe UI", clamped >= 100 ? 10f : 12f, FontStyle.Bold, GraphicsUnit.Pixel);
+                graphics.DrawString(clamped.ToString(), font, text, new RectangleF(1, 1, 30, 30), format);
             }
         }
 

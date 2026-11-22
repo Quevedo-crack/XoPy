@@ -1,56 +1,62 @@
   Determining projects to restore...
-  Restored D:\a\XoPy\XoPy\XoPy\XoPy.csproj (in 24 ms).
-D:\a\XoPy\XoPy\XoPy\MainForm.Panels.cs(1101,25): warning CS8602: Dereference of a possibly null reference. [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
-D:\a\XoPy\XoPy\XoPy\MainForm.cs(108,18): warning CS0414: The field 'MainForm._wasRunning' is assigned but its value is never used [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
+  Restored D:\a\XoPy\XoPy\XoPy\XoPy.csproj (in 29 ms).
+D:\a\XoPy\XoPy\XoPy\Dialogs.cs(723,29): warning CS8602: Dereference of a possibly null reference. [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
+D:\a\XoPy\XoPy\XoPy\MainForm.Panels.cs(1129,25): warning CS8602: Dereference of a possibly null reference. [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
+D:\a\XoPy\XoPy\XoPy\MainForm.cs(109,18): warning CS0414: The field 'MainForm._wasRunning' is assigned but its value is never used [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
 CSC : warning WFAC010: Remove high DPI settings from D:\a\XoPy\XoPy\XoPy\app.manifest and configure via Application.SetHighDpiMode API or 'ApplicationHighDpiMode' project property [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
   XoPy -> D:\a\XoPy\XoPy\XoPy\bin\Release\net8.0-windows\win-x64\XoPy.dll
 
 Build succeeded.
 
-D:\a\XoPy\XoPy\XoPy\MainForm.Panels.cs(1101,25): warning CS8602: Dereference of a possibly null reference. [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
-D:\a\XoPy\XoPy\XoPy\MainForm.cs(108,18): warning CS0414: The field 'MainForm._wasRunning' is assigned but its value is never used [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
+D:\a\XoPy\XoPy\XoPy\Dialogs.cs(723,29): warning CS8602: Dereference of a possibly null reference. [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
+D:\a\XoPy\XoPy\XoPy\MainForm.Panels.cs(1129,25): warning CS8602: Dereference of a possibly null reference. [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
+D:\a\XoPy\XoPy\XoPy\MainForm.cs(109,18): warning CS0414: The field 'MainForm._wasRunning' is assigned but its value is never used [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
 CSC : warning WFAC010: Remove high DPI settings from D:\a\XoPy\XoPy\XoPy\app.manifest and configure via Application.SetHighDpiMode API or 'ApplicationHighDpiMode' project property [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
-    3 Warning(s)
+    4 Warning(s)
     0 Error(s)
 
-Time Elapsed 00:00:02.42
+Time Elapsed 00:00:01.89
 FILE: carpeta (1 bytes)
+FILE: dest-rbcopy (1 bytes)
 FILE: dest3 (1 bytes)
 FILE: dest4 (1 bytes)
 FILE: dest5 (1 bytes)
 FILE: destino (1 bytes)
 FILE: destino2 (1 bytes)
 FILE: jerarquia (1 bytes)
-FILE: cola.txt (129 bytes)
+FILE: cola.txt (57 bytes)
 FILE: conflict.png (11146 bytes)
 FILE: conflictotest.txt (70 bytes)
 FILE: copiatest.txt (83 bytes)
 FILE: exitcode.txt (24 bytes)
 FILE: grande.bin (300000 bytes)
-FILE: history.png (19912 bytes)
+FILE: history.png (19332 bytes)
 FILE: informe.pdf (10242 bytes)
 FILE: jerarquiatest.txt (111 bytes)
 FILE: menu-context.png (2956 bytes)
 FILE: menu-menu.png (2661 bytes)
-FILE: movetest.txt (36 bytes)
-FILE: options-0.png (15108 bytes)
-FILE: options-1.png (20471 bytes)
-FILE: options-2.png (14292 bytes)
-FILE: options-3.png (11855 bytes)
-FILE: options-4.png (14305 bytes)
-FILE: options-5.png (11713 bytes)
-FILE: options-6.png (14138 bytes)
-FILE: options.png (14138 bytes)
+FILE: movetest.txt (88 bytes)
+FILE: options-0.png (15740 bytes)
+FILE: options-1.png (20982 bytes)
+FILE: options-2.png (12717 bytes)
+FILE: options-3.png (14926 bytes)
+FILE: options-4.png (12505 bytes)
+FILE: options-5.png (17131 bytes)
+FILE: options-6.png (13528 bytes)
+FILE: options-7.png (15044 bytes)
+FILE: options.png (15044 bytes)
+FILE: rbcopy.bin (200002 bytes)
 FILE: reanudartest.txt (41 bytes)
-FILE: shot.png (40078 bytes)
+FILE: robocopytest.txt (49 bytes)
+FILE: shot.png (40243 bytes)
 FILE: shot.png.log (126 bytes)
-FILE: verify.png (38069 bytes)
+FILE: verify.png (38197 bytes)
 FILE: verify.png.log (126 bytes)
 FILE: video.mp4 (20482 bytes)
 --- C:\xopytest\exitcode.txt
 exitcode=0 exited=True
 --- C:\xopytest\shot.png.log
-inicio 2026-11-21T23:39:09.5386215+00:00
+inicio 2026-11-22T00:54:25.1973964+00:00
 ventana creada {Width=1044, Height=740}
 ventana mostrada {Width=1028, Height=701}
 --- C:\xopytest\copiatest.txt
@@ -61,6 +67,8 @@ hash_igual=True
 --- C:\xopytest\movetest.txt
 movido=True
 origen_eliminado=True
+carpeta_movida=True
+carpeta_origen_eliminada=True
 --- C:\xopytest\conflictotest.txt
 tamano=20482
 hash_igual=True
@@ -78,5 +86,7 @@ final=True
 temporal=0
 hash_igual=True
 --- C:\xopytest\cola.txt
-FALLO: quitar de la lista no eliminó solo el elemento seleccionado.
-FALLO: el recuento de archivos tras quitar es incorrecto.
+FALLO: el orden por nombre no dejó la carpeta primero.
+--- C:\xopytest\robocopytest.txt
+robocopy_copiado=True
+robocopy_hash_igual=True

@@ -269,14 +269,19 @@ public sealed partial class MainForm
         _optShowHashes = OptionCheck("Mostrar los hashes en la lista", _settings.ShowHashes);
         _optLocked = OptionCheck("Copiar archivos bloqueados o en uso (permisos de copia de seguridad)", _settings.CopyLockedFiles);
         _optResume = OptionCheck("Reanudar copias parciales al reintentar", _settings.ResumePartials);
-        _optNative = OptionCheck("Usar el motor nativo de Windows (CopyFileEx, más rápido)", _settings.NativeCopy);
         _optChecksums = OptionCheck("Crear un archivo de checksums al terminar", _settings.WriteChecksumFile);
         toggles.Controls.AddRange(new Control[]
         {
             _optVerifyAfterCopy, _optPreserveTimestamps, _optRecycleBin, _optShowHashes,
-            _optLocked, _optNative, _optResume, _optChecksums
+            _optLocked, _optResume, _optChecksums
         });
-        AddWideRow(grid, toggles, 194);
+        AddWideRow(grid, toggles, 160);
+
+        _optEngine = new ChoiceButton(_palette, new[] { "Nativo (recomendado)", "Robocopy", "Administrado" },
+            (int)_settings.Engine);
+        _optEngine.SelectedIndexChanged += (_, _) => SaveQuickOptions();
+        AddRow(grid, "Motor de copia:", _optEngine, 36,
+            "Nativo usa CopyFileEx de Windows. Robocopy va mejor con miles de archivos, redes y rutas largas. Administrado es el más compatible.");
 
         _optSecurePasses = new NumericUpDown
         {
@@ -389,7 +394,6 @@ public sealed partial class MainForm
         _optPreserveTimestamps.CheckedChanged += (_, _) => SaveQuickOptions();
         _optRecycleBin.CheckedChanged += (_, _) => SaveQuickOptions();
         _optLocked.CheckedChanged += (_, _) => SaveQuickOptions();
-        _optNative.CheckedChanged += (_, _) => SaveQuickOptions();
         _optResume.CheckedChanged += (_, _) => SaveQuickOptions();
         _optChecksums.CheckedChanged += (_, _) => SaveQuickOptions();
         _optSecurePasses.ValueChanged += (_, _) => SaveQuickOptions();
@@ -513,6 +517,7 @@ public sealed partial class MainForm
             _optPreserveTimestamps.Checked = _settings.PreserveTimestamps;
             _optRecycleBin.Checked = _settings.UseRecycleBin;
             _optShowHashes.Checked = _settings.ShowHashes;
+            if (_optEngine is not null) _optEngine.SelectedIndex = (int)_settings.Engine;
         }
         finally
         {
@@ -535,7 +540,7 @@ public sealed partial class MainForm
         _settings.UseRecycleBin = _optRecycleBin.Checked;
         _settings.ShowHashes = _optShowHashes.Checked;
         _settings.CopyLockedFiles = _optLocked.Checked;
-        _settings.NativeCopy = _optNative.Checked;
+        _settings.Engine = (CopyEngineKind)Math.Clamp(_optEngine.SelectedIndex, 0, 2);
         _settings.ResumePartials = _optResume.Checked;
         _settings.WriteChecksumFile = _optChecksums.Checked;
         _settings.SecureDeletePasses = (int)_optSecurePasses.Value;
@@ -734,9 +739,25 @@ public sealed partial class MainForm
         _hdrCopyPath.Text = string.IsNullOrWhiteSpace(current)
             ? (running ? "Preparando la transferencia…" : _lastDestination is { Length: > 0 } last ? "Último destino: " + last : "—")
             : current;
-        _hdrCopyInfo.Text = leaves.Count == 0
-            ? string.Empty
-            : $"{leaves.Count(item => item.State == ItemState.Completed)}/{leaves.Count} · {Format.Bytes(done)} de {Format.Bytes(total)}";
+        if (leaves.Count == 0)
+        {
+            _hdrCopyInfo.Text = string.Empty;
+        }
+        else if (running && _engine.IsPaused)
+        {
+            _hdrCopyInfo.Text = $"{leaves.Count(item => item.State == ItemState.Completed)}/{leaves.Count} · en pausa · {percent:0.0} %";
+        }
+        else if (running)
+        {
+            var remaining = _engine.Remaining;
+            _hdrCopyInfo.Text = remaining > TimeSpan.Zero
+                ? $"{leaves.Count(item => item.State == ItemState.Completed)}/{leaves.Count} · {Format.Bytes(done)} de {Format.Bytes(total)} · quedan {Format.Duration(remaining)}"
+                : $"{leaves.Count(item => item.State == ItemState.Completed)}/{leaves.Count} · {Format.Bytes(done)} de {Format.Bytes(total)}";
+        }
+        else
+        {
+            _hdrCopyInfo.Text = $"{leaves.Count(item => item.State == ItemState.Completed)}/{leaves.Count} · {Format.Bytes(done)} de {Format.Bytes(total)}";
+        }
         _hdrCopyBar.Value = percent;
         _hdrCopyPercent.Text = leaves.Count == 0 ? "—" : $"{percent:0.0} %";
         _hdrCopyBar.FillColor = _items.Any(item => item.State == ItemState.Failed) && !running ? _palette.Warning : _palette.Accent;
@@ -746,10 +767,17 @@ public sealed partial class MainForm
         var extras = _settings.ExtraDestinations.Count;
         _hdrTargetPath.Text = extras > 0 ? $"{destination}  (+{extras})" : destination;
 
-        if (running)
+        if (running && _engine.IsPaused)
+        {
+            _hdrTargetInfo.Text = "En pausa · 0 B/s";
+        }
+        else if (running)
         {
             var speed = _engine.SpeedBytesPerSecond;
-            _hdrTargetInfo.Text = speed > 0 ? $"{Format.Speed(speed)}  ·  {Format.Duration(_engine.Elapsed)}" : "Calculando la velocidad…";
+            var remaining = _engine.Remaining;
+            _hdrTargetInfo.Text = speed > 0
+                ? $"{Format.Speed(speed)}  ·  {Format.Duration(_engine.Elapsed)}  ·  quedan {Format.Duration(remaining)}"
+                : "Calculando la velocidad…";
         }
         else
         {

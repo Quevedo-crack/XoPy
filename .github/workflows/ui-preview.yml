@@ -167,6 +167,35 @@ jobs:
           if (-not (Test-Path 'C:\xopytest\destino2\mover.txt')) { throw 'El movimiento no se completó' }
           if (Test-Path 'C:\xopytest\mover.txt') { throw 'El origen no se eliminó tras mover' }
 
+          # Mover una carpeta completa debe borrar el árbol de origen (como «Cortar y pegar»).
+          New-Item -ItemType Directory -Force C:\xopytest\movercarpeta\sub | Out-Null
+          Set-Content 'C:\xopytest\movercarpeta\uno.txt' ('u' * 4096)
+          Set-Content 'C:\xopytest\movercarpeta\sub\dos.txt' ('d' * 4096)
+          $process = Start-Process -FilePath $exe -ArgumentList @('--move', '--to', 'C:\xopytest\destino2', 'C:\xopytest\movercarpeta') -PassThru
+          Start-Sleep -Seconds 14
+          if (-not $process.HasExited) { $process.Kill() }
+          "carpeta_movida=$(Test-Path 'C:\xopytest\destino2\movercarpeta\sub\dos.txt')" | Add-Content C:\xopytest\movetest.txt
+          "carpeta_origen_eliminada=$(-not (Test-Path 'C:\xopytest\movercarpeta'))" | Add-Content C:\xopytest\movetest.txt
+          Get-Content C:\xopytest\movetest.txt
+          if (-not (Test-Path 'C:\xopytest\destino2\movercarpeta\sub\dos.txt')) { throw 'La carpeta no se movió' }
+          if (Test-Path 'C:\xopytest\movercarpeta') { throw 'La carpeta de origen no se eliminó tras mover' }
+
+      - name: Probar el motor Robocopy
+        shell: pwsh
+        run: |
+          $exe = (Resolve-Path .\publish\XoPy.exe).Path
+          New-Item -ItemType Directory -Force C:\xopytest\dest-rbcopy | Out-Null
+          Set-Content C:\xopytest\rbcopy.bin ('q' * 200000)
+          $process = Start-Process -FilePath $exe -ArgumentList @('--copy', '--engine', 'robocopy', '--to', 'C:\xopytest\dest-rbcopy', 'C:\xopytest\rbcopy.bin') -PassThru
+          Start-Sleep -Seconds 14
+          if (-not $process.HasExited) { $process.Kill() }
+          $source = (Get-FileHash C:\xopytest\rbcopy.bin -Algorithm SHA256).Hash
+          $copy = if (Test-Path 'C:\xopytest\dest-rbcopy\rbcopy.bin') { (Get-FileHash 'C:\xopytest\dest-rbcopy\rbcopy.bin' -Algorithm SHA256).Hash } else { 'no-existe' }
+          $lines = @("robocopy_copiado=$(Test-Path 'C:\xopytest\dest-rbcopy\rbcopy.bin')", "robocopy_hash_igual=$($source -eq $copy)")
+          $lines | Set-Content C:\xopytest\robocopytest.txt
+          Get-Content C:\xopytest\robocopytest.txt
+          if ($source -ne $copy) { throw 'Robocopy no copió el archivo correctamente' }
+
       - name: Probar jerarquía, varios destinos y checksums
         shell: pwsh
         run: |
@@ -248,7 +277,7 @@ jobs:
           $out = @()
           $out += Get-Content 'build-errors.txt' -ErrorAction SilentlyContinue
           Get-ChildItem 'C:\xopytest' -ErrorAction SilentlyContinue | ForEach-Object { $out += "FILE: $($_.Name) ($($_.Length) bytes)" }
-          foreach ($file in @('C:\xopytest\exitcode.txt', 'C:\xopytest\shot.png.log', 'C:\xopytest\shot.png.error.txt', 'C:\xopytest\tab.error.txt', 'C:\xopytest\options.png.error.txt', 'C:\xopytest\conflict.png.error.txt', 'C:\xopytest\menu.error.txt', 'C:\xopytest\copiatest.txt', 'C:\xopytest\movetest.txt', 'C:\xopytest\conflictotest.txt', 'C:\xopytest\jerarquiatest.txt', 'C:\xopytest\reanudartest.txt', 'C:\xopytest\cola.txt', 'C:\xopytest\history.png.error.txt')) {
+          foreach ($file in @('C:\xopytest\exitcode.txt', 'C:\xopytest\shot.png.log', 'C:\xopytest\shot.png.error.txt', 'C:\xopytest\tab.error.txt', 'C:\xopytest\options.png.error.txt', 'C:\xopytest\conflict.png.error.txt', 'C:\xopytest\menu.error.txt', 'C:\xopytest\copiatest.txt', 'C:\xopytest\movetest.txt', 'C:\xopytest\conflictotest.txt', 'C:\xopytest\jerarquiatest.txt', 'C:\xopytest\reanudartest.txt', 'C:\xopytest\cola.txt', 'C:\xopytest\robocopytest.txt', 'C:\xopytest\history.png.error.txt')) {
             if (Test-Path $file) { $out += "--- $file"; $out += Get-Content $file }
           }
           New-Item -ItemType Directory -Force docs | Out-Null

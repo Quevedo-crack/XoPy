@@ -22,6 +22,17 @@ public enum ErrorPolicy { Ask = 0, Retry = 1, Skip = 2, Abort = 3 }
 
 public enum VerifyAlgorithm { None = 0, Crc32 = 1, Md5 = 2, Sha1 = 3, Sha256 = 4, Sha512 = 5 }
 
+/// <summary>Motor que hace la copia de cada archivo.</summary>
+public enum CopyEngineKind
+{
+    /// <summary>CopyFileExW de Windows: rápido, con pausa, saltar y límite de velocidad.</summary>
+    Native = 0,
+    /// <summary>Lectura/escritura propia con búfer configurable.</summary>
+    Managed = 1,
+    /// <summary>Robocopy de Windows: muy rápido con muchos archivos, redes y rutas largas.</summary>
+    Robocopy = 2
+}
+
 public sealed class TransferItem
 {
     public Guid Id { get; set; } = Guid.NewGuid();
@@ -150,7 +161,7 @@ public sealed class AppSettings
     public bool ShowHashes { get; set; } = true;
     public bool CopyLockedFiles { get; set; } = true;
     public bool ResumePartials { get; set; } = true;
-    public bool NativeCopy { get; set; } = true;
+    public CopyEngineKind Engine { get; set; } = CopyEngineKind.Native;
     public int SecureDeletePasses { get; set; }
     public bool WriteChecksumFile { get; set; }
     public string CompletionScript { get; set; } = string.Empty;
@@ -160,6 +171,9 @@ public sealed class AppSettings
     public int WindowX { get; set; } = int.MinValue;
     public int WindowY { get; set; } = int.MinValue;
     public bool WindowMaximized { get; set; }
+    public bool CollapseJobs { get; set; }
+    public bool ReplaceWindowsCopier { get; set; } = true;
+    public bool AskWhenBusy { get; set; } = true;
     public List<string> Favorites { get; set; } = new();
 
     public static string DefaultDestination()
@@ -199,6 +213,7 @@ public sealed class StartupRequest
     public int? SecureDeletePasses { get; set; }
     public string? CompletionScript { get; set; }
     public List<string> ExtraDestinations { get; set; } = new();
+    public CopyEngineKind? Engine { get; set; }
 
     public static StartupRequest Parse(string[] args)
     {
@@ -231,6 +246,10 @@ public sealed class StartupRequest
                 case "--skip": request.Conflict = ConflictPolicy.Skip; break;
                 case "--rename": request.Conflict = ConflictPolicy.Rename; break;
                 case "--verify": request.VerifyAfterCopy = true; break;
+                case "--engine":
+                    if (i + 1 < args.Length && Enum.TryParse<CopyEngineKind>(args[++i], true, out var engine))
+                        request.Engine = engine;
+                    break;
                 case "--algo":
                     if (i + 1 < args.Length && Enum.TryParse<VerifyAlgorithm>(args[++i], true, out var algorithm))
                         request.VerifyAlgorithm = algorithm;
