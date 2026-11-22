@@ -110,6 +110,7 @@ public sealed partial class MainForm : Form
 
     private Icon? _baseIcon;
     private Icon? _percentIcon;
+    private bool _wasRunning;
     private bool _exitRequested;
     private int _trayPercent = -1;
     private TableLayoutPanel _contentGrid = null!;
