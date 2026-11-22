@@ -1326,13 +1326,14 @@ public sealed partial class MainForm : Form
                 Activate();
                 BringToFront();
             }
-        catch { }
+            catch { }
+        }
+
+        // Instalar el hook de pegado ahora que la ventana está lista, no durante el constructor.
+        InstallShellHookIfNeeded();
+
+        _ = HandleExternalAsync(_startupRequest, true);
     }
-
-    // Instalar el hook de pegado ahora que la ventana está lista, no durante el constructor.
-    InstallShellHookIfNeeded();
-
-    _ = HandleExternalAsync(_startupRequest, true);
     }
 
     public void HandleExternalRequest(StartupRequest request) => _ = HandleExternalAsync(request, false);
