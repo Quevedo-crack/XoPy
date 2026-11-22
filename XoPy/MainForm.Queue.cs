@@ -1006,7 +1006,7 @@ public sealed partial class MainForm
             PreserveTimestamps = _settings.PreserveTimestamps,
             UseRecycleBin = _settings.UseRecycleBin,
             CopyLockedFiles = _settings.CopyLockedFiles,
-            Engine = _settings.Engine,
+            Engine = _engineOverride ?? _settings.Engine,
             ResumePartials = _settings.ResumePartials,
             SecureDeletePasses = _settings.SecureDeletePasses,
             Destinations = ExtraDestinations(operation)

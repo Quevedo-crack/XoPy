@@ -475,6 +475,8 @@ public sealed class CopyEngine
             {
                 await RobocopyAsync(source, target, item, options, token).ConfigureAwait(false);
                 item.TransferredBytes = item.SizeBytes;
+                await FinishFileAsync(source, target, item, options, token).ConfigureAwait(false);
+                ApplyMetadata(source, target, options);
                 FileLog.Write($"Copia con Robocopy: {source} -> {target}");
                 return;
             }

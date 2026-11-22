@@ -115,6 +115,7 @@ public sealed partial class MainForm : Form
     private bool _jobsCollapsed;
     private OperationType? _followUpOperation;
     private ShellPasteHook? _pasteHook;
+    private CopyEngineKind? _engineOverride;
     private bool _trayPaused;
     private bool _trayError;
     private DateTime _completedAt = DateTime.MinValue;
@@ -1256,7 +1257,7 @@ public sealed partial class MainForm : Form
         if (request.VerifyAfterCopy) _settings.VerifyAfterCopy = true;
         if (request.CopyLockedFiles) _settings.CopyLockedFiles = true;
         if (!request.ResumePartials) _settings.ResumePartials = false;
-        if (request.Engine is not null) _settings.Engine = request.Engine.Value;
+        if (request.Engine is not null) _engineOverride = request.Engine.Value;
         if (request.WriteChecksumFile)
         {
             _settings.WriteChecksumFile = true;
