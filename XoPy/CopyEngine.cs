@@ -150,6 +150,9 @@ public sealed class CopyEngine
         }
     }
 
+    /// <summary>Tiempo transcurrido desde que comenzó la transferencia, incluyendo el tiempo en pausa.</summary>
+    public TimeSpan ElapsedIncludingPauses => _clock.Elapsed;
+
     public double SpeedBytesPerSecond
     {
         get
@@ -502,7 +505,15 @@ public sealed class CopyEngine
                         await Task.Delay(250 * attempt, token).ConfigureAwait(false);
                         continue;
                     }
-                    choice = ErrorChoice.Skip;
+
+                    // Incluso con reintento automático, no abandonar el archivo en silencio:
+                    // agotados los reintentos, pedir al usuario la decisión final.
+                    choice = DecideError(source, ex, attempt, options, forcePrompt: true);
+                    if (choice == ErrorChoice.Retry)
+                    {
+                        attempt = 0;
+                        continue;
+                    }
                 }
                 if (choice == ErrorChoice.Abort)
                 {
@@ -511,7 +522,8 @@ public sealed class CopyEngine
                     throw;
                 }
                 item.Error = Describe(ex);
-                item.State = ItemState.Failed;
+                item.State = choice is ErrorChoice.Skip or ErrorChoice.SkipAll ? ItemState.Skipped : ItemState.Failed;
+                if (choice == ErrorChoice.SkipAll) _stickyError = ErrorChoice.SkipAll;
                 return;
             }
         }
@@ -1088,21 +1100,24 @@ public sealed class CopyEngine
         }
     }
 
-    private ErrorChoice DecideError(string file, Exception ex, int attempt, EngineOptions options)
+    private ErrorChoice DecideError(string file, Exception ex, int attempt, EngineOptions options, bool forcePrompt = false)
     {
-        switch (options.OnError)
+        if (!forcePrompt)
         {
-            case ErrorPolicy.Retry: return ErrorChoice.Retry;
-            case ErrorPolicy.Skip: return ErrorChoice.Skip;
-            case ErrorPolicy.Abort: return ErrorChoice.Abort;
-            default:
-                if (_stickyError == ErrorChoice.SkipAll) return ErrorChoice.Skip;
-                var resolver = ErrorResolver;
-                if (resolver is null) return ErrorChoice.Skip;
-                var choice = resolver(new ErrorPrompt(file, Describe(ex), attempt));
-                if (choice == ErrorChoice.SkipAll) { _stickyError = ErrorChoice.SkipAll; return ErrorChoice.Skip; }
-                return choice;
+            switch (options.OnError)
+            {
+                case ErrorPolicy.Retry: return ErrorChoice.Retry;
+                case ErrorPolicy.Skip: return ErrorChoice.Skip;
+                case ErrorPolicy.Abort: return ErrorChoice.Abort;
+            }
         }
+
+        if (_stickyError == ErrorChoice.SkipAll) return ErrorChoice.Skip;
+        var resolver = ErrorResolver;
+        if (resolver is null) return ErrorChoice.Skip;
+        var choice = resolver(new ErrorPrompt(file, Describe(ex), attempt));
+        if (choice == ErrorChoice.SkipAll) { _stickyError = ErrorChoice.SkipAll; return ErrorChoice.Skip; }
+        return choice;
     }
 
     private async Task ThrottleAsync(long copied, Stopwatch clock, EngineOptions options, CancellationToken token)

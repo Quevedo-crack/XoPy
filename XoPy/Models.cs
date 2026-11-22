@@ -175,7 +175,7 @@ public sealed class AppSettings
     public int WindowY { get; set; } = int.MinValue;
     public bool WindowMaximized { get; set; }
     public bool CollapseJobs { get; set; } = true;
-    public bool CompactView { get; set; }
+    public bool CompactView { get; set; } = true;
     public bool ReplaceWindowsCopier { get; set; } = true;
     public bool AskWhenBusy { get; set; } = true;
     public List<string> Favorites { get; set; } = new();
@@ -327,4 +327,33 @@ public static class Format
         VerifyAlgorithm.Sha512 => "SHA-512",
         _ => "Sin verificación"
     };
+}
+
+/// <summary>Una lista de copia independiente: sus propios archivos y su propio destino,
+/// pero compartiendo la misma ventana y pestaña que el resto de listas activas.</summary>
+public sealed class TransferList
+{
+    public Guid Id { get; } = Guid.NewGuid();
+    public string Name { get; set; } = "Lista de copia";
+    public string Destination { get; set; } = string.Empty;
+    public List<TransferItem> Items { get; } = new();
+    public DateTime UpdatedAt { get; set; } = DateTime.Now;
+
+    [JsonIgnore]
+    public string DisplayName => string.IsNullOrWhiteSpace(Name) ? "Lista de copia" : Name;
+
+    [JsonIgnore]
+    public string Summary
+    {
+        get
+        {
+            var pending = Items.Count(item => item.State == ItemState.Pending);
+            var running = Items.Count(item => item.State == ItemState.Running || item.State == ItemState.Paused);
+            var done = Items.Count(item => item.State == ItemState.Completed);
+            var failed = Items.Count(item => item.State == ItemState.Failed);
+            return $"{done}/{Items.Count}" + (failed > 0 ? $" · {failed} error(es)" : string.Empty)
+                + (running > 0 ? $" · {running} en curso" : string.Empty)
+                + (pending > 0 ? $" · {pending} pendiente(s)" : string.Empty);
+        }
+    }
 }

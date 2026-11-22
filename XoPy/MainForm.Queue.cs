@@ -32,13 +32,16 @@ public sealed partial class MainForm
 
     private void DropPaths(DragEventArgs e)
     {
-        if (e.Data?.GetData(DataFormats.FileDrop) is string[] paths) _ = AddPathsAsync(paths);
+        if (e.Data?.GetData(DataFormats.FileDrop) is string[] paths) _ = HandleExternalFiles(paths, null, false);
     }
 
-    private async Task AddPathsAsync(IEnumerable<string> paths)
+    private async Task AddPathsAsync(IEnumerable<string> paths, TransferList? targetList = null)
     {
         try
         {
+            if (targetList is not null && targetList != _activeList) SwitchToList(targetList);
+            EnsureDefaultList();
+
             var scans = new List<Task>();
             var files = new List<TransferItem>();
 
@@ -1620,6 +1623,27 @@ public sealed partial class MainForm
         UpdateFooter();
         UpdateButtons();
 
+        // Barra de progreso y porcentaje de la barra de tareas de Windows.
+        try
+        {
+            if (IsHandleCreated && !IsDisposed)
+            {
+                if (_engine.IsRunning)
+                {
+                    var percent = (int)Math.Clamp(Math.Round(_lastPercent), 0, 100);
+                    var paused = _engine.IsPaused;
+                    var error = _items.Any(item => item.State == ItemState.Failed);
+                    Taskbar.SetProgress(Handle, percent, paused, error, true);
+                    Taskbar.SetOverlay(Handle, percent, paused, error, _settings.DarkTheme);
+                }
+                else
+                {
+                    Taskbar.Clear(Handle);
+                }
+            }
+        }
+        catch { }
+
         if (!_engine.IsRunning && _completedAt != DateTime.MinValue && (DateTime.Now - _completedAt).TotalSeconds > 6)
         {
             _completedAt = DateTime.MinValue;
@@ -2324,12 +2348,20 @@ public sealed partial class MainForm
 
     private void RestoreWindow()
     {
-        if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
-        ShowInTaskbar = true;
-        Show();
-        Activate();
-        BringToFront();
-        try { SetForegroundWindow(Handle); } catch { }
+        try
+        {
+            if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
+            ShowInTaskbar = true;
+            if (!Visible) Show();
+            Activate();
+            BringToFront();
+            // Windows solo concede SetForegroundWindow a procesos con permiso del usuario.
+            // TopMost temporal ayuda a sacar la ventana cuando está minimizada u ocultada en bandeja.
+            TopMost = true;
+            TopMost = false;
+            try { SetForegroundWindow(Handle); } catch { }
+        }
+        catch { }
     }
 
     private void MinimizeToTray()

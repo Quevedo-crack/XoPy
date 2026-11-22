@@ -14,7 +14,7 @@ public sealed partial class MainForm : Form
     private readonly AppSettings _settings;
     private readonly SettingsStore _store = new();
     private readonly Palette _palette;
-    private readonly List<TransferItem> _items = new();
+    private List<TransferItem> _items = new();
     private readonly Dictionary<Guid, ListViewItem> _rows = new();
     private readonly List<Task> _scanTasks = new();
     private readonly CopyEngine _engine = new();
@@ -129,6 +129,15 @@ public sealed partial class MainForm : Form
     private double _lastPercent;
     private TimeSpan _sessionElapsed;
 
+    // ---------------------------------------------------------------- listas de copia múltiples en una misma pestaña
+
+    private readonly List<TransferList> _lists = new();
+    private TransferList? _activeList;
+    private ToolStripComboBox _listSelector = null!;
+    private ToolStripButton _newListButton = null!;
+    private ToolStripButton _deleteListButton = null!;
+    private ToolStripButton _removeFromListButton = null!;
+
     public MainForm(StartupRequest request)
     {
         _startupRequest = request;
@@ -142,6 +151,7 @@ public sealed partial class MainForm : Form
         ApplyCopierReplacement();
         ApplyJobsCollapsed(_settings.CollapseJobs);
         WireEngine();
+        EnsureDefaultList();
         BuildTray();
         ApplyWindowGeometry();
 
@@ -222,12 +232,19 @@ public sealed partial class MainForm : Form
         if (_rootLayout is not null)
         {
             _rootLayout.SuspendLayout();
-            _rootLayout.RowStyles[2].Height = compact ? 36 : 68;
+            _rootLayout.RowStyles[1].Height = compact ? 44 : 52;
+            _rootLayout.RowStyles[2].Height = compact ? 56 : 64;
             _rootLayout.RowStyles[3].Height = compact ? 0 : 38;
             _rootLayout.RowStyles[4].SizeType = compact ? SizeType.Absolute : SizeType.Percent;
             _rootLayout.RowStyles[4].Height = compact ? 0 : 100;
+            _rootLayout.RowStyles[5].Height = compact ? 88 : 112;
             if (_transferHeader is not null && _transferHeader.RowStyles.Count > 1)
-                _transferHeader.RowStyles[1].Height = compact ? 0 : 30;
+            {
+                // Ambas barras (general y del archivo actual) siguen visibles aunque la lista esté oculta.
+                _transferHeader.RowStyles[0].Height = compact ? 24 : 30;
+                _transferHeader.RowStyles[1].Height = compact ? 24 : 30;
+            }
+            UpdateToolbarForCompact(compact);
             if (_compactButton is not null)
             {
                 _compactButton.Image = Icons.Glyph(compact ? Icons.ChevronDown : Icons.ChevronRight, _palette.Text, 18);
@@ -240,7 +257,7 @@ public sealed partial class MainForm : Form
             _rootLayout.ResumeLayout(true);
         }
 
-        MinimumSize = compact ? new Size(1024, 270) : new Size(1024, 640);
+        MinimumSize = compact ? new Size(1024, 230) : new Size(1024, 560);
         if (persist)
         {
             if (compact)
@@ -248,7 +265,7 @@ public sealed partial class MainForm : Form
                 _expandedWasMaximized = WindowState == FormWindowState.Maximized;
                 _expandedBounds = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
                 WindowState = FormWindowState.Normal;
-                Height = 270;
+                Height = 230;
             }
             else if (_expandedBounds.Width > 0)
             {
@@ -261,6 +278,22 @@ public sealed partial class MainForm : Form
             _settings.CompactView = compact;
             _store.Save(_settings);
         }
+    }
+
+    private void UpdateToolbarForCompact(bool compact)
+    {
+        // Al ocultar la lista se quitan las opciones que solo tienen sentido con la lista visible
+        // (añadir/copiar/mover/verificar/eliminar) y se priorizan pausa/reanudar y detener.
+        var listButtons = new[] { _addFilesButton, _addFolderButton, _copyButton, _moveButton, _testButton, _deleteButton };
+        foreach (var button in listButtons)
+        {
+            if (button is not null) button.Visible = !compact;
+        }
+        _pauseButton.Visible = true;
+        _skipButton.Visible = true;
+        _stopButton.Visible = true;
+        if (_listSelector is not null) _listSelector.Visible = true;
+        if (_newListButton is not null) _newListButton.Visible = true;
     }
 
     private MenuStrip BuildMenu()
@@ -382,6 +415,36 @@ public sealed partial class MainForm : Form
         _menuButton = BarButton("Menú", Icons.More, (_, _) => ShowMainMenu(), false, true);
         _menuButton.Margin = new Padding(0);
 
+        _listSelector = new ToolStripComboBox
+        {
+            DropDownStyle = ComboBoxStyle.DropDownList,
+            Width = 220,
+            DisplayMember = nameof(TransferList.DisplayName),
+            ToolTipText = "Lista de copia activa. Cada instancia externa se agrega como una lista independiente en esta misma pestaña."
+        };
+        _listSelector.SelectedIndexChanged += (_, _) =>
+        {
+            if (_listSelector.SelectedItem is TransferList list) SwitchToList(list);
+        };
+
+        _newListButton = BarButton("Nueva lista", Icons.Add, (_, _) =>
+        {
+            var dest = _destination.Text.Trim();
+            if (!Directory.Exists(dest) && _activeList is not null && Directory.Exists(_activeList.Destination))
+                dest = _activeList.Destination;
+            AddNewList(dest);
+        }, iconOnly: true);
+        _newListButton.Width = 40;
+        _newListButton.ToolTipText = "Crear una nueva lista de copia independiente";
+
+        _deleteListButton = BarButton("Eliminar lista", Icons.Delete, (_, _) => DeleteActiveList(), iconOnly: true);
+        _deleteListButton.Width = 40;
+        _deleteListButton.ToolTipText = "Borrar esta lista de copia (sólo del listado, no borra los archivos del disco)";
+
+        _removeFromListButton = BarButton("Quitar selección", Icons.Delete, (_, _) => RemoveSelected(), iconOnly: true);
+        _removeFromListButton.Width = 40;
+        _removeFromListButton.ToolTipText = "Quitar del listado los archivos seleccionados (no borra nada del disco)";
+
         var left = new ToolStrip
         {
             Dock = DockStyle.Fill,
@@ -416,6 +479,9 @@ public sealed partial class MainForm : Form
         {
             new ToolStripLabel("Modo:"), _copyMode,
             new ToolStripControlHost(_verifyCheck) { Margin = new Padding(2, 2, 4, 0), AutoSize = true },
+            new ToolStripLabel("  Lista:"),
+            _listSelector, _newListButton, _deleteListButton,
+            _removeFromListButton,
             _compactButton, _optionsButton, _menuButton
         });
 
@@ -474,6 +540,7 @@ public sealed partial class MainForm : Form
         _destination = new TextBox { Text = _settings.Destination };
         _destination.TextChanged += (_, _) =>
         {
+            if (_activeList is not null) _activeList.Destination = _destination.Text.Trim();
             UpdateFooter();
             UpdateTargetTab();
         };
@@ -1157,6 +1224,7 @@ public sealed partial class MainForm : Form
     {
         try
         {
+            ShellIntegration.Apply(_settings.ReplaceWindowsCopier);
             if (_settings.ReplaceWindowsCopier)
             {
                 if (_pasteHook is not null) return;
@@ -1189,16 +1257,7 @@ public sealed partial class MainForm : Form
         try
         {
             if (IsDisposed) return;
-            RestoreWindow();
-            if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
-            Activate();
-
-            _destination.Text = destination;
-            _settings.Destination = destination;
-            _store.Save(_settings);
-            UpdateTargetTab();
-            await AddPathsAsync(files);
-            StartTransfer(move ? OperationType.Move : OperationType.Copy);
+            await HandleExternalFiles(files, destination, move);
         }
         catch (Exception ex)
         {
@@ -1258,9 +1317,16 @@ public sealed partial class MainForm : Form
     {
         if (!isStartup) RestoreWindow();
 
-        if (request.Paths.Count > 0) await AddPathsAsync(request.Paths);
-        if (!string.IsNullOrWhiteSpace(request.Destination))
+        if (!string.IsNullOrWhiteSpace(request.Destination) && _activeList is not null)
+            _activeList.Destination = request.Destination;
+
+        if (request.Paths.Count > 0)
+            await HandleExternalFiles(request.Paths, request.Destination, request.Operation == OperationType.Move);
+        else if (!string.IsNullOrWhiteSpace(request.Destination))
+        {
             _destination.Text = request.Destination!;
+            UpdateTargetTab();
+        }
         if (request.PasteFromClipboard) PasteFromClipboard(request.Destination);
 
         if (request.Conflict is not null) _settings.Conflict = request.Conflict.Value;
@@ -1300,6 +1366,281 @@ public sealed partial class MainForm : Form
 
         if (request.StartMinimized || (isStartup && _settings.StartMinimized && request.Operation is null && request.Paths.Count == 0))
             MinimizeToTray();
+    }
+
+    // ---------------------------------------------------------------- listas de copia múltiples en una misma pestaña
+
+    private void EnsureDefaultList()
+    {
+        if (_lists.Count > 0) return;
+        var list = new TransferList
+        {
+            Name = "Lista de copia",
+            Destination = string.IsNullOrWhiteSpace(_settings.Destination)
+                ? AppSettings.DefaultDestination() : _settings.Destination
+        };
+        _lists.Add(list);
+        _activeList = list;
+        _items = list.Items;
+        RefreshListSelector();
+    }
+
+    private void AddNewList(string? destination)
+    {
+        var next = _lists.Count + 1;
+        var list = new TransferList
+        {
+            Name = $"Lista de copia {next}",
+            Destination = string.IsNullOrWhiteSpace(destination) ? AppSettings.DefaultDestination() : destination
+        };
+        _lists.Add(list);
+        SwitchToList(list);
+    }
+
+    /// <summary>
+    /// Borra la lista de copia activa del listado. Nunca toca los archivos del disco:
+    /// sólo quita la entrada de la lista y sus referencias en memoria.
+    /// </summary>
+    private void DeleteActiveList()
+    {
+        if (_activeList is null) return;
+        if (_engine.IsRunning)
+        {
+            SetStatus("Detén la transferencia antes de borrar una lista.");
+            return;
+        }
+
+        var answer = MessageBox.Show(this,
+            $"¿Borrar la lista «{_activeList.DisplayName}»?\n\n" +
+            "Esto sólo elimina la lista del listado de XoPy. No borra ningún archivo del disco.",
+            "XoPy", MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2);
+        if (answer != DialogResult.Yes) return;
+
+        _lists.Remove(_activeList);
+        if (_lists.Count == 0)
+        {
+            EnsureDefaultList();
+        }
+        else
+        {
+            SwitchToList(_lists[0]);
+        }
+        SetStatus("Lista borrada del listado.");
+    }
+
+    private void SwitchToList(TransferList? list)
+    {
+        if (list is null) return;
+        if (_engine.IsRunning && list != _activeList)
+        {
+            SetStatus("Hay una transferencia en curso: los archivos se añaden a la lista activa.");
+            list = _activeList;
+            if (list is null) return;
+        }
+
+        _activeList = list;
+        _items = list.Items;
+
+        if (!string.IsNullOrWhiteSpace(list.Destination))
+        {
+            _destination.Text = list.Destination;
+        }
+        list.UpdatedAt = DateTime.Now;
+        RefreshListSelector();
+        UpdateTargetTab();
+        UpdateButtons();
+        SyncRows();
+        SetStatus($"Lista activa: {list.DisplayName} ({list.Items.Count} archivo(s))");
+    }
+
+    private void RefreshListSelector()
+    {
+        if (_listSelector is null) return;
+        var current = _listSelector.SelectedItem as TransferList;
+        _listSelector.Items.Clear();
+        foreach (var list in _lists) _listSelector.Items.Add(list);
+        _listSelector.SelectedItem = _activeList ?? current;
+    }
+
+    /// <summary>
+    /// Pregunta al usuario a qué lista de copia añadir los archivos recibidos. Respeta el estilo
+    /// visual de la aplicación. Devuelve null si el usuario cancela.
+    /// </summary>
+    private (TransferList List, bool ChangeDestination)? AskListDecision(
+        IReadOnlyList<string> files, string detectedDestination, bool move)
+    {
+        var dlg = new Form
+        {
+            Text = "Añadir archivos a la copia",
+            BackColor = _palette.Canvas,
+            ForeColor = _palette.Text,
+            StartPosition = FormStartPosition.CenterParent,
+            FormBorderStyle = FormBorderStyle.FixedDialog,
+            MinimizeBox = false,
+            MaximizeBox = false,
+            ClientSize = new Size(600, 380),
+        };
+
+        var verb = move ? "mover" : "copiar";
+        var message = new Label
+        {
+            Text = $"{files.Count} elemento(s) listos para {verb}.\nDestino detectado: {detectedDestination}",
+            AutoSize = false,
+            Dock = DockStyle.Fill,
+            Padding = new Padding(16, 14, 16, 0),
+            ForeColor = _palette.Text,
+            BackColor = _palette.Canvas,
+            Font = new Font("Segoe UI", 9.5f),
+        };
+
+        var options = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            FlowDirection = FlowDirection.TopDown,
+            AutoScroll = true,
+            Padding = new Padding(12, 8, 12, 8),
+            BackColor = _palette.Canvas,
+            AutoSize = false,
+        };
+
+        var defaultDestination = detectedDestination;
+        var sameDestination = _activeList is { Length: > 0 }
+            && string.Equals(_activeList.Destination, detectedDestination, StringComparison.OrdinalIgnoreCase);
+
+        TransferList? chosen = null;
+
+        void AddOption(TransferList list, bool changeToDetected, string text)
+        {
+            var rb = new RadioButton
+            {
+                Text = text,
+                AutoSize = true,
+                Margin = new Padding(4, 6, 4, 2),
+                ForeColor = _palette.Text,
+                BackColor = _palette.Canvas,
+                Font = new Font("Segoe UI", 9f),
+                Checked = list == _activeList && sameDestination && !changeToDetected,
+            };
+            rb.CheckedChanged += (_, _) =>
+            {
+                if (rb.Checked) chosen = list;
+            };
+            options.Controls.Add(rb);
+        }
+
+        foreach (var list in _lists)
+        {
+            var same = string.Equals(list.Destination, detectedDestination, StringComparison.OrdinalIgnoreCase);
+            AddOption(list, false,
+                $"Añadir a «{list.DisplayName}» (destino: {list.Destination})" + (same ? " · mismo destino" : string.Empty));
+            if (!same)
+            {
+                AddOption(list, true,
+                    $"Añadir a «{list.DisplayName}» con el destino detectado (cambiar destino a: {detectedDestination})");
+            }
+        }
+
+        var nueva = new TransferList { Name = $"Lista de copia {_lists.Count + 1}", Destination = detectedDestination };
+        AddOption(nueva, true, $"Crear una nueva lista (destino: {detectedDestination})");
+
+        if (chosen is null) chosen = sameDestination && _activeList is not null ? _activeList : _lists.FirstOrDefault();
+
+        var buttons = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Bottom,
+            FlowDirection = FlowDirection.RightToLeft,
+            Padding = new Padding(12, 8, 12, 8),
+            BackColor = _palette.Surface,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+        };
+
+        var cancel = new Button { Text = "Cancelar", Width = 96, Height = 32, DialogResult = DialogResult.Cancel };
+        var add = new Button
+        {
+            Text = $"Añadir a «{(chosen?.DisplayName ?? "la lista")}»",
+            Width = 220, Height = 32,
+            BackColor = _palette.Accent,
+            ForeColor = Color.White,
+            FlatStyle = FlatStyle.Flat,
+            Font = new Font("Segoe UI", 9f, FontStyle.Bold),
+        };
+        add.FlatAppearance.BorderSize = 0;
+        add.Click += (_, _) => dlg.DialogResult = DialogResult.OK;
+        cancel.Click += (_, _) => dlg.DialogResult = DialogResult.Cancel;
+        buttons.Controls.AddRange(new Control[] { add, cancel });
+        dlg.CancelButton = cancel;
+        dlg.AcceptButton = add;
+
+        var host = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3, BackColor = _palette.Canvas, Padding = new Padding(0) };
+        host.RowStyles.Add(new RowStyle(SizeType.Absolute, 56));
+        host.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        host.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        host.Controls.Add(message, 0, 0);
+        host.Controls.Add(options, 0, 1);
+        host.Controls.Add(buttons, 0, 2);
+        dlg.Controls.Add(host);
+
+        if (dlg.ShowDialog(this) != DialogResult.OK) return null;
+        var target = chosen ?? _activeList!;
+        if (!_lists.Contains(target)) _lists.Add(target);
+        var changeDestination = target != _activeList
+            || !string.Equals(target.Destination, detectedDestination, StringComparison.OrdinalIgnoreCase);
+        return (target, changeDestination);
+    }
+
+    /// <summary>
+    /// Ruta común para archivos que llegan de fuera (pegado del Explorador, segunda instancia,
+    /// arrastrar archivos a la pestaña). Ofrece añadir a la lista actual, a otra lista activa
+    /// o crear una lista nueva, y usa el destino detectado sin mostrar un selector de carpeta.
+    /// </summary>
+    private async Task HandleExternalFiles(IReadOnlyList<string> files, string? detectedDestination, bool move)
+    {
+        if (files == null || files.Count == 0) return;
+        if (IsDisposed) return;
+
+        EnsureDefaultList();
+        var target = _activeList!;
+        bool changeDestination = false;
+        string? resolvedDestination = detectedDestination;
+
+        var validDetected = !string.IsNullOrWhiteSpace(detectedDestination)
+            && Directory.Exists(detectedDestination);
+
+        // Con varias listas activas el usuario elige a cuál añadir; con una sola y un destino
+        // detectado válido se usa directamente (sin selector de carpeta).
+        if (_lists.Count > 1 && validDetected)
+        {
+            var decision = AskListDecision(files, detectedDestination!, move);
+            if (decision is null) return;
+            target = decision.Value.List;
+            changeDestination = decision.Value.ChangeDestination;
+            resolvedDestination = detectedDestination;
+        }
+        else if (validDetected
+                 && !string.Equals(target.Destination, detectedDestination, StringComparison.OrdinalIgnoreCase))
+        {
+            changeDestination = true;
+        }
+
+        if (target != _activeList && _engine.IsRunning)
+        {
+            SetStatus("Transferencia en curso: los archivos se añaden a la lista activa.");
+            target = _activeList;
+            changeDestination = false;
+        }
+
+        SwitchToList(target);
+        if (changeDestination && resolvedDestination is { Length: > 0 })
+        {
+            target.Destination = resolvedDestination;
+            _destination.Text = resolvedDestination;
+            UpdateTargetTab();
+        }
+
+        await AddPathsAsync(files);
+        if (!_engine.IsRunning)
+            StartTransfer(move ? OperationType.Move : OperationType.Copy);
     }
 
     private void PromptDestinationAndStart(OperationType operation)
@@ -1351,6 +1692,25 @@ public sealed partial class MainForm : Form
             return;
         }
         if (files.Length == 0) { SetStatus("El portapapeles no contiene archivos."); return; }
+
+        var move = ShellPasteHook.ClipboardIsCut();
+
+        if (_lists.Count > 1 && !string.IsNullOrWhiteSpace(destination) && Directory.Exists(destination))
+        {
+            var decision = AskListDecision(files, destination, move);
+            if (decision is null) return;
+            SwitchToList(decision.Value.List);
+            if (decision.Value.ChangeDestination)
+            {
+                _activeList!.Destination = destination;
+                _destination.Text = destination;
+            }
+            else
+            {
+                destination = _activeList!.Destination;
+            }
+        }
+
         if (string.IsNullOrWhiteSpace(destination) || !Directory.Exists(destination))
         {
             // Never guess Downloads here: that can be the source folder and cause

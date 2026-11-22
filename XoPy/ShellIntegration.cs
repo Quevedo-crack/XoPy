@@ -35,8 +35,13 @@ public static class ShellIntegration
         @"Directory\shell\XoPyMoveTo",
         @"Directory\shell\XoPyVerify",
         @"Directory\Background\shell\XoPyPaste",
-        @"Directory\Background\shell\XoPyOpen"
+        @"Directory\Background\shell\XoPyOpen",
+        @"Directory\Background\shellex\ContextMenuHandlers\XoPyPaste",
+        @"Directory\shellex\ContextMenuHandlers\XoPyPaste",
+        @"*\shellex\ContextMenuHandlers\XoPyPaste"
     };
+
+    private const string LegacyPasteClsid = @"Software\Classes\CLSID\{3B1E92A7-7AD6-4E71-A218-75449CE13061}";
 
     /// <summary>Quedan claves antiguas del menú contextual (de una versión anterior).</summary>
     public static bool HasLegacyEntries()
@@ -48,24 +53,27 @@ public static class ShellIntegration
                 using var key = Registry.CurrentUser.OpenSubKey(ClassesRoot + @"\" + verb);
                 if (key is not null) return true;
             }
+            using var clsid = Registry.CurrentUser.OpenSubKey(LegacyPasteClsid);
+            if (clsid is not null) return true;
         }
         catch { }
         return false;
     }
 
-    /// <summary>Compatibilidad: ya no hay integración por menú contextual.</summary>
-    public static bool IsEnabled() => false;
+    /// <summary>Indica si queda una integración antigua registrada.</summary>
+    public static bool IsEnabled() => HasLegacyEntries();
 
-    /// <summary>
-    /// Limpia cualquier resto de versiones anteriores: borra las entradas del menú contextual
-    /// y los accesos de «Enviar a». Nunca crea entradas nuevas.
-    /// </summary>
+    /// <summary>Usa atajos de teclado y un acceso estándar de «Enviar a», sin modificar el Pegar nativo.</summary>
     public static void Apply(bool enabled)
     {
         Cleanup();
+        if (enabled)
+        {
+            try { CreateSendToShortcut(); } catch (Exception ex) { FileLog.Write("No se pudo crear el acceso de Enviar a: " + ex.Message); }
+        }
     }
 
-    /// <summary>Borra las claves antiguas del menú contextual y los accesos de «Enviar a».</summary>
+    /// <summary>Borra las integraciones antiguas y registra la ruta de la aplicación.</summary>
     public static void Cleanup()
     {
         var exe = Application.ExecutablePath;
@@ -73,6 +81,26 @@ public static class ShellIntegration
         try { RemoveSendToShortcuts(); } catch { }
         try { Unregister(); } catch { }
         try { SHChangeNotify(0x08000000, 0, IntPtr.Zero, IntPtr.Zero); } catch { }
+    }
+
+    private static void CreateSendToShortcut()
+    {
+        var folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "Microsoft", "Windows", "SendTo");
+        Directory.CreateDirectory(folder);
+        var shortcutPath = Path.Combine(folder, "XoPy.lnk");
+        var shellType = Type.GetTypeFromProgID("WScript.Shell");
+        if (shellType is null) throw new InvalidOperationException("Windows Script Host no está disponible.");
+        dynamic? shell = Activator.CreateInstance(shellType);
+        if (shell is null) throw new InvalidOperationException("No se pudo crear el acceso directo.");
+        dynamic shortcut = shell.CreateShortcut(shortcutPath);
+        shortcut.TargetPath = Application.ExecutablePath;
+        shortcut.Arguments = "--ask-destination";
+        shortcut.WorkingDirectory = Path.GetDirectoryName(Application.ExecutablePath) ?? string.Empty;
+        shortcut.Description = "Copiar elementos con XoPy a una carpeta elegida";
+        shortcut.Save();
+        try { Marshal.FinalReleaseComObject(shortcut); } catch { }
+        try { Marshal.FinalReleaseComObject(shell); } catch { }
     }
 
     /// <summary>XoPy no usa «Enviar a»: se sustituye al copiador de Windows con Ctrl+V.</summary>
@@ -100,6 +128,7 @@ public static class ShellIntegration
             try { Registry.CurrentUser.DeleteSubKeyTree(ClassesRoot + "\\" + verb, false); }
             catch { }
         }
+        try { Registry.CurrentUser.DeleteSubKeyTree(LegacyPasteClsid, false); } catch { }
     }
 
     public static void SetAutoStart(bool enabled)

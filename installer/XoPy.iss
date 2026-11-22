@@ -28,7 +28,7 @@ PrivilegesRequired=admin
 ArchitecturesAllowed=x64
 ArchitecturesInstallIn64BitMode=x64
 MinVersion=10.0
-CloseApplications=yes
+CloseApplications=no
 RestartApplications=no
 AllowNoIcons=yes
 VersionInfoVersion=2.4.1.0
@@ -46,7 +46,6 @@ Name: "autostart"; Description: "Iniciar XoPy al encender el equipo"; GroupDescr
 
 [Files]
 Source: "..\publish\XoPy.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\publish\XoPyShell.dll"; DestDir: "{app}"; Flags: ignoreversion restartreplace
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [InstallDelete]
@@ -61,12 +60,6 @@ Name: "{autodesktop}\XoPy"; Filename: "{app}\{#AppExe}"; Comment: "Gestor de cop
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\XoPy.exe"; ValueType: string; ValueName: ""; ValueData: "{app}\{#AppExe}"; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\XoPy.exe"; ValueType: string; ValueName: "Path"; ValueData: "{app}"; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "XoPy"; ValueData: """{app}\{#AppExe}"" --tray"; Flags: uninsdeletevalue; Tasks: autostart
-Root: HKCU; Subkey: "Software\Classes\CLSID\{{3B1E92A7-7AD6-4E71-A218-75449CE13061}\InprocServer32"; ValueType: string; ValueName: ""; ValueData: "{app}\XoPyShell.dll"; Flags: uninsdeletekey
-Root: HKCU; Subkey: "Software\Classes\CLSID\{{3B1E92A7-7AD6-4E71-A218-75449CE13061}\InprocServer32"; ValueType: string; ValueName: "ThreadingModel"; ValueData: "Apartment"
-Root: HKCU; Subkey: "Software\Classes\Directory\Background\shellex\ContextMenuHandlers\XoPyPaste"; ValueType: string; ValueName: ""; ValueData: "{{3B1E92A7-7AD6-4E71-A218-75449CE13061}"; Flags: uninsdeletekey
-Root: HKCU; Subkey: "Software\Classes\Directory\shellex\ContextMenuHandlers\XoPyPaste"; ValueType: string; ValueName: ""; ValueData: "{{3B1E92A7-7AD6-4E71-A218-75449CE13061}"; Flags: uninsdeletekey
-Root: HKCU; Subkey: "Software\Classes\*\shellex\ContextMenuHandlers\XoPyPaste"; ValueType: string; ValueName: ""; ValueData: "{{3B1E92A7-7AD6-4E71-A218-75449CE13061}"; Flags: uninsdeletekey
-
 [Code]
 procedure CurStepChanged(CurStep: TSetupStep);
 var
@@ -92,6 +85,51 @@ begin
     for I := 0 to GetArrayLength(Keys) - 1 do
       RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, Keys[I]);
   end;
+
+  if CurStep = ssUninstall then
+  begin
+    { Siempre: quitar toda la integración que XoPy creó (menús, Enviar a, inicio automático, rutas de la aplicación). }
+    RegDeleteValue(HKEY_CURRENT_USER, 'Software\Microsoft\Windows\CurrentVersion\Run', 'XoPy');
+    RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, 'Software\Classes\CLSID\{3B1E92A7-7AD6-4E71-A218-75449CE13061}');
+    RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, 'Software\Classes\Directory\Background\shellex\ContextMenuHandlers\XoPyPaste');
+    RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, 'Software\Classes\Directory\shellex\ContextMenuHandlers\XoPyPaste');
+    RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, 'Software\Classes\*\shellex\ContextMenuHandlers\XoPyPaste');
+    DeleteFile(ExpandConstant('{sendto}\XoPy.lnk'));
+
+    { Elección entre desinstalación total o conservar el historial. }
+    if CustomMessageBox(
+        '¿Desea realizar una desinstalación total de XoPy?'+#13#10+
+        'Sí: elimina también el historial, los registros y los datos temporales (no se podrán recuperar).'+#13#10+
+        'No: se conserva el historial; solo se elimina la aplicación y sus entradas de menú.',
+        'Desinstalar XoPy', mbYesNo, IDYES, 'Sí, desinstalación total', 'No, conservar historial') = IDYES then
+    begin
+      DeleteDirectoryTree(ExpandConstant('{localappdata}\XoPy'));
+    end;
+  end;
+end;
+
+{ Borra un directorio y todo su contenido (usado para la desinstalación total de datos). }
+procedure DeleteDirectoryTree(const Dir: String);
+var
+  FindRec: TFindRec;
+  Name: String;
+begin
+  if not DirExists(Dir) then Exit;
+  if FindFirst(Dir + '\*', 0, FindRec) = 0 then
+  begin
+    repeat
+      Name := FindRec.Name;
+      if (Name <> '.') and (Name <> '..') then
+      begin
+        if (FindRec.Attributes and faDirectory) <> 0 then
+          DeleteDirectoryTree(Dir + '\' + Name)
+        else
+          DeleteFile(Dir + '\' + Name);
+      end;
+    until FindNext(FindRec) <> 0;
+    FindClose(FindRec);
+  end;
+  RemoveDirectory(Dir);
 end;
 
 [Run]

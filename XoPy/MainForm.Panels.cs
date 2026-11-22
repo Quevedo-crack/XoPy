@@ -772,7 +772,7 @@ public sealed partial class MainForm
             var speed = _engine.SpeedBytesPerSecond;
             var remaining = _engine.Remaining;
             _hdrTargetInfo.Text = speed > 0
-                ? $"{Format.Speed(speed)}  ·  {Format.Duration(_engine.Elapsed)}  ·  quedan {Format.Duration(remaining)}"
+                ? $"{Format.Speed(speed)}  ·  {Format.Duration(_engine.ElapsedIncludingPauses)}  ·  quedan {Format.Duration(remaining)}"
                 : "Calculando la velocidad…";
         }
         else

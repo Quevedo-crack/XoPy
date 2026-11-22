@@ -195,7 +195,8 @@ internal sealed class OptionsDialog : Form
         MinimizeBox = false;
         MaximizeBox = false;
         var workArea = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1280, 720);
-        ClientSize = new Size(760, Math.Min(660, Math.Max(520, workArea.Height - 70)));
+        ClientSize = new Size(Math.Min(900, Math.Max(720, workArea.Width - 80)),
+            Math.Min(760, Math.Max(500, workArea.Height - 60)));
 
         _tabs = new TabControl
         {
@@ -245,7 +246,7 @@ internal sealed class OptionsDialog : Form
             (int)settings.OnError);
         _retries = Numeric(settings.RetryCount, 0, 20, 1);
 
-        _replaceCopier = Check("Sustituir al copiador de Windows: al pegar (Ctrl+V) en el Explorador o el escritorio, XoPy copia directamente", settings.ReplaceWindowsCopier);
+        _replaceCopier = Check("Usar XoPy para Ctrl+V, Mayús+Insert y «Enviar a → XoPy»", settings.ReplaceWindowsCopier);
         _askWhenBusy = Check("Preguntar qué hacer si ya hay una transferencia en curso", settings.AskWhenBusy);
 
         _sound = Check("Reproducir un sonido al terminar", settings.PlaySoundWhenDone);
@@ -396,12 +397,12 @@ internal sealed class OptionsDialog : Form
             ("", _replaceCopier, 60),
             ("", new Label
             {
-                Text = "XoPy no añade entradas con su nombre ni accesos «Enviar a». La extensión de\n" +
-                       "Windows añade una opción «Pegar» que abre XoPy; Ctrl+V también se intercepta\n" +
-                       "cuando el portapapeles contiene archivos. Si venías de «Cortar», mueve y borra\n" +
-                       "el origen. En Windows 11, la extensión puede aparecer en «Mostrar más opciones».\n" +
-                       "La opción de pegado incorporada por Windows no se modifica ni se elimina. Las\n" +
-                       "entradas antiguas («Copiar con XoPy», etc.) se borran solas al abrir XoPy.",
+                Text = "Ctrl+V y Mayús+Insert en el Explorador y el escritorio se transfieren con XoPy.\n" +
+                       "«Enviar a → XoPy» abre el selector de destino. Si el portapapeles contiene\n" +
+                       "elementos cortados, XoPy los mueve y elimina el origen al finalizar.\n\n" +
+                       "El pegado nativo del menú contextual de Windows se conserva: Windows no ofrece\n" +
+                       "una forma compatible de reemplazarlo globalmente. XoPy no añade otra opción\n" +
+                       "«Pegar» al menú contextual; así se evita el duplicado y no se reinicia Explorer.", 
                 AutoSize = true,
                 ForeColor = _palette.Muted,
                 Font = new Font("Segoe UI", 8.5f),
@@ -485,13 +486,25 @@ internal sealed class OptionsDialog : Form
             var text = new Label
             {
                 Text = label,
-                AutoSize = true,
+                AutoSize = false,
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleLeft,
+                AutoEllipsis = true,
                 ForeColor = _palette.Muted,
                 BackColor = Color.Transparent,
-                Anchor = AnchorStyles.Left,
                 Margin = new Padding(0, 0, 14, 0)
             };
-            control.Anchor = control is Label ? AnchorStyles.Left : AnchorStyles.Left;
+            if (control is Label description)
+            {
+                description.AutoSize = false;
+                description.Dock = DockStyle.Fill;
+                description.TextAlign = ContentAlignment.MiddleLeft;
+                description.AutoEllipsis = false;
+            }
+            else
+            {
+                control.Anchor = AnchorStyles.Left;
+            }
             control.Margin = new Padding(0, 0, 0, 0);
             layout.Controls.Add(text, 0, row);
             layout.Controls.Add(control, 1, row);
