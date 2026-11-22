@@ -11,12 +11,59 @@ internal static class Program
     [STAThread]
     private static void Main(string[] args)
     {
-        ApplicationConfiguration.Initialize();
-        Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
-        Application.ThreadException += (_, e) => ShowFatal(e.Exception);
-        AppDomain.CurrentDomain.UnhandledException += (_, e) => ShowFatal(e.ExceptionObject as Exception);
+        var safeMode = args.Any(arg => string.Equals(arg, "--safe-mode", StringComparison.OrdinalIgnoreCase));
+        var logDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "XoPy");
+        try
+        {
+            Directory.CreateDirectory(logDir);
+            File.AppendAllText(Path.Combine(logDir, "startup.log"),
+                $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}  Inicio main (args={args.Length}, safe={safeMode}){Environment.NewLine}");
+        }
+        catch { }
 
-        var request = StartupRequest.Parse(args);
+        try
+        {
+            ApplicationConfiguration.Initialize();
+            Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+            Application.ThreadException += (_, e) => ShowFatal(e.Exception);
+            AppDomain.CurrentDomain.UnhandledException += (_, e) => ShowFatal(e.ExceptionObject as Exception);
+
+            var request = StartupRequest.Parse(args);
+            if (safeMode) request.NoShellHook = true;
+
+            // Si hay otra instancia abierta, enviarle la solicitud y salir.
+            var mutex = new Mutex(true, Ipc.MutexName, out var isFirstInstance);
+            if (!isFirstInstance)
+            {
+                if (IpcClient.Send(request))
+                {
+                    mutex.Dispose();
+                    return;
+                }
+                try { mutex.Dispose(); } catch { }
+            }
+
+            using var form = new MainForm(request);
+            IpcServer.Start(form);
+            Application.Run(form);
+            GC.KeepAlive(mutex);
+        }
+        catch (Exception ex)
+        {
+            try
+            {
+                File.AppendAllText(Path.Combine(logDir, "startup-crash.log"),
+                    $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}  CRASH: {ex}{Environment.NewLine}");
+            }
+            catch { }
+            try
+            {
+                MessageBox.Show("XoPy no pudo iniciar:\\n\\n" + ex.Message,
+                    "XoPy", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            catch { }
+        }
+    }
 
         var screenshotPath = FindOption(args, "--screenshot");
         if (screenshotPath is not null)
