@@ -12,6 +12,7 @@ namespace XoPy;
 public sealed partial class MainForm
 {
     private readonly List<Task> _pendingScans = new();
+    private readonly List<Guid> _visualOrder = new();
 
     // ---------------------------------------------------------------- cola
 
@@ -364,6 +365,58 @@ public sealed partial class MainForm
 
     private List<TransferItem> RootItems() => _items.Where(item => item.ParentId is null).ToList();
 
+    // Keep display order separate from _items: transfer order and source hierarchy
+    // must not change when a file is merely dragged to another visual position.
+    private List<TransferItem> VisualItems()
+    {
+        var byId = _items.ToDictionary(item => item.Id);
+        _visualOrder.RemoveAll(id => !byId.ContainsKey(id));
+        var present = _visualOrder.ToHashSet();
+
+        for (var index = 0; index < _items.Count;)
+        {
+            if (present.Contains(_items[index].Id))
+            {
+                index++;
+                continue;
+            }
+
+            var start = index;
+            var additions = new List<Guid>();
+            while (index < _items.Count && !present.Contains(_items[index].Id))
+            {
+                var id = _items[index++].Id;
+                present.Add(id);
+                additions.Add(id);
+            }
+
+            var insertAt = -1;
+            for (var previous = start - 1; previous >= 0; previous--)
+            {
+                var visualIndex = _visualOrder.IndexOf(_items[previous].Id);
+                if (visualIndex < 0) continue;
+                insertAt = visualIndex + 1;
+                break;
+            }
+            if (insertAt < 0)
+            {
+                for (var next = index; next < _items.Count; next++)
+                {
+                    var visualIndex = _visualOrder.IndexOf(_items[next].Id);
+                    if (visualIndex < 0) continue;
+                    insertAt = visualIndex;
+                    break;
+                }
+            }
+            if (insertAt < 0) insertAt = _visualOrder.Count;
+            _visualOrder.InsertRange(insertAt, additions);
+        }
+
+        return _visualOrder.Select(id => byId[id]).ToList();
+    }
+
+    private void ResetVisualOrder() => _visualOrder.Clear();
+
     private List<TransferItem> SelectedItems()
         => _list.SelectedItems.Cast<ListViewItem>().Select(row => row.Tag).OfType<TransferItem>().ToList();
 
@@ -397,7 +450,7 @@ public sealed partial class MainForm
         {
             _list.Items.Clear();
             _rows.Clear();
-            foreach (var item in _items)
+            foreach (var item in VisualItems())
             {
                 if (!IsVisibleRow(item)) continue;
                 var row = new ListViewItem(new[] { item.Name, item.SizeText, item.StateText, string.Empty, string.Empty, string.Empty })
@@ -553,9 +606,10 @@ public sealed partial class MainForm
         var selected = SelectedItems();
         if (selected.Count == 0) { SetStatus("Selecciona un elemento para cambiar su orden."); return; }
 
+        var visual = VisualItems();
         var ordered = delta < 0
-            ? selected.OrderBy(item => _items.IndexOf(item)).ToList()
-            : selected.OrderByDescending(item => _items.IndexOf(item)).ToList();
+            ? selected.OrderBy(item => visual.IndexOf(item)).ToList()
+            : selected.OrderByDescending(item => visual.IndexOf(item)).ToList();
 
         var moved = 0;
         foreach (var item in ordered)
@@ -571,17 +625,17 @@ public sealed partial class MainForm
 
     private bool MoveBlock(TransferItem item, int delta)
     {
-        // Files are presentation rows: move them through the global file sequence,
-        // while ParentId, RelativePath and Depth remain untouched for the transfer.
+        // Files are presentation rows: update only the visual sequence. The
+        // underlying transfer order, ParentId, RelativePath and Depth stay intact.
         if (item.Kind == ItemKind.File)
         {
-            var files = _items.Where(candidate => candidate.Kind == ItemKind.File).ToList();
+            var files = VisualItems().Where(candidate => candidate.Kind == ItemKind.File).ToList();
             var fileIndex = files.IndexOf(item);
             var fileTarget = fileIndex + delta;
             if (fileIndex < 0 || fileTarget < 0 || fileTarget >= files.Count) return false;
-            var first = _items.IndexOf(files[fileIndex]);
-            var second = _items.IndexOf(files[fileTarget]);
-            (_items[first], _items[second]) = (_items[second], _items[first]);
+            var first = _visualOrder.IndexOf(files[fileIndex].Id);
+            var second = _visualOrder.IndexOf(files[fileTarget].Id);
+            (_visualOrder[first], _visualOrder[second]) = (_visualOrder[second], _visualOrder[first]);
             return true;
         }
 
@@ -611,6 +665,7 @@ public sealed partial class MainForm
 
         _items.Clear();
         _items.AddRange(rebuilt);
+        ResetVisualOrder();
         return true;
     }
 
@@ -1216,7 +1271,7 @@ public sealed partial class MainForm
         }
 
         var siblings = canCrossGroups
-            ? _items.Where(item => item.Kind == ItemKind.File).ToList()
+            ? VisualItems().Where(item => item.Kind == ItemKind.File).ToList()
             : source.ParentId is null ? RootItems() : Children(_items.First(item => item.Id == source.ParentId.Value));
         var oldIndex = siblings.IndexOf(source);
         var targetIndex = siblings.IndexOf(target);
@@ -1229,7 +1284,7 @@ public sealed partial class MainForm
             var delta = desired < oldIndex ? -1 : 1;
             if (!MoveBlock(source, delta)) break;
             siblings = canCrossGroups
-                ? _items.Where(item => item.Kind == ItemKind.File).ToList()
+                ? VisualItems().Where(item => item.Kind == ItemKind.File).ToList()
                 : source.ParentId is null ? RootItems() : Children(_items.First(item => item.Id == source.ParentId.Value));
             oldIndex = siblings.IndexOf(source);
         }
@@ -1784,10 +1839,11 @@ public sealed partial class MainForm
         _items.AddRange(new[] { folder, child1, child2, otherFolder, otherChild, a, b });
         RebuildRows();
 
-        if (!MoveBlock(a, -1) || _items.Where(item => item.Kind == ItemKind.File).ToList()[2] != a)
+        if (!MoveBlock(a, -1) || VisualItems().Where(item => item.Kind == ItemKind.File).ToList()[2] != a)
             report.AppendLine("FALLO: no se pudo intercalar un archivo entre grupos de carpetas distintos.");
-        if (a.ParentId is not null || a.RelativePath != "a.txt")
-            report.AppendLine("FALLO: el reordenamiento visual alteró el archivo de raíz.");
+        if (_items.Where(item => item.Kind == ItemKind.File).ToList()[3] != a ||
+            !Children(folder).SequenceEqual(new[] { child1, child2 }) || a.ParentId is not null || a.RelativePath != "a.txt")
+            report.AppendLine("FALLO: el orden de transferencia, jerarquía o ruta cambió al reordenar visualmente.");
         if (child2.Depth != 1 || child2.ParentId != folder.Id || child2.RelativePath != Path.Combine("Carpeta", "foto2.jpg") ||
             otherChild.Depth != 1 || otherChild.ParentId != otherFolder.Id || otherChild.RelativePath != Path.Combine("Otra", "documento.txt"))
             report.AppendLine("FALLO: el orden visual cambió la jerarquía o rutas de transferencia.");
@@ -2003,6 +2059,7 @@ public sealed partial class MainForm
 
         _items.Clear();
         _items.AddRange(rebuilt);
+        ResetVisualOrder();
         RebuildRows();
         UpdateFooter();
         var label = field switch
