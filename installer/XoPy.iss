@@ -61,11 +61,11 @@ Name: "{autodesktop}\XoPy"; Filename: "{app}\{#AppExe}"; Comment: "Gestor de cop
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\XoPy.exe"; ValueType: string; ValueName: ""; ValueData: "{app}\{#AppExe}"; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\XoPy.exe"; ValueType: string; ValueName: "Path"; ValueData: "{app}"; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "XoPy"; ValueData: """{app}\{#AppExe}"" --tray"; Flags: uninsdeletevalue; Tasks: autostart
-Root: HKCU; Subkey: "Software\Classes\CLSID\{3B1E92A7-7AD6-4E71-A218-75449CE13061}\InprocServer32"; ValueType: string; ValueName: ""; ValueData: "{app}\XoPyShell.dll"; Flags: uninsdeletekey
-Root: HKCU; Subkey: "Software\Classes\CLSID\{3B1E92A7-7AD6-4E71-A218-75449CE13061}\InprocServer32"; ValueType: string; ValueName: "ThreadingModel"; ValueData: "Apartment"
-Root: HKCU; Subkey: "Software\Classes\Directory\Background\shellex\ContextMenuHandlers\XoPyPaste"; ValueType: string; ValueName: ""; ValueData: "{3B1E92A7-7AD6-4E71-A218-75449CE13061}"; Flags: uninsdeletekey
-Root: HKCU; Subkey: "Software\Classes\Directory\shellex\ContextMenuHandlers\XoPyPaste"; ValueType: string; ValueName: ""; ValueData: "{3B1E92A7-7AD6-4E71-A218-75449CE13061}"; Flags: uninsdeletekey
-Root: HKCU; Subkey: "Software\Classes\*\shellex\ContextMenuHandlers\XoPyPaste"; ValueType: string; ValueName: ""; ValueData: "{3B1E92A7-7AD6-4E71-A218-75449CE13061}"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\CLSID\{{3B1E92A7-7AD6-4E71-A218-75449CE13061}}\InprocServer32"; ValueType: string; ValueName: ""; ValueData: "{app}\XoPyShell.dll"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\CLSID\{{3B1E92A7-7AD6-4E71-A218-75449CE13061}}\InprocServer32"; ValueType: string; ValueName: "ThreadingModel"; ValueData: "Apartment"
+Root: HKCU; Subkey: "Software\Classes\Directory\Background\shellex\ContextMenuHandlers\XoPyPaste"; ValueType: string; ValueName: ""; ValueData: "{{3B1E92A7-7AD6-4E71-A218-75449CE13061}}"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\Directory\shellex\ContextMenuHandlers\XoPyPaste"; ValueType: string; ValueName: ""; ValueData: "{{3B1E92A7-7AD6-4E71-A218-75449CE13061}}"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\*\shellex\ContextMenuHandlers\XoPyPaste"; ValueType: string; ValueName: ""; ValueData: "{{3B1E92A7-7AD6-4E71-A218-75449CE13061}}"; Flags: uninsdeletekey
 
 [Code]
 procedure CurStepChanged(CurStep: TSetupStep);
