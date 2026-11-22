@@ -14,5 +14,8 @@ Name: "autostart"; Description: "Iniciar XoPy al encender el equipo"; GroupDescr
 [InstallDelete]
 Type: files; Name: "{sendto}\*XoPy*.lnk"
 
+[Icons]
+Name: "{autoprograms}\XoPy"; Filename: "{app}\XoPy.exe"; Comment: "Gestor de copias XoPy"
+
 [Files]
 Source: "..\publish\XoPy.exe"; DestDir: "{app}"; Flags: ignoreversion
