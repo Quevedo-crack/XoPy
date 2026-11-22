@@ -116,7 +116,7 @@ jobs:
                 } finally { if (initialized >= 0) CoUninitialize(); }
               }
             }
-            '@
+          '@
             $comResult = [XoPyComSmoke]::Check()
             "com_activation=0x$('{0:X8}' -f $comResult)" | Add-Content $log
             if ($comResult -ne 0) { throw "No se pudo cargar la extensión COM (HRESULT $comResult)" }
