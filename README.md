@@ -99,49 +99,36 @@ XoPy.exe --multi --copy --to "D:\Copias" "C:\Datos\informe.pdf"
 - Icono de progreso en el **área de notificación** y modo minimizado.
 - Temas **oscuro** y **claro**.
 
+## Novedades de la versión 2.4.1
+
+- XoPy ya no instala acciones propias en el menú contextual ni accesos «Enviar a».
+- Al actualizar, se eliminan las entradas antiguas «Copiar con XoPy», «Mover con XoPy», «Pegar con XoPy», etc.
+- La primera apertura tras actualizar se muestra en pantalla y desactiva el ocultamiento heredado en bandeja.
+- Si una transferencia encuentra un destino no válido, se puede elegir otra carpeta, crearla, usar la carpeta predeterminada o cancelar.
+- El instalador limpia las antiguas claves del menú contextual antes de iniciar la aplicación.
+
 ## Novedades de la versión 2.4.0
 
-- **XoPy sustituye al copiador de Windows**: `Ctrl+C`, `Ctrl+X` y `Ctrl+V` en el Explorador y en el
-  escritorio abren XoPy con su ventana y su progreso. Si venías de «Cortar», se mueve y se borra el
-  origen. Se puede desactivar en Preferencias → Integración para volver al copiador de Windows.
-- **Ya no aparece en «Enviar a»** ni como una opción suelta: el pegado es la forma normal de usarlo.
+- **Pegado con teclado en el Explorador**: `Ctrl+V` se intercepta cuando el portapapeles contiene archivos y se usa XoPy; si venías de «Cortar», se mueven y se eliminan del origen. Se puede desactivar en Preferencias → Integración.
+- **Ya no aparece en «Enviar a»**: el pegado con teclado es la forma de usarlo.
 - **Motor elegible**: Nativo (CopyFileEx), **Robocopy** o Administrado, en Preferencias → Transferencia.
-  Robocopy es el más rápido con miles de archivos, redes y rutas largas.
 - **Mover borra siempre el origen**, incluidos los archivos y las carpetas que quedan vacías.
-- **Tiempo estimado** en la barra de título, en el encabezado y en el pie («quedan 00:02:03»).
-- **En pausa la velocidad es 0 B/s** (antes seguía mostrando la última velocidad).
-- **Porcentaje más grande** en el icono de la bandeja y en el botón de la barra de tareas, con barra
-  de progreso propia en la barra de tareas.
+- **Tiempo estimado** en la barra de título, en el encabezado y en el pie.
+- **En pausa la velocidad es 0 B/s**.
+- **Porcentaje más grande** en el icono de la bandeja y en el botón de la barra de tareas, con barra de progreso propia.
 - **Clic izquierdo en el icono de la bandeja abre la ventana**.
-- **Nueva copia con otra en curso**: XoPy pregunta si añadirla a la actual o abrir otra ventana para
-  copiar las dos a la vez.
-- **Columna de trabajos plegable** (`«` en la barra de la lista) para dejar la ventana más pequeña.
-- **Ordenar por origen, destino, tamaño, tipo, nombre y estado**, en ambos sentidos.
-- **Reiniciar XoPy como administrador** desde Herramientas para copiar a carpetas protegidas.
-- Corregido el bloqueo de la ventana al abrirse y el reordenado de los elementos de primer nivel.
-- Pruebas automáticas nuevas: motor Robocopy con hash, mover carpetas completas borrando el origen,
-  ordenar por origen/destino y el pegado en el Explorador.
+- **Nueva copia con otra en curso**: XoPy pregunta si añadirla a la actual o abrir otra ventana.
+- **Columna de trabajos plegable**, orden por origen/destino/tamaño/tipo/nombre/estado y reinicio como administrador.
 
 ## Integración con el Explorador de Windows
 
-El instalador añade estas acciones al menú contextual (se pueden desactivar en Preferencias):
+XoPy no añade opciones con su nombre al menú contextual ni a «Enviar a». El hook actual sustituye
+`Ctrl+V` en el Explorador y el escritorio cuando hay archivos en el portapapeles; detecta «Cortar»
+y los mueve. Si ya está abierto, la transferencia se incorpora a la ventana existente.
 
-- **Copiar con XoPy** (usa el último destino configurado)
-- **Copiar a… con XoPy** (pregunta la carpeta de destino)
-- **Mover con XoPy** / **Mover a… con XoPy**
-- **Verificar con XoPy**
-- **Pegar con XoPy** y **Abrir XoPy aquí** (en el fondo de una carpeta)
-- **Enviar a → Copiar con XoPy / Mover con XoPy** (permite enviar varios archivos a la vez)
-
-En Windows 11 estas acciones aparecen en **Mostrar más opciones** (`Mayús+F10`), igual que en
-TeraCopy. Si XoPy ya está abierto, la orden se ejecuta en la ventana existente.
-
-Además XoPy se abre en una sola ventana: si ya está abierto, las nuevas órdenes del Explorador se
-añaden a la ventana existente.
-
-> Windows no permite que un programa normal intercepte `Ctrl+C` / `Ctrl+V` del Explorador (eso
-> requiere una extensión COM firmada, que es lo que usa TeraCopy). Por eso la integración de XoPy
-> se hace con el menú contextual, que es la forma fiable y sin riesgo de romper el sistema.
+**Nota:** el clic en la opción nativa «Pegar» del menú contextual de Windows no se redirige todavía
+a XoPy; el hook intercepta el atajo `Ctrl+V`. Para reemplazar también ese comando del menú nativo
+hace falta una extensión de shell de Windows, distinta del hook de teclado.
 
 ## Uso rápido
 

@@ -161,7 +161,6 @@ internal sealed class OptionsDialog : Form
     private readonly ChoiceButton _conflict;
     private readonly ChoiceButton _onError;
     private readonly NumericUpDown _retries;
-    private readonly CheckBox _explorer;
     private readonly CheckBox _replaceCopier;
     private readonly CheckBox _askWhenBusy;
     private readonly CheckBox _sound;
@@ -246,8 +245,7 @@ internal sealed class OptionsDialog : Form
             (int)settings.OnError);
         _retries = Numeric(settings.RetryCount, 0, 20, 1);
 
-        _explorer = Check("Añadir XoPy al menú contextual del Explorador", settings.ExplorerIntegration);
-        _replaceCopier = Check("Sustituir al copiador de Windows: Ctrl+C, Ctrl+X y Ctrl+V usan XoPy", settings.ReplaceWindowsCopier);
+        _replaceCopier = Check("Sustituir al copiador de Windows: al pegar (Ctrl+V) en el Explorador o el escritorio, XoPy copia directamente", settings.ReplaceWindowsCopier);
         _askWhenBusy = Check("Preguntar qué hacer si ya hay una transferencia en curso", settings.AskWhenBusy);
 
         _sound = Check("Reproducir un sonido al terminar", settings.PlaySoundWhenDone);
@@ -396,18 +394,19 @@ internal sealed class OptionsDialog : Form
 
         _tabs.TabPages.Add(Page("Integración", 3,
             ("", _replaceCopier, 60),
-            ("", _explorer, 40),
             ("", new Label
             {
-                Text = "Al pegar en el escritorio o en cualquier carpeta (discos internos, externos\n" +
-                       "o unidades de red) se abre XoPy con su ventana y su progreso. Si venías de\n" +
-                       "«Cortar», se mueve y se borra el origen. Desactívalo para volver al\n" +
-                       "copiador de Windows cuando quieras.",
+                Text = "XoPy no añade entradas con su nombre al menú contextual ni a «Enviar a».\n" +
+                       "El hook sustituye Ctrl+V en el Explorador y el escritorio cuando el portapapeles\n" +
+                       "contiene archivos; si venías de «Cortar», mueve y borra el origen. Desactívalo\n" +
+                       "para volver al copiador de Windows. El clic en la opción nativa «Pegar» del menú\n" +
+                       "contextual aún no se redirige a XoPy. Las entradas antiguas («Copiar con XoPy»,\n" +
+                       "«Pegar con XoPy», etc.) se borran solas al abrir XoPy.",
                 AutoSize = true,
                 ForeColor = _palette.Muted,
                 Font = new Font("Segoe UI", 8.5f),
                 BackColor = Color.Transparent
-            }, 120)));
+            }, 160)));
 
         _tabs.TabPages.Add(Page("Al terminar", 5,
             ("", _sound, 42),
@@ -588,7 +587,7 @@ internal sealed class OptionsDialog : Form
         Result.Conflict = (ConflictPolicy)_conflict.SelectedIndex;
         Result.OnError = (ErrorPolicy)_onError.SelectedIndex;
         Result.RetryCount = (int)_retries.Value;
-        Result.ExplorerIntegration = _explorer.Checked;
+        Result.ExplorerIntegration = false;
         Result.ReplaceWindowsCopier = _replaceCopier.Checked;
         Result.AskWhenBusy = _askWhenBusy.Checked;
         Result.PlaySoundWhenDone = _sound.Checked;
@@ -624,7 +623,7 @@ internal sealed class OptionsDialog : Form
         target.Conflict = Result.Conflict;
         target.OnError = Result.OnError;
         target.RetryCount = Result.RetryCount;
-        target.ExplorerIntegration = Result.ExplorerIntegration;
+        target.ExplorerIntegration = false;
         target.ReplaceWindowsCopier = Result.ReplaceWindowsCopier;
         target.AskWhenBusy = Result.AskWhenBusy;
         target.PlaySoundWhenDone = Result.PlaySoundWhenDone;

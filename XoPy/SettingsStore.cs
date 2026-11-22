@@ -14,6 +14,7 @@ public sealed class SettingsStore
     public AppSettings Load()
     {
         AppSettings settings = new();
+        var migrated = false;
         try
         {
             if (File.Exists(SettingsFile))
@@ -25,6 +26,16 @@ public sealed class SettingsStore
         catch
         {
             // Un archivo de configuración dañado no debe impedir que la aplicación arranque.
+        }
+
+        if (settings.SettingsVersion < 1)
+        {
+            // En 2.4.0 se podía quedar oculta en bandeja al cerrar o arrancar; al actualizar,
+            // la primera apertura vuelve a ser visible y el cierre normal termina la aplicación.
+            settings.MinimizeToTray = false;
+            settings.StartMinimized = false;
+            settings.SettingsVersion = 1;
+            migrated = true;
         }
 
         settings.Favorites ??= new List<string>();
@@ -51,6 +62,7 @@ public sealed class SettingsStore
         settings.RetryCount = Math.Clamp(settings.RetryCount, 0, 20);
         settings.SecureDeletePasses = Math.Clamp(settings.SecureDeletePasses, 0, 7);
         settings.CompletionScript ??= string.Empty;
+        if (migrated) Save(settings);
         return settings;
     }
 

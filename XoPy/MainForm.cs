@@ -140,16 +140,11 @@ public sealed partial class MainForm : Form
         BuildTray();
         ApplyWindowGeometry();
 
-        try
+        if (_settings.ExplorerIntegration)
         {
-            if (ShellIntegration.IsEnabled() && !_settings.ExplorerIntegration)
-            {
-                _settings.ExplorerIntegration = true;
-                _store.Save(_settings);
-            }
-            if (_settings.ExplorerIntegration) ShellIntegration.Apply(true);
+            _settings.ExplorerIntegration = false;
+            _store.Save(_settings);
         }
-        catch { }
 
         _timer.Tick += (_, _) => TimerTick();
         _timer.Start();
@@ -1238,6 +1233,18 @@ public sealed partial class MainForm : Form
     protected override void OnShown(EventArgs e)
     {
         base.OnShown(e);
+        // La ventana debe verse siempre al abrir XoPy (salvo si se pidió arrancar minimizado).
+        if (!_settings.StartMinimized && !_startupRequest.StartMinimized)
+        {
+            try
+            {
+                Show();
+                if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
+                Activate();
+                BringToFront();
+            }
+            catch { }
+        }
         _ = HandleExternalAsync(_startupRequest, true);
     }
 
@@ -1248,7 +1255,7 @@ public sealed partial class MainForm : Form
         if (!isStartup) RestoreWindow();
 
         if (request.Paths.Count > 0) await AddPathsAsync(request.Paths);
-        if (!string.IsNullOrWhiteSpace(request.Destination) && Directory.Exists(request.Destination))
+        if (!string.IsNullOrWhiteSpace(request.Destination))
             _destination.Text = request.Destination!;
         if (request.PasteFromClipboard) PasteFromClipboard(request.Destination ?? _destination.Text);
 
@@ -1293,6 +1300,24 @@ public sealed partial class MainForm : Form
 
     private void PromptDestinationAndStart(OperationType operation)
     {
+        // En lugar de abrir directamente el selector, se ofrece qué hacer con el destino.
+        var verb = operation == OperationType.Move ? "mover" : "copiar";
+        var choice = PromptDialog.Ask(this, _palette,
+            "Falta la carpeta de destino",
+            $"¿A qué carpeta quieres {verb} los elementos?",
+            null,
+            new[] { "Elegir carpeta…", "Usar carpeta predeterminada", "Cancelar" });
+        if (choice == 2) return;
+        if (choice == 1)
+        {
+            var downloads = AppSettings.DefaultDestination();
+            _destination.Text = downloads;
+            _settings.Destination = downloads;
+            _store.Save(_settings);
+            StartTransfer(operation);
+            return;
+        }
+
         try
         {
             if (Directory.Exists(_destination.Text.Trim())) _pickDestination.SelectedPath = _destination.Text.Trim();
@@ -1324,10 +1349,55 @@ public sealed partial class MainForm : Form
         if (files.Length == 0) { SetStatus("El portapapeles no contiene archivos."); return; }
         if (string.IsNullOrWhiteSpace(destination) || !Directory.Exists(destination))
         {
-            SetStatus("Copia primero archivos y usa «Pegar con XoPy» sobre una carpeta.");
-            return;
+            var choice = PromptDialog.Ask(this, _palette,
+                "Carpeta de destino no válida",
+                "No se pudo determinar la carpeta donde pegar los archivos. ¿Qué quieres hacer?",
+                null,
+                new[] { "Elegir carpeta…", "Usar carpeta predeterminada", "Cancelar" });
+            if (choice == 2) return;
+            if (choice == 1)
+            {
+                destination = AppSettings.DefaultDestination();
+            }
+            else
+            {
+                try
+                {
+                    if (Directory.Exists(_destination.Text.Trim())) _pickDestination.SelectedPath = _destination.Text.Trim();
+                }
+                catch { }
+                _pickDestination.Description = "Elige la carpeta donde quieres pegar los archivos";
+                if (_pickDestination.ShowDialog(this) != DialogResult.OK) return;
+                destination = _pickDestination.SelectedPath;
+            }
+            if (!Directory.Exists(destination))
+            {
+                var create = PromptDialog.Ask(this, _palette,
+                    "Crear carpeta de destino",
+                    "La carpeta elegida no existe. ¿Quieres crearla?",
+                    destination,
+                    new[] { "Crear carpeta", "Elegir otra…", "Cancelar" });
+                if (create == 0)
+                {
+                    try { Directory.CreateDirectory(destination); }
+                    catch (Exception ex)
+                    {
+                        ShowError("No se pudo crear la carpeta: " + CopyEngine.Describe(ex));
+                        return;
+                    }
+                }
+                else if (create == 1)
+                {
+                    _pickDestination.Description = "Elige otra carpeta donde pegar los archivos";
+                    if (_pickDestination.ShowDialog(this) != DialogResult.OK) return;
+                    destination = _pickDestination.SelectedPath;
+                }
+                else return;
+            }
         }
         _destination.Text = destination;
+        _settings.Destination = destination;
+        _store.Save(_settings);
         _ = AddPathsAsync(files);
         StartTransfer(OperationType.Copy);
     }

@@ -137,6 +137,8 @@ public sealed class HistoryEntry
 
 public sealed class AppSettings
 {
+    /// <summary>Versión de esquema para migraciones de preferencias entre versiones.</summary>
+    public int SettingsVersion { get; set; }
     public string Destination { get; set; } = string.Empty;
     public bool DarkTheme { get; set; } = true;
     public ConflictPolicy Conflict { get; set; } = ConflictPolicy.Ask;
@@ -149,7 +151,7 @@ public sealed class AppSettings
     public int SpeedLimitMiB { get; set; }
     public bool PreserveTimestamps { get; set; } = true;
     public bool UseRecycleBin { get; set; } = true;
-    public bool MinimizeToTray { get; set; } = true;
+    public bool MinimizeToTray { get; set; }
     public bool StartWithWindows { get; set; }
     public bool StartMinimized { get; set; }
     public bool PlaySoundWhenDone { get; set; }

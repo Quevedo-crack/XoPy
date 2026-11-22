@@ -930,16 +930,46 @@ public sealed partial class MainForm
                 return;
             }
 
-            try
+            // Si el destino no es válido se ofrece qué hacer, en lugar de mostrar solo un error.
+            while (true)
             {
-                destination = Path.GetFullPath(destination);
-                if (operation != OperationType.Test) Directory.CreateDirectory(destination);
-                if (!Directory.Exists(destination)) throw new DirectoryNotFoundException("La carpeta de destino no existe: " + destination);
-            }
-            catch (Exception ex)
-            {
-                ShowError("La carpeta de destino no es válida: " + CopyEngine.Describe(ex));
-                return;
+                try
+                {
+                    destination = Path.GetFullPath(destination);
+                    if (operation != OperationType.Test) Directory.CreateDirectory(destination);
+                    if (!Directory.Exists(destination)) throw new DirectoryNotFoundException("La carpeta de destino no existe: " + destination);
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    var choice = PromptDialog.Ask(this, _palette,
+                        "Carpeta de destino no válida",
+                        "No se pudo usar la carpeta de destino:\n" + CopyEngine.Describe(ex) +
+                        "\n\n¿Qué quieres hacer?",
+                        null,
+                        new[] { "Elegir otra carpeta…", "Crear la carpeta", "Usar carpeta predeterminada", "Cancelar" });
+                    if (choice == 3) return;
+                    if (choice == 2)
+                    {
+                        destination = AppSettings.DefaultDestination();
+                        continue;
+                    }
+                    if (choice == 1)
+                    {
+                        try { Directory.CreateDirectory(destination); }
+                        catch { /* se vuelve a preguntar */ }
+                        continue;
+                    }
+
+                    try
+                    {
+                        if (Directory.Exists(destination)) _pickDestination.SelectedPath = destination;
+                    }
+                    catch { }
+                    _pickDestination.Description = "Elige otra carpeta de destino";
+                    if (_pickDestination.ShowDialog(this) != DialogResult.OK) return;
+                    destination = _pickDestination.SelectedPath;
+                }
             }
 
             _destination.Text = destination;
@@ -1530,31 +1560,33 @@ public sealed partial class MainForm
 
     private void ShowExplorerIntegration()
     {
-        var enabled = ShellIntegration.IsEnabled();
-        var message = "XoPy añade estas acciones al menú contextual del Explorador:\n\n" +
-                      "· Copiar con XoPy (usa el último destino)\n" +
-                      "· Copiar a… con XoPy (pregunta el destino)\n" +
-                      "· Mover con XoPy / Mover a… con XoPy\n" +
-                      "· Verificar con XoPy\n" +
-                      "· Pegar con XoPy (al hacer clic con el botón derecho en el fondo de una carpeta)\n\n" +
-                      "Además, instala un acceso en «Enviar a», que es la forma más rápida de enviar varios archivos a la vez.\n\n" +
-                      "En Windows 11 estas acciones aparecen en «Mostrar más opciones» (Mayús+F10).\n\n" +
-                      (enabled ? "La integración está ACTIVADA." : "La integración está DESACTIVADA.") +
-                      "\n\n¿Quieres activarla ahora?";
+        var legacy = ShellIntegration.HasLegacyEntries();
+        var message = "XoPy ya NO añade entradas con su nombre al menú contextual ni a «Enviar a».\n\n" +
+                      "Al pegar con Ctrl+V en el Explorador o el escritorio (discos internos, externos\n" +
+                      "o de red), el hook de XoPy abre la ventana con el progreso. Si venías de «Cortar»,\n" +
+                      "se mueve y se borra el origen. El clic en la opción nativa «Pegar» del menú\n" +
+                      "contextual de Windows todavía no se redirige a XoPy.\n\n" +
+                      "Las entradas antiguas («Copiar con XoPy», «Mover con XoPy», «Pegar con XoPy»,\n" +
+                      "«Verificar con XoPy», etc.) se borran automáticamente al abrir XoPy.\n\n" +
+                      (legacy
+                          ? "Todavía quedan entradas antiguas en el menú contextual.\n¿Quieres quitarlas ahora?"
+                          : "No quedan entradas antiguas en el menú contextual.");
 
-        if (MessageBox.Show(this, message, "Integración con el Explorador",
-                MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+        var choice = PromptDialog.Ask(this, _palette,
+            "Integración con el Explorador",
+            message,
+            null,
+            legacy ? new[] { "Quitar entradas antiguas", "Cerrar" } : new[] { "Cerrar" });
+        if (choice != 0 || !legacy) return;
 
         try
         {
-            _settings.ExplorerIntegration = true;
-            ShellIntegration.Apply(true);
-            _store.Save(_settings);
-            SetStatus("Integración activada. Ya puedes hacer clic derecho en archivos y carpetas.");
+            ShellIntegration.Cleanup();
+            SetStatus("Entradas antiguas del menú contextual eliminadas.");
         }
         catch (Exception ex)
         {
-            ShowError("No se pudo activar la integración: " + ex.Message);
+            ShowError("No se pudieron quitar las entradas antiguas: " + ex.Message);
         }
     }
 
