@@ -173,22 +173,13 @@ jobs:
           path: build.log
           retention-days: 7
 
-      - name: Guardar el resultado de la prueba si falla
+      - name: Subir log de instalador si falla
         if: failure()
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force docs | Out-Null
-          if (Test-Path 'C:\install-test.txt') { Copy-Item 'C:\install-test.txt' 'docs\install-test.txt'; git add docs/install-test.txt }
-          if (Test-Path 'shell-extension-build.log') { Copy-Item 'shell-extension-build.log' 'docs\shell-extension-build.txt'; git add docs/shell-extension-build.txt }
-          if (Test-Path 'installer-build.log') { Copy-Item 'installer-build.log' 'docs\installer-build.txt'; git add docs/installer-build.txt }
-          if (Test-Path 'build.log') { Copy-Item 'build.log' 'docs\build.txt'; git add docs/build.txt }
-          git config user.name "XoPy Bot"
-          git config user.email "xopy-bot@users.noreply.github.com"
-          git diff --cached --quiet
-          if ($LASTEXITCODE -ne 0) {
-            git commit -m "Resultado de la prueba de instalación"
-            git push
-          }
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-build-log
+          path: installer-build.log
+          retention-days: 7
 
       - name: Publicar en GitHub Releases
         if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
