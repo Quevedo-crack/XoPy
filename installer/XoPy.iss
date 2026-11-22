@@ -1,5 +1,4 @@
 ; Instalador de XoPy para Windows 10/11 x64
-; Build v2.5.0 — código C# restaurado al estado que compila, .iss con desinstalación total
 
 [Setup]
 AppName=XoPy
@@ -103,11 +102,8 @@ const
 // Limpia toda la integración que XoPy creó: registros, menús, Enviar a, etc.
 procedure CleanupXoPyIntegration();
 begin
-  // Inicio automático
   RegDeleteValue(HKEY_CURRENT_USER, 'Software\Microsoft\Windows\CurrentVersion\Run', 'XoPy');
-  // Rutas de la aplicación
   RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, 'Software\Microsoft\Windows\CurrentVersion\App Paths\XoPy.exe');
-  // Claves antiguas del menú contextual y CLSID
   RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, 'Software\Classes\CLSID\{{3B1E92A7-7AD6-4E71-A218-75449CE13061}}');
   RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, 'Software\Classes\Directory\Background\shellex\ContextMenuHandlers\XoPyPaste');
   RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, 'Software\Classes\Directory\shellex\ContextMenuHandlers\XoPyPaste');
@@ -124,7 +120,6 @@ begin
   RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, 'Software\Classes\Directory\shell\XoPyVerify');
   RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, 'Software\Classes\Directory\Background\shell\XoPyPaste');
   RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, 'Software\Classes\Directory\Background\shell\XoPyOpen');
-  // Acceso de Enviar a
   DeleteFile(ExpandConstant('{sendto}\XoPy.lnk'));
 end;
 
@@ -135,7 +130,6 @@ var
 begin
   if CurStep = ssInstall then
   begin
-    // Retira entradas de menú contextual creadas por versiones 2.4.0 y anteriores.
     SetArrayLength(Keys, 12);
     Keys[0] := 'Software\Classes\*\shell\XoPyCopy';
     Keys[1] := 'Software\Classes\*\shell\XoPyCopyTo';
@@ -156,16 +150,13 @@ end;
 
 function InitializeUninstall: Boolean;
 begin
-  // Siempre: quitar toda la integración que XoPy creó (menús, Enviar a, inicio automático, rutas de la aplicación).
   CleanupXoPyIntegration();
 
-  // Elección entre desinstalación total o conservar el historial.
   if MsgBox('¿Desea realizar una desinstalación total de XoPy?' + #13#10 +
             'Sí: elimina también el historial, los registros y los datos temporales (no se podrán recuperar).' + #13#10 +
             'No: se conserva el historial; solo se elimina la aplicación y sus entradas de menú.',
             mbYesNo, mbIconQuestion) = IDYES then
   begin
-    // Desinstalación total: borrar %LOCALAPPDATA%\XoPy (historial, registros, temporales, ajustes).
     DeleteDirectoryTree(ExpandConstant('{localappdata}\XoPy'));
   end;
 
