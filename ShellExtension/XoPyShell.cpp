@@ -158,7 +158,7 @@ private:
     volatile long refs_ = 1;
 };
 
-extern "C" __declspec(dllexport) HRESULT __stdcall DllGetClassObject(REFCLSID clsid, REFIID iid, void** out)
+STDAPI DllGetClassObject(REFCLSID clsid, REFIID iid, LPVOID* out)
 {
     if (!IsEqualCLSID(clsid, CLSID_XoPyPaste)) return CLASS_E_CLASSNOTAVAILABLE;
     auto* factory = new (std::nothrow) XoPyClassFactory();
@@ -168,7 +168,7 @@ extern "C" __declspec(dllexport) HRESULT __stdcall DllGetClassObject(REFCLSID cl
     return result;
 }
 
-extern "C" __declspec(dllexport) HRESULT __stdcall DllCanUnloadNow()
+STDAPI DllCanUnloadNow()
 {
     return InterlockedCompareExchange(&g_objects, 0, 0) == 0 ? S_OK : S_FALSE;
 }
