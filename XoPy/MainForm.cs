@@ -419,9 +419,9 @@ public sealed partial class MainForm : Form
         {
             DropDownStyle = ComboBoxStyle.DropDownList,
             Width = 220,
-            DisplayMember = nameof(TransferList.DisplayName),
             ToolTipText = "Lista de copia activa. Cada instancia externa se agrega como una lista independiente en esta misma pestaña."
         };
+        _listSelector.ComboBox.DisplayMember = nameof(TransferList.DisplayName);
         _listSelector.SelectedIndexChanged += (_, _) =>
         {
             if (_listSelector.SelectedItem is TransferList list) SwitchToList(list);
@@ -1504,7 +1504,8 @@ public sealed partial class MainForm : Form
         };
 
         var defaultDestination = detectedDestination;
-        var sameDestination = _activeList is { Length: > 0 }
+        var sameDestination = _activeList is not null
+            && _activeList.Destination.Length > 0
             && string.Equals(_activeList.Destination, detectedDestination, StringComparison.OrdinalIgnoreCase);
 
         TransferList? chosen = null;
