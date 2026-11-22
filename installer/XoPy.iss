@@ -1,14 +1,10 @@
 ; Instalador de XoPy para Windows 10/11 x64
-#define AppName "XoPy"
-#define AppVersion "2.4.6"
-#define AppPublisher "Quevedo-crack"
-#define AppExe "XoPy.exe"
 
 [Setup]
-AppName={#AppName}
-AppVersion={#AppVersion}
-AppVerName={#AppName} {#AppVersion}
-AppPublisher={#AppPublisher}
+AppName=XoPy
+AppVersion=2.4.6
+AppVerName=XoPy 2.4.6
+AppPublisher=Quevedo-crack
 AppPublisherURL=https://github.com/Quevedo-crack/XoPy
 AppSupportURL=https://github.com/Quevedo-crack/XoPy/issues
 AppUpdatesURL=https://github.com/Quevedo-crack/XoPy/releases
@@ -17,9 +13,8 @@ DefaultGroupName=XoPy
 DisableProgramGroupPage=yes
 OutputDir=..\installer-output
 OutputBaseFilename=XoPy-Setup
-SetupIconFile=..\XoPy\Assets\xopy.ico
 UninstallDisplayIcon={app}\XoPy.exe
-UninstallDisplayName={#AppName} {#AppVersion}
+UninstallDisplayName=XoPy 2.4.6
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
@@ -31,9 +26,9 @@ CloseApplications=no
 RestartApplications=no
 AllowNoIcons=yes
 VersionInfoVersion=2.4.6.0
-VersionInfoProductName={#AppName}
+VersionInfoProductName=XoPy
 VersionInfoDescription=Gestor de copias XoPy
-VersionInfoCompany={#AppPublisher}
+VersionInfoCompany=Quevedo-crack
 
 [Languages]
 Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
@@ -51,14 +46,14 @@ Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Type: files; Name: "{sendto}\*XoPy*.lnk"
 
 [Icons]
-Name: "{autoprograms}\XoPy"; Filename: "{app}\{#AppExe}"; Comment: "Gestor de copias XoPy"
-Name: "{autodesktop}\XoPy"; Filename: "{app}\{#AppExe}"; Comment: "Gestor de copias XoPy"; Tasks: desktopicon
+Name: "{autoprograms}\XoPy"; Filename: "{app}\XoPy.exe"; Comment: "Gestor de copias XoPy"
+Name: "{autodesktop}\XoPy"; Filename: "{app}\XoPy.exe"; Comment: "Gestor de copias XoPy"; Tasks: desktopicon
 
 [Registry]
 ; Ruta de la aplicación
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\XoPy.exe"; ValueType: string; ValueData: "{app}\{#AppExe}"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\XoPy.exe"; ValueType: string; ValueData: "{app}\XoPy.exe"; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\XoPy.exe"; ValueType: string; ValueName: "Path"; ValueData: "{app}"; Flags: uninsdeletekey
-; Inicio automático opcional — SIN comillas en ValueData (causaba error de Preprocessing en ISCC)
+; Inicio automático opcional — SIN comillas en ValueData
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "XoPy"; ValueData: {app}\XoPy.exe; Flags: uninsdeletevalue; Tasks: autostart
 
 [Code]
@@ -66,7 +61,6 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 procedure DeleteDirectoryTree(const Dir: String);
 var
   FindRec: TFindRec;
-  Name: String;
 begin
   if not DirExists(Dir) then Exit;
   if FindFirst(Dir + '\*', FindRec) then
@@ -86,7 +80,7 @@ begin
 end;
 
 // Borra una clave de registro y todas sus subclaves recursivamente.
-function RegDeleteKeyIncludingSubkeys(const RootKey: HKEY; const SubKeyName: String): Boolean;
+function RegDeleteKeyIncludingSubkeys(const RootKey: DWORD; const SubKeyName: String): Boolean;
 var
   i: Integer;
   SubKeyNames: TArrayOfString;
@@ -104,13 +98,15 @@ end;
 
 // Limpia toda la integración que XoPy creó: registros, menús, Enviar a, etc.
 procedure CleanupXoPyIntegration();
+const
+  HKEY_CURRENT_USER = $80000001;
 begin
   // Inicio automático
   RegDeleteValue(HKEY_CURRENT_USER, 'Software\Microsoft\Windows\CurrentVersion\Run', 'XoPy');
   // Rutas de la aplicación
   RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, 'Software\Microsoft\Windows\CurrentVersion\App Paths\XoPy.exe');
   // Claves antiguas del menú contextual y CLSID
-  RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, 'Software\Classes\CLSID\{{3B1E92A7-7AD6-4E71-A218-75449CE13061}}');
+  RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, 'Software\Classes\CLSID\{3B1E92A7-7AD6-4E71-A218-75449CE13061}');
   RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, 'Software\Classes\Directory\Background\shellex\ContextMenuHandlers\XoPyPaste');
   RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, 'Software\Classes\Directory\shellex\ContextMenuHandlers\XoPyPaste');
   RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, 'Software\Classes\*\shellex\ContextMenuHandlers\XoPyPaste');
@@ -137,7 +133,6 @@ var
 begin
   if CurStep = ssInstall then
   begin
-    // Retira entradas de menú contextual creadas por versiones 2.4.0 y anteriores.
     SetArrayLength(Keys, 12);
     Keys[0] := 'Software\Classes\*\shell\XoPyCopy';
     Keys[1] := 'Software\Classes\*\shell\XoPyCopyTo';
@@ -157,17 +152,16 @@ begin
 end;
 
 function InitializeUninstall: Boolean;
+const
+  HKEY_CURRENT_USER = $80000001;
 begin
-  // Siempre: quitar toda la integración que XoPy creó (menús, Enviar a, inicio automático, rutas de la aplicación).
   CleanupXoPyIntegration();
 
-  // Elección entre desinstalación total o conservar el historial.
   if MsgBox('¿Desea realizar una desinstalación total de XoPy?' + #13#10 +
             'Sí: elimina también el historial, los registros y los datos temporales (no se podrán recuperar).' + #13#10 +
             'No: se conserva el historial; solo se elimina la aplicación y sus entradas de menú.',
             mbYesNo, mbIconQuestion) = IDYES then
   begin
-    // Desinstalación total: borrar %LOCALAPPDATA%\XoPy (historial, registros, temporales, ajustes).
     DeleteDirectoryTree(ExpandConstant('{localappdata}\XoPy'));
   end;
 
@@ -175,7 +169,7 @@ begin
 end;
 
 [Run]
-Filename: "{app}\{#AppExe}"; Description: "Iniciar XoPy"; Flags: postinstall nowait skipifsilent
+Filename: "{app}\XoPy.exe"; Description: "Iniciar XoPy"; Flags: postinstall nowait skipifsilent
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"
