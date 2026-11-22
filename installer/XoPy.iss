@@ -10,9 +10,9 @@ AppName={#AppName}
 AppVersion={#AppVersion}
 AppVerName={#AppName} {#AppVersion}
 AppPublisher={#AppPublisher}
-AppPublisherURL=https://github.com
-AppSupportURL=https://github.com/issues
-AppUpdatesURL=https://github.com/releases
+AppPublisherURL=https://github.com/Quevedo-crack/XoPy
+AppSupportURL=https://github.com/Quevedo-crack/XoPy/issues
+AppUpdatesURL=https://github.com/Quevedo-crack/XoPy/releases
 DefaultDirName={autopf}\XoPy
 DefaultGroupName=XoPy
 DisableProgramGroupPage=yes
@@ -169,7 +169,7 @@ begin
             mbYesNo, mbIconQuestion) = IDYES then
   begin
     { Desinstalación total: borrar %LOCALAPPDATA%\XoPy (historial, registros, temporales, ajustes). }
-    DelTree(ExpandConstant('{localappdata}\XoPy'), True, True, True);
+    DeleteDirectoryTree(ExpandConstant('{localappdata}\XoPy'));
   end;
 
   Result := True;
