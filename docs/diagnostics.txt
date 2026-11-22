@@ -1,5 +1,5 @@
   Determining projects to restore...
-  Restored D:\a\XoPy\XoPy\XoPy\XoPy.csproj (in 21 ms).
+  Restored D:\a\XoPy\XoPy\XoPy\XoPy.csproj (in 20 ms).
 D:\a\XoPy\XoPy\XoPy\MainForm.cs(1661,13): warning CS8602: Dereference of a possibly null reference. [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
 D:\a\XoPy\XoPy\XoPy\MainForm.cs(113,18): warning CS0414: The field 'MainForm._wasRunning' is assigned but its value is never used [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
 CSC : warning WFO0003: Remove high DPI settings from D:\a\XoPy\XoPy\XoPy\app.manifest and configure via Application.SetHighDpiMode API or 'ApplicationHighDpiMode' project property (https://aka.ms/winforms-warnings/wfo0003) [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
@@ -13,7 +13,7 @@ CSC : warning WFO0003: Remove high DPI settings from D:\a\XoPy\XoPy\XoPy\app.man
     3 Warning(s)
     0 Error(s)
 
-Time Elapsed 00:00:02.30
+Time Elapsed 00:00:02.00
 FILE: carpeta (1 bytes)
 FILE: exitcode.txt (34 bytes)
 FILE: informe.pdf (10242 bytes)
@@ -22,4 +22,4 @@ FILE: video.mp4 (20482 bytes)
 --- C:\xopytest\exitcode.txt
 exitcode=-1073741571 exited=True
 --- C:\xopytest\shot.png.log
-inicio 2026-11-22T18:23:53.2768462+00:00
+inicio 2026-11-22T18:26:00.9398970+00:00
