@@ -21,9 +21,22 @@
     <Description>Gestor de copias de archivos para Windows</Description>
     <Copyright>© 2026 Quevedo-crack</Copyright>
     <NeutralLanguage>es</NeutralLanguage>
-    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <DebugType>none</DebugType>
     <DebugSymbols>false</DebugSymbols>
+
+    <!-- Publicación autocontenida para cualquier PC limpia -->
+    <SelfContained>true</SelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+
+    <!-- IL Trimming para reducir tamaño (partial es más seguro para WinForms que full) -->
+    <PublishTrimmed>true</PublishTrimmed>
+    <TrimMode>partial</TrimMode>
+
+    <!-- Globalización invariante: elimina ICU y ensamblados satélite de idioma -->
+    <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
 </Project>
