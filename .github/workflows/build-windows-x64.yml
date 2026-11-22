@@ -63,8 +63,9 @@ jobs:
           $programFilesX86 = [Environment]::GetFolderPath('ProgramFilesX86')
           $compiler = Join-Path $programFilesX86 'Inno Setup 6\ISCC.exe'
           if (-not (Test-Path $compiler)) { throw "No se encontró el compilador de Inno Setup: $compiler" }
-          & $compiler /Qp installer/XoPy.iss
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $compiler /Qp installer/XoPy.iss 2>&1 | Tee-Object -FilePath installer-build.log
+          $installerExit = $LASTEXITCODE
+          if ($installerExit -ne 0) { throw "No se pudo compilar el instalador (código $installerExit)" }
 
       - name: Comprobar el resultado
         shell: pwsh
@@ -140,6 +141,7 @@ jobs:
           New-Item -ItemType Directory -Force docs | Out-Null
           if (Test-Path 'C:\install-test.txt') { Copy-Item 'C:\install-test.txt' 'docs\install-test.txt'; git add docs/install-test.txt }
           if (Test-Path 'shell-extension-build.log') { Copy-Item 'shell-extension-build.log' 'docs\shell-extension-build.txt'; git add docs/shell-extension-build.txt }
+          if (Test-Path 'installer-build.log') { Copy-Item 'installer-build.log' 'docs\installer-build.txt'; git add docs/installer-build.txt }
           git config user.name "XoPy Bot"
           git config user.email "xopy-bot@users.noreply.github.com"
           git diff --cached --quiet
