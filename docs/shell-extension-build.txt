@@ -1,0 +1,4 @@
+XoPyShell.cpp
+ShellExtension\XoPyShell.def : warning LNK4104: export of symbol 'DllGetClassObject' should be PRIVATE
+ShellExtension\XoPyShell.def : warning LNK4104: export of symbol 'DllCanUnloadNow' should be PRIVATE
+   Creating library XoPyShell.lib and object XoPyShell.exp
