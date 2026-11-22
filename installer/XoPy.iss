@@ -66,21 +66,19 @@ Root: HKCU; Subkey: "Software\\Microsoft\\Windows\\CurrentVersion\\Run"; ValueTy
 procedure DeleteDirectoryTree(const Dir: String);
 var
   FindRec: TFindRec;
-  Name: String;
 begin
   if not DirExists(Dir) then Exit;
-  if FindFirst(Dir + '\\*', 0, FindRec) = 0 then
+  if FindFirst(Dir + '\*', FindRec) then
   begin
     repeat
-      Name := FindRec.Name;
-      if (Name <> '.') and (Name <> '..') then
+      if (FindRec.Name <> '.') and (FindRec.Name <> '..') then
       begin
         if (FindRec.Attributes and faDirectory) <> 0 then
-          DeleteDirectoryTree(Dir + '\\' + Name)
+          DeleteDirectoryTree(Dir + '\' + FindRec.Name)
         else
-          DeleteFile(Dir + '\\' + Name);
+          DeleteFile(Dir + '\' + FindRec.Name);
       end;
-    until FindNext(FindRec) <> 0;
+    until not FindNext(FindRec);
     FindClose(FindRec);
   end;
   RemoveDirectory(Dir);
