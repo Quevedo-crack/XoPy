@@ -1,6 +1,0 @@
-
-
-Error on line 98 in D:\a\XoPy\XoPy\installer\XoPy.iss: Column 11:
-Duplicate identifier 'CURSTEPCHANGED'
-Compile aborted.
-Preprocessing
