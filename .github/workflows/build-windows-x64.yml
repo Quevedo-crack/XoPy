@@ -41,7 +41,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force publish | Out-Null
-          cl.exe /nologo /LD /EHsc /O2 ShellExtension\XoPyShell.cpp /link /DEF:ShellExtension\XoPyShell.def /OUT:publish\XoPyShell.dll shell32.lib advapi32.lib ole32.lib uuid.lib 2>&1 | Tee-Object -FilePath shell-extension-build.log
+          cl.exe /nologo /LD /EHsc /O2 ShellExtension\XoPyShell.cpp /link /DEF:ShellExtension\XoPyShell.def /OUT:publish\XoPyShell.dll shell32.lib user32.lib advapi32.lib ole32.lib uuid.lib 2>&1 | Tee-Object -FilePath shell-extension-build.log
           $compileExit = $LASTEXITCODE
           if ($compileExit -ne 0) { throw "No se pudo compilar la extensión C++ (código $compileExit)" }
 
