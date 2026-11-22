@@ -231,6 +231,7 @@ public sealed partial class MainForm : Form
             if (_compactButton is not null)
             {
                 _compactButton.Image = Icons.Glyph(compact ? Icons.ChevronDown : Icons.ChevronRight, _palette.Text, 18);
+                _compactButton.Text = compact ? "Mostrar" : "Ocultar";
                 _compactButton.ToolTipText = compact
                     ? "Mostrar la lista de copia"
                     : "Ocultar la lista y dejar visibles los controles y el progreso";
@@ -373,7 +374,7 @@ public sealed partial class MainForm : Form
         _copyMode.Items.AddRange(new object[] { "Secuencial", "Multihilo" });
         _copyMode.SelectedIndex = _settings.MultiThreadCopy ? 1 : 0;
         _copyMode.SelectedIndexChanged += (_, _) => ChangeCopyMode();
-        _compactButton = BarButton("Cola", Icons.ChevronRight, (_, _) => ToggleCompactView(), false, true);
+        _compactButton = BarButton("Ocultar", Icons.ChevronRight, (_, _) => ToggleCompactView());
         _compactButton.Margin = new Padding(2, 0, 4, 0);
         _compactButton.ToolTipText = "Ocultar la lista y dejar visibles los controles y el progreso";
         _optionsButton = BarButton("Opciones", Icons.Settings, (_, _) => ShowOptions(), false, true);
