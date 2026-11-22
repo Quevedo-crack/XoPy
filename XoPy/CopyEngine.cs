@@ -1050,6 +1050,22 @@ public sealed class CopyEngine
 
     private ConflictChoice DecideConflict(FileInfo source, FileInfo target, EngineOptions options)
     {
+        // Si la ruta de origen y destino es idéntica, nunca sobrescribimos el origen:
+        // preguntamos si se omite o si se crea una copia con nombre único.
+        if (string.Equals(source.FullName, target.FullName, StringComparison.OrdinalIgnoreCase))
+        {
+            var samePathPrompt = ConflictResolver;
+            if (samePathPrompt is null) return ConflictChoice.Skip;
+            var samePathChoice = samePathPrompt(new ConflictPrompt(source.FullName, target.FullName,
+                source.Length, target.Length, source.LastWriteTime, target.LastWriteTime));
+            return samePathChoice switch
+            {
+                ConflictChoice.Rename => ConflictChoice.Rename,
+                ConflictChoice.Cancel => ConflictChoice.Cancel,
+                _ => ConflictChoice.Skip
+            };
+        }
+
         if (_stickyConflict.HasValue) return _stickyConflict.Value;
 
         switch (options.Conflict)

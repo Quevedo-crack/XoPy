@@ -1005,11 +1005,30 @@ public sealed partial class MainForm
             }
 
             // Si el destino no es válido se ofrece qué hacer, en lugar de mostrar solo un error.
+            var overlapConfirmed = false;
             while (true)
             {
                 try
                 {
                     destination = Path.GetFullPath(destination);
+                    if (operation is OperationType.Copy or OperationType.Move &&
+                        FindNestedSourceOverlap(destination, basis) is { } overlappingSource && !overlapConfirmed)
+                    {
+                        var choice = PromptDialog.Ask(this, _palette, "Origen y destino coinciden",
+                            $"El destino es la carpeta de origen o está dentro de ella:\n{overlappingSource}\n\n" +
+                            "Si continúas, XoPy creará una copia dentro de esa carpeta. ¿Qué quieres hacer?",
+                            null, new[] { "Continuar", "Elegir otro destino…", "Cancelar" });
+                        if (choice == 2) return;
+                        if (choice == 1)
+                        {
+                            _pickDestination.Description = "Elige otra carpeta de destino";
+                            if (_pickDestination.ShowDialog(this) != DialogResult.OK) return;
+                            destination = _pickDestination.SelectedPath;
+                            overlapConfirmed = false;
+                            continue;
+                        }
+                        overlapConfirmed = true;
+                    }
                     if (operation != OperationType.Test) Directory.CreateDirectory(destination);
                     if (!Directory.Exists(destination)) throw new DirectoryNotFoundException("La carpeta de destino no existe: " + destination);
                     break;
@@ -1026,6 +1045,7 @@ public sealed partial class MainForm
                     if (choice == 2)
                     {
                         destination = AppSettings.DefaultDestination();
+                        overlapConfirmed = false;
                         continue;
                     }
                     if (choice == 1)
@@ -1043,12 +1063,28 @@ public sealed partial class MainForm
                     _pickDestination.Description = "Elige otra carpeta de destino";
                     if (_pickDestination.ShowDialog(this) != DialogResult.OK) return;
                     destination = _pickDestination.SelectedPath;
+                    overlapConfirmed = false;
                 }
             }
 
             _destination.Text = destination;
             _settings.Destination = destination;
             _store.Save(_settings);
+        }
+
+        var additionalDestinations = ExtraDestinations(operation);
+        if (operation is OperationType.Copy or OperationType.Move)
+        {
+            foreach (var extraDestination in additionalDestinations)
+            {
+                var overlappingSource = FindNestedSourceOverlap(extraDestination, basis);
+                if (overlappingSource is null) continue;
+                var choice = PromptDialog.Ask(this, _palette, "Origen y destino coinciden",
+                    $"El destino adicional es la carpeta de origen o está dentro de ella:\n{overlappingSource}\n\n" +
+                    "Si continúas, XoPy creará una copia dentro de esa carpeta. ¿Qué quieres hacer?",
+                    null, new[] { "Continuar", "Cancelar" });
+                if (choice != 0) return;
+            }
         }
 
         var required = leaves.Sum(item => Math.Max(0, item.SizeBytes));
@@ -1113,7 +1149,7 @@ public sealed partial class MainForm
             Engine = _engineOverride ?? _settings.Engine,
             ResumePartials = _settings.ResumePartials,
             SecureDeletePasses = _settings.SecureDeletePasses,
-            Destinations = ExtraDestinations(operation)
+            Destinations = additionalDestinations
         };
 
         _lastOperation = operation;
@@ -1150,6 +1186,22 @@ public sealed partial class MainForm
         });
         UpdateJobs();
         UpdateButtons();
+    }
+
+    private static string? FindNestedSourceOverlap(string destination, IReadOnlyCollection<TransferItem> basis)
+    {
+        const StringComparison comparison = StringComparison.OrdinalIgnoreCase;
+        var normalizedDestination = Path.TrimEndingDirectorySeparator(Path.GetFullPath(destination));
+        foreach (var sourceFolder in basis.Where(item => item.Kind == ItemKind.Folder))
+        {
+            var source = Path.TrimEndingDirectorySeparator(Path.GetFullPath(sourceFolder.SourcePath));
+            var childPrefix = source.EndsWith(Path.DirectorySeparatorChar) || source.EndsWith(Path.AltDirectorySeparatorChar)
+                ? source
+                : source + Path.DirectorySeparatorChar;
+            if (normalizedDestination.Equals(source, comparison) || normalizedDestination.StartsWith(childPrefix, comparison))
+                return source;
+        }
+        return null;
     }
 
     private List<string> ExtraDestinations(OperationType operation)
@@ -1358,6 +1410,20 @@ public sealed partial class MainForm
     {
         var detail = $"Origen: {prompt.SourcePath} ({Format.Bytes(prompt.SourceSize)}, {prompt.SourceModified:g})\n" +
                      $"Destino: {prompt.TargetPath} ({Format.Bytes(prompt.TargetSize)}, {prompt.TargetModified:g})";
+        var samePath = string.Equals(Path.GetFullPath(prompt.SourcePath), Path.GetFullPath(prompt.TargetPath), StringComparison.OrdinalIgnoreCase);
+        if (samePath)
+        {
+            var sameChoice = PromptDialog.Ask(this, _palette, "Origen y destino son el mismo archivo",
+                "El archivo ya está en la carpeta elegida. Puedes dejarlo sin cambios o crear otra copia con un nombre distinto.",
+                detail, new[] { "Dejar sin cambios", "Crear copia renombrada", "Cancelar" });
+            return sameChoice switch
+            {
+                1 => ConflictChoice.Rename,
+                2 => ConflictChoice.Cancel,
+                _ => ConflictChoice.Skip
+            };
+        }
+
         var choice = PromptDialog.Ask(this, _palette, "Ya existe un archivo",
             "El archivo de destino ya existe. ¿Qué quieres hacer con \"" + Path.GetFileName(prompt.TargetPath) + "\"?",
             detail, new[] { "Sobrescribir", "Omitir", "Cambiar nombre", "Cancelar" }, "Aplicar a todos los conflictos", out var applyAll);
