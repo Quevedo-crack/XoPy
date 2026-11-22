@@ -99,11 +99,10 @@ begin
   DeleteFile(ExpandConstant('{sendto}\\XoPy.lnk'));
 
   { Elección entre desinstalación total o conservar el historial. }
-  if CustomMessageBox(
-      '¿Desea realizar una desinstalación total de XoPy?'+#13#10+
+  if MsgBox('¿Desea realizar una desinstalación total de XoPy?'+#13#10+
       'Sí: elimina también el historial, los registros y los datos temporales (no se podrán recuperar).'+#13#10+
       'No: se conserva el historial; solo se elimina la aplicación y sus entradas de menú.',
-      'Desinstalar XoPy', mbYesNo, IDYES, 'Sí, desinstalación total', 'No, conservar historial') = IDYES then
+      mbConfirmation, MB_YESNO) = IDYES then
   begin
     DeleteDirectoryTree(ExpandConstant('{localappdata}\\XoPy'));
   end;
