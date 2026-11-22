@@ -50,14 +50,14 @@ Name: "{autoprograms}\XoPy"; Filename: "{app}\XoPy.exe"; Comment: "Gestor de cop
 Name: "{autodesktop}\XoPy"; Filename: "{app}\XoPy.exe"; Comment: "Gestor de copias XoPy"; Tasks: desktopicon
 
 [Registry]
-; Ruta de la aplicación
+; Ruta de la aplicación (se borra automaticamente al desinstalar con uninsdeletekey)
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\XoPy.exe"; ValueType: string; ValueData: "{app}\XoPy.exe"; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\XoPy.exe"; ValueType: string; ValueName: "Path"; ValueData: "{app}"; Flags: uninsdeletekey
-; Inicio automático opcional — SIN comillas en ValueData
+; Inicio automático opcional — SIN comillas en ValueData (se borra con uninsdeletevalue)
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "XoPy"; ValueData: {app}\XoPy.exe; Flags: uninsdeletevalue; Tasks: autostart
 
 [Code]
-// Borra un directorio y todo su contenido recursivamente.
+// Borra un directorio y todo su contenido recursivamente para desinstalacion total.
 procedure DeleteDirectoryTree(const Dir: String);
 var
   FindRec: TFindRec;
@@ -79,79 +79,9 @@ begin
   RemoveDirectory(Dir);
 end;
 
-// Borra una clave de registro y todas sus subclaves recursivamente.
-function RegDeleteKeyIncludingSubkeys(const RootKey: DWORD; const SubKeyName: String): Boolean;
-var
-  i: Integer;
-  SubKeyNames: TArrayOfString;
-begin
-  Result := False;
-  if not RegQuerySubKeyNames(RootKey, SubKeyName, SubKeyNames) then
-  begin
-    Result := RegDeleteKey(RootKey, SubKeyName);
-    Exit;
-  end;
-  for i := 0 to GetArrayLength(SubKeyNames) - 1 do
-    RegDeleteKeyIncludingSubkeys(RootKey, SubKeyName + '\' + SubKeyNames[i]);
-  Result := RegDeleteKey(RootKey, SubKeyName);
-end;
-
-const
-  HKEY_CURRENT_USER = $80000001;
-
-// Limpia toda la integración que XoPy creó: registros, menús, Enviar a, etc.
-procedure CleanupXoPyIntegration();
-begin
-  RegDeleteValue(HKEY_CURRENT_USER, 'Software\Microsoft\Windows\CurrentVersion\Run', 'XoPy');
-  RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, 'Software\Microsoft\Windows\CurrentVersion\App Paths\XoPy.exe');
-  RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, 'Software\Classes\CLSID\{{3B1E92A7-7AD6-4E71-A218-75449CE13061}}');
-  RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, 'Software\Classes\Directory\Background\shellex\ContextMenuHandlers\XoPyPaste');
-  RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, 'Software\Classes\Directory\shellex\ContextMenuHandlers\XoPyPaste');
-  RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, 'Software\Classes\*\shellex\ContextMenuHandlers\XoPyPaste');
-  RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, 'Software\Classes\*\shell\XoPyCopy');
-  RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, 'Software\Classes\*\shell\XoPyCopyTo');
-  RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, 'Software\Classes\*\shell\XoPyMove');
-  RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, 'Software\Classes\*\shell\XoPyMoveTo');
-  RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, 'Software\Classes\*\shell\XoPyVerify');
-  RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, 'Software\Classes\Directory\shell\XoPyCopy');
-  RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, 'Software\Classes\Directory\shell\XoPyCopyTo');
-  RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, 'Software\Classes\Directory\shell\XoPyMove');
-  RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, 'Software\Classes\Directory\shell\XoPyMoveTo');
-  RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, 'Software\Classes\Directory\shell\XoPyVerify');
-  RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, 'Software\Classes\Directory\Background\shell\XoPyPaste');
-  RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, 'Software\Classes\Directory\Background\shell\XoPyOpen');
-  DeleteFile(ExpandConstant('{sendto}\XoPy.lnk'));
-end;
-
-procedure CurStepChanged(CurStep: TSetupStep);
-var
-  Keys: array of String;
-  I: Integer;
-begin
-  if CurStep = ssInstall then
-  begin
-    SetArrayLength(Keys, 12);
-    Keys[0] := 'Software\Classes\*\shell\XoPyCopy';
-    Keys[1] := 'Software\Classes\*\shell\XoPyCopyTo';
-    Keys[2] := 'Software\Classes\*\shell\XoPyMove';
-    Keys[3] := 'Software\Classes\*\shell\XoPyMoveTo';
-    Keys[4] := 'Software\Classes\*\shell\XoPyVerify';
-    Keys[5] := 'Software\Classes\Directory\shell\XoPyCopy';
-    Keys[6] := 'Software\Classes\Directory\shell\XoPyCopyTo';
-    Keys[7] := 'Software\Classes\Directory\shell\XoPyMove';
-    Keys[8] := 'Software\Classes\Directory\shell\XoPyMoveTo';
-    Keys[9] := 'Software\Classes\Directory\shell\XoPyVerify';
-    Keys[10] := 'Software\Classes\Directory\Background\shell\XoPyPaste';
-    Keys[11] := 'Software\Classes\Directory\Background\shell\XoPyOpen';
-    for I := 0 to GetArrayLength(Keys) - 1 do
-      RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, Keys[I]);
-  end;
-end;
-
 function InitializeUninstall: Boolean;
 begin
-  CleanupXoPyIntegration();
-
+  // Borrar carpeta de datos de XoPy si el usuario elige desinstalacion total.
   if MsgBox('¿Desea realizar una desinstalación total de XoPy?' + #13#10 +
             'Sí: elimina también el historial, los registros y los datos temporales (no se podrán recuperar).' + #13#10 +
             'No: se conserva el historial; solo se elimina la aplicación y sus entradas de menú.',
