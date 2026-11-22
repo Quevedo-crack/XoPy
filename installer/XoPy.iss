@@ -62,28 +62,6 @@ Root: HKCU; Subkey: "Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\Xo
 Root: HKCU; Subkey: "Software\\Microsoft\\Windows\\CurrentVersion\\Run"; ValueType: string; ValueName: "XoPy"; ValueData: """{app}\\{#AppExe}"" --tray"; Flags: uninsdeletevalue; Tasks: autostart
 
 [Code]
-{ Borra un directorio y todo su contenido (usado para la desinstalación total de datos). }
-procedure DeleteDirectoryTree(const Dir: String);
-var
-  FindRec: TFindRec;
-begin
-  if not DirExists(Dir) then Exit;
-  if FindFirst(Dir + '\*', FindRec) then
-  begin
-    repeat
-      if (FindRec.Name <> '.') and (FindRec.Name <> '..') then
-      begin
-        if (FindRec.Attributes and faDirectory) <> 0 then
-          DeleteDirectoryTree(Dir + '\' + FindRec.Name)
-        else
-          DeleteFile(Dir + '\' + FindRec.Name);
-      end;
-    until not FindNext(FindRec);
-    FindClose(FindRec);
-  end;
-  RemoveDirectory(Dir);
-end;
-
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   Keys: array of String;
@@ -126,7 +104,7 @@ begin
       'No: se conserva el historial; solo se elimina la aplicación y sus entradas de menú.',
       mbConfirmation, MB_YESNO) = IDYES then
   begin
-    DeleteDirectoryTree(ExpandConstant('{localappdata}\\XoPy'));
+    DelTree(ExpandConstant('{localappdata}\\XoPy'), True);
   end;
 
   Result := True;
