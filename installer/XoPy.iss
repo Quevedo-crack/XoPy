@@ -5,7 +5,7 @@
 #define AppExe "XoPy.exe"
 
 [Setup]
-AppId={{A5C3DF30-ED8D-4C8D-9F3F-4FA49A1001CD}
+AppId={A5C3DF30-ED8D-4C8D-9F3F-4FA49A1001CD}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppVerName={#AppName} {#AppVersion}
@@ -75,7 +75,7 @@ begin
     repeat
       if (FindRec.Name <> '.') and (FindRec.Name <> '..') then
       begin
-        if (FindRec.Attributes and faDirectory) <> 0 then
+        if (FindRec.Attributes and 16) <> 0 then
           DeleteDirectoryTree(Dir + '\' + FindRec.Name)
         else
           DeleteFile(Dir + '\' + FindRec.Name);
@@ -84,6 +84,23 @@ begin
     FindClose(FindRec);
   end;
   RemoveDirectory(Dir);
+end;
+
+{ Borra una clave de registro y todas sus subclaves recursivamente. }
+function RegDeleteKeyIncludingSubkeys(const RootKey: HKEY; const SubKeyName: String): Boolean;
+var
+  i: Integer;
+  SubKeyNames: TArrayOfString;
+begin
+  Result := False;
+  if not RegQuerySubKeyNames(RootKey, SubKeyName, SubKeyNames) then
+  begin
+    Result := RegDeleteKey(RootKey, SubKeyName);
+    Exit;
+  end;
+  for i := 0 to GetArrayLength(SubKeyNames) - 1 do
+    RegDeleteKeyIncludingSubkeys(RootKey, SubKeyName + '\' + SubKeyNames[i]);
+  Result := RegDeleteKey(RootKey, SubKeyName);
 end;
 
 { Limpia toda la integración que XoPy creó: registros, menús, Enviar a, etc. }
@@ -149,7 +166,7 @@ begin
   if MsgBox('¿Desea realizar una desinstalación total de XoPy?' + #13#10 +
             'Sí: elimina también el historial, los registros y los datos temporales (no se podrán recuperar).' + #13#10 +
             'No: se conserva el historial; solo se elimina la aplicación y sus entradas de menú.',
-            mbConfirmation, MB_YESNO) = IDYES then
+            mbYesNo, mbIconQuestion) = IDYES then
   begin
     { Desinstalación total: borrar %LOCALAPPDATA%\XoPy (historial, registros, temporales, ajustes). }
     DeleteDirectoryTree(ExpandConstant('{localappdata}\\XoPy'));
