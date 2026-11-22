@@ -60,4 +60,5 @@ Type: files; Name: "{sendto}\*XoPy*.lnk"
 { Ejecutar despues de instalar temporalmente desactivado }
 
 [UninstallDelete]
-Type: filesandordirs; Name: "{app}"
+{ Desinstalacion temporalmente desactivada para diagnostico }
+
