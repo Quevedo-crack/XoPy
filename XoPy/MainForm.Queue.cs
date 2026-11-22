@@ -576,11 +576,11 @@ public sealed partial class MainForm
         if (item.Kind == ItemKind.File)
         {
             var files = _items.Where(candidate => candidate.Kind == ItemKind.File).ToList();
-            var index = files.IndexOf(item);
-            var target = index + delta;
-            if (index < 0 || target < 0 || target >= files.Count) return false;
-            var first = _items.IndexOf(files[index]);
-            var second = _items.IndexOf(files[target]);
+            var fileIndex = files.IndexOf(item);
+            var fileTarget = fileIndex + delta;
+            if (fileIndex < 0 || fileTarget < 0 || fileTarget >= files.Count) return false;
+            var first = _items.IndexOf(files[fileIndex]);
+            var second = _items.IndexOf(files[fileTarget]);
             (_items[first], _items[second]) = (_items[second], _items[first]);
             return true;
         }
