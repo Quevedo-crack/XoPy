@@ -24,14 +24,5 @@
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <DebugType>none</DebugType>
     <DebugSymbols>false</DebugSymbols>
-
-    <!-- Publicación autocontenida para cualquier PC limpia -->
-    <SelfContained>true</SelfContained>
-    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
-    <PublishSingleFile>true</PublishSingleFile>
-    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
-    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
-
-
   </PropertyGroup>
 </Project>
