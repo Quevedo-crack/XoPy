@@ -1122,8 +1122,9 @@ public sealed partial class MainForm
         e.Graphics.FillRectangle(background, e.Bounds);
         using var line = new Pen(_palette.Border);
         e.Graphics.DrawLine(line, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Right, e.Bounds.Bottom - 1);
-        var alignment = e.Header.TextAlign == HorizontalAlignment.Right ? TextFormatFlags.Right : TextFormatFlags.Left;
-        TextRenderer.DrawText(e.Graphics, e.Header.Text, _headerFont,
+        var headerText = e.Header?.Text ?? string.Empty;
+        var alignment = e.Header?.TextAlign == HorizontalAlignment.Right ? TextFormatFlags.Right : TextFormatFlags.Left;
+        TextRenderer.DrawText(e.Graphics, headerText, _headerFont,
             Rectangle.Inflate(e.Bounds, -10, 0), _palette.Muted,
             alignment | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
     }
