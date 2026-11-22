@@ -1,11 +1,23 @@
   Determining projects to restore...
-  All projects are up-to-date for restore.
-C:\Program Files\dotnet\sdk\11.0.100\Sdks\Microsoft.NET.Sdk\targets\Microsoft.NET.RuntimeIdentifierInference.targets(307,5): error NETSDK1175: Windows Forms is not supported or recommended with trimming enabled. Please go to https://aka.ms/dotnet-illink/windows-forms for more details. [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
+  Restored D:\a\XoPy\XoPy\XoPy\XoPy.csproj (in 27 ms).
+D:\a\XoPy\XoPy\XoPy\Dialogs.cs(737,29): warning CS8602: Dereference of a possibly null reference. [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
+D:\a\XoPy\XoPy\XoPy\MainForm.cs(422,13): error CS0117: 'ToolStripComboBox' does not contain a definition for 'DisplayMember' [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
+D:\a\XoPy\XoPy\XoPy\MainForm.cs(1507,48): error CS0117: 'TransferList' does not contain a definition for 'Length' [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
+D:\a\XoPy\XoPy\XoPy\MainForm.cs(1636,13): warning CS8602: Dereference of a possibly null reference. [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
+D:\a\XoPy\XoPy\XoPy\MainForm.Panels.cs(1125,25): warning CS8602: Dereference of a possibly null reference. [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
+D:\a\XoPy\XoPy\XoPy\MainForm.cs(113,18): warning CS0414: The field 'MainForm._wasRunning' is assigned but its value is never used [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
+CSC : warning WFO0003: Remove high DPI settings from D:\a\XoPy\XoPy\XoPy\app.manifest and configure via Application.SetHighDpiMode API or 'ApplicationHighDpiMode' project property (https://aka.ms/winforms-warnings/wfo0003) [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
 
 Build FAILED.
 
-C:\Program Files\dotnet\sdk\11.0.100\Sdks\Microsoft.NET.Sdk\targets\Microsoft.NET.RuntimeIdentifierInference.targets(307,5): error NETSDK1175: Windows Forms is not supported or recommended with trimming enabled. Please go to https://aka.ms/dotnet-illink/windows-forms for more details. [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
-    0 Warning(s)
-    1 Error(s)
+D:\a\XoPy\XoPy\XoPy\Dialogs.cs(737,29): warning CS8602: Dereference of a possibly null reference. [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
+D:\a\XoPy\XoPy\XoPy\MainForm.cs(1636,13): warning CS8602: Dereference of a possibly null reference. [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
+D:\a\XoPy\XoPy\XoPy\MainForm.Panels.cs(1125,25): warning CS8602: Dereference of a possibly null reference. [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
+D:\a\XoPy\XoPy\XoPy\MainForm.cs(113,18): warning CS0414: The field 'MainForm._wasRunning' is assigned but its value is never used [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
+CSC : warning WFO0003: Remove high DPI settings from D:\a\XoPy\XoPy\XoPy\app.manifest and configure via Application.SetHighDpiMode API or 'ApplicationHighDpiMode' project property (https://aka.ms/winforms-warnings/wfo0003) [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
+D:\a\XoPy\XoPy\XoPy\MainForm.cs(422,13): error CS0117: 'ToolStripComboBox' does not contain a definition for 'DisplayMember' [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
+D:\a\XoPy\XoPy\XoPy\MainForm.cs(1507,48): error CS0117: 'TransferList' does not contain a definition for 'Length' [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
+    5 Warning(s)
+    2 Error(s)
 
-Time Elapsed 00:00:00.72
+Time Elapsed 00:00:02.40
