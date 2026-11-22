@@ -572,7 +572,7 @@ public sealed partial class MainForm
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 10,
+            RowCount = 9,
             BackColor = _palette.Surface,
             Padding = new Padding(16, 10, 16, 8)
         };
@@ -583,7 +583,6 @@ public sealed partial class MainForm
         page.RowStyles.Add(new RowStyle(SizeType.Absolute, 20));
         page.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));
         page.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
-        page.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         page.RowStyles.Add(new RowStyle(SizeType.Absolute, 110));
         page.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
 
@@ -635,8 +634,6 @@ public sealed partial class MainForm
         speedRow.Controls.Add(_stSpeed, 0, 0);
         speedRow.Controls.Add(_stEta, 1, 0);
 
-        _graph = new SpeedGraph(_palette) { Dock = DockStyle.Fill, Margin = new Padding(0, 4, 0, 6), Height = 90 };
-
         var categories = BuildCategoryGrid();
 
         var hint = Ui.Label("Los hashes de cada archivo están en la pestaña Lista de archivos. El registro completo se guarda en %LOCALAPPDATA%\\XoPy\\transfer.log.",
@@ -654,9 +651,8 @@ public sealed partial class MainForm
         page.Controls.Add(_stTotals, 0, 4);
         page.Controls.Add(progressRow, 0, 5);
         page.Controls.Add(speedRow, 0, 6);
-        page.Controls.Add(_graph, 0, 7);
-        page.Controls.Add(categories, 0, 8);
-        page.Controls.Add(hint, 0, 9);
+        page.Controls.Add(categories, 0, 7);
+        page.Controls.Add(hint, 0, 8);
         return page;
     }
 
@@ -776,7 +772,7 @@ public sealed partial class MainForm
             var speed = _engine.SpeedBytesPerSecond;
             var remaining = _engine.Remaining;
             _hdrTargetInfo.Text = speed > 0
-                ? $"{Format.Speed(speed)}  ·  {Format.Duration(_engine.Elapsed)}  ·  quedan {Format.Duration(remaining)}"
+                ? $"{Format.Speed(speed)}  ·  {Format.Duration(_engine.ElapsedIncludingPauses)}  ·  quedan {Format.Duration(remaining)}"
                 : "Calculando la velocidad…";
         }
         else
@@ -1176,7 +1172,7 @@ public sealed partial class MainForm
                     _ => _palette.Text
                 };
                 if (item.Kind == ItemKind.DirectoryEntry) nameColor = _palette.Muted;
-                var name = item.Kind == ItemKind.DirectoryEntry ? item.Name + "  (carpeta vacía)" : item.Name;
+                var name = item.Kind == ItemKind.DirectoryEntry ? e.Item.Text + "  (carpeta vacía)" : e.Item.Text;
                 TextRenderer.DrawText(e.Graphics, name, _list.Font,
                     new Rectangle(x, top, Math.Max(0, e.Bounds.Right - x - 8), height),
                     nameColor, flags);

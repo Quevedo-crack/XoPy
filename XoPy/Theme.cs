@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Text;
@@ -511,12 +512,16 @@ internal sealed class ProgressStrip : Control
         Height = 12;
     }
 
+    [Browsable(false)]
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public Color FillColor
     {
         get => _fill;
         set { _fill = value; Invalidate(); }
     }
 
+    [Browsable(false)]
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public double Value
     {
         get => _value;
@@ -582,12 +587,14 @@ internal sealed class SpeedGraph : Control
                 graphics.DrawLine(grid, 0, y, width, y);
             }
         }
+        using (var border = new Pen(_palette.Border, 1))
+            graphics.DrawRectangle(border, 0, 0, width, height);
 
         if (_samples.Count < 2)
         {
             using var idle = new SolidBrush(_palette.Muted);
-            using var idleFont = new Font("Segoe UI", 9f);
-            graphics.DrawString("Sin actividad", idleFont, idle, new PointF(12, 10));
+            using var idleFont = new Font("Segoe UI", 8.25f);
+            graphics.DrawString("Velocidad  ·  Sin actividad", idleFont, idle, new PointF(10, 8));
             return;
         }
 
@@ -657,6 +664,8 @@ internal sealed class ChoiceButton : Button
 
     public event EventHandler? SelectedIndexChanged;
 
+    [Browsable(false)]
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public int SelectedIndex
     {
         get => _selectedIndex;

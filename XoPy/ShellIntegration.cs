@@ -1,15 +1,28 @@
 using Microsoft.Win32;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 namespace XoPy;
 
+/// <summary>
+/// Integración con Windows. XoPy ya NO añade entradas al menú contextual del Explorador
+/// («Copiar con XoPy», «Mover con XoPy», «Pegar con XoPy», etc.): el usuario pidió que solo
+/// aparezca «Pegar» y que lo haga XoPy directamente. La sustitución del copiador se hace con
+/// Ctrl+V (ver <see cref="ShellPasteHook"/>), sin tocar el menú contextual.
+/// Esta clase solo se encarga de limpiar las claves antiguas de versiones anteriores,
+/// quitar los accesos de «Enviar a» y registrar la ruta de la aplicación.
+/// </summary>
 public static class ShellIntegration
 {
     private const string ClassesRoot = @"Software\Classes";
     private const string AppPathKey = @"Software\Microsoft\Windows\CurrentVersion\App Paths\XoPy.exe";
     private const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
 
-    private static readonly string[] VerbKeys =
+    [DllImport("shell32.dll")]
+    private static extern void SHChangeNotify(uint eventId, uint flags, IntPtr item1, IntPtr item2);
+
+    /// <summary>Claves de menú contextual de versiones anteriores, para borrarlas al actualizar.</summary>
+    private static readonly string[] LegacyVerbKeys =
     {
         @"*\shell\XoPyCopy",
         @"*\shell\XoPyCopyTo",
@@ -22,39 +35,75 @@ public static class ShellIntegration
         @"Directory\shell\XoPyMoveTo",
         @"Directory\shell\XoPyVerify",
         @"Directory\Background\shell\XoPyPaste",
-        @"Directory\Background\shell\XoPyOpen"
+        @"Directory\Background\shell\XoPyOpen",
+        @"Directory\Background\shellex\ContextMenuHandlers\XoPyPaste",
+        @"Directory\shellex\ContextMenuHandlers\XoPyPaste",
+        @"*\shellex\ContextMenuHandlers\XoPyPaste"
     };
 
-    public static bool IsEnabled()
+    private const string LegacyPasteClsid = @"Software\Classes\CLSID\{3B1E92A7-7AD6-4E71-A218-75449CE13061}";
+
+    /// <summary>Quedan claves antiguas del menú contextual (de una versión anterior).</summary>
+    public static bool HasLegacyEntries()
     {
         try
         {
-            using var key = Registry.CurrentUser.OpenSubKey(ClassesRoot + @"\*\shell\XoPyCopy");
-            return key is not null;
+            foreach (var verb in LegacyVerbKeys)
+            {
+                using var key = Registry.CurrentUser.OpenSubKey(ClassesRoot + @"\" + verb);
+                if (key is not null) return true;
+            }
+            using var clsid = Registry.CurrentUser.OpenSubKey(LegacyPasteClsid);
+            if (clsid is not null) return true;
         }
-        catch
+        catch { }
+        return false;
+    }
+
+    /// <summary>Indica si queda una integración antigua registrada.</summary>
+    public static bool IsEnabled() => HasLegacyEntries();
+
+    /// <summary>Usa atajos de teclado y un acceso estándar de «Enviar a», sin modificar el Pegar nativo.</summary>
+    public static void Apply(bool enabled)
+    {
+        Cleanup();
+        if (enabled)
         {
-            return false;
+            try { CreateSendToShortcut(); } catch (Exception ex) { FileLog.Write("No se pudo crear el acceso de Enviar a: " + ex.Message); }
         }
     }
 
-    public static void Apply(bool enabled)
+    /// <summary>Borra las integraciones antiguas y registra la ruta de la aplicación.</summary>
+    public static void Cleanup()
     {
         var exe = Application.ExecutablePath;
         try { RegisterAppPath(exe); } catch { }
         try { RemoveSendToShortcuts(); } catch { }
-        try
-        {
-            if (enabled) Register(exe);
-            else Unregister();
-        }
-        catch
-        {
-            // Si una política del sistema bloquea el registro, la aplicación sigue funcionando.
-        }
+        try { Unregister(); } catch { }
+        try { SHChangeNotify(0x08000000, 0, IntPtr.Zero, IntPtr.Zero); } catch { }
     }
 
-    /// <summary>XoPy ya no usa «Enviar a»: se sustituye al copiador de Windows con Ctrl+V.</summary>
+    private static void CreateSendToShortcut()
+    {
+        var folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "Microsoft", "Windows", "SendTo");
+        Directory.CreateDirectory(folder);
+        var shortcutPath = Path.Combine(folder, "XoPy.lnk");
+        var shellType = Type.GetTypeFromProgID("WScript.Shell");
+        if (shellType is null) throw new InvalidOperationException("Windows Script Host no está disponible.");
+        dynamic? shell = Activator.CreateInstance(shellType);
+        if (shell is null) throw new InvalidOperationException("No se pudo crear el acceso directo.");
+        dynamic shortcut = shell.CreateShortcut(shortcutPath);
+        shortcut.TargetPath = Application.ExecutablePath;
+        shortcut.Arguments = "--ask-destination";
+        shortcut.WorkingDirectory = Path.GetDirectoryName(Application.ExecutablePath) ?? string.Empty;
+        shortcut.Description = "Copiar elementos con XoPy a una carpeta elegida";
+        shortcut.Save();
+        try { Marshal.FinalReleaseComObject(shortcut); } catch { }
+        try { Marshal.FinalReleaseComObject(shell); } catch { }
+    }
+
+    /// <summary>XoPy no usa «Enviar a»: se sustituye al copiador de Windows con Ctrl+V.</summary>
     public static void RemoveSendToShortcuts()
     {
         try
@@ -71,49 +120,15 @@ public static class ShellIntegration
         catch { }
     }
 
-    public static void Register(string exe)
-    {
-        var quoted = "\"" + exe + "\"";
-
-        WriteVerb(@"*\shell\XoPyCopy", "Copiar con XoPy", quoted + " --copy \"%1\"", exe);
-        WriteVerb(@"*\shell\XoPyCopyTo", "Copiar a… con XoPy", quoted + " --copy --ask-destination \"%1\"", exe);
-        WriteVerb(@"*\shell\XoPyMove", "Mover con XoPy", quoted + " --move \"%1\"", exe);
-        WriteVerb(@"*\shell\XoPyMoveTo", "Mover a… con XoPy", quoted + " --move --ask-destination \"%1\"", exe);
-        WriteVerb(@"*\shell\XoPyVerify", "Verificar con XoPy", quoted + " --test \"%1\"", exe);
-
-        WriteVerb(@"Directory\shell\XoPyCopy", "Copiar con XoPy", quoted + " --copy \"%1\"", exe);
-        WriteVerb(@"Directory\shell\XoPyCopyTo", "Copiar a… con XoPy", quoted + " --copy --ask-destination \"%1\"", exe);
-        WriteVerb(@"Directory\shell\XoPyMove", "Mover con XoPy", quoted + " --move \"%1\"", exe);
-        WriteVerb(@"Directory\shell\XoPyMoveTo", "Mover a… con XoPy", quoted + " --move --ask-destination \"%1\"", exe);
-        WriteVerb(@"Directory\shell\XoPyVerify", "Verificar con XoPy", quoted + " --test \"%1\"", exe);
-
-        WriteVerb(@"Directory\Background\shell\XoPyPaste", "Pegar con XoPy", quoted + " --paste --to \"%V\"", exe);
-        WriteVerb(@"Directory\Background\shell\XoPyOpen", "Abrir XoPy aquí", quoted + " --ask-destination", exe);
-    }
-
+    /// <summary>Borra todas las claves de menú contextual de versiones anteriores.</summary>
     public static void Unregister()
     {
-        foreach (var verb in VerbKeys)
+        foreach (var verb in LegacyVerbKeys)
         {
             try { Registry.CurrentUser.DeleteSubKeyTree(ClassesRoot + "\\" + verb, false); }
             catch { }
         }
-    }
-
-    private static void WriteVerb(string path, string label, string command, string exe)
-    {
-        using var key = Registry.CurrentUser.CreateSubKey(ClassesRoot + "\\" + path);
-        if (key is null) return;
-        key.SetValue(null, label);
-        key.SetValue("Icon", "\"" + exe + "\",0");
-        key.SetValue("MultiSelectModel", "Player");
-        using var commandKey = key.CreateSubKey("command");
-        commandKey?.SetValue(null, command);
-
-        foreach (var oldValue in new[] { "AppliesTo", "Position" })
-        {
-            try { key.DeleteValue(oldValue, false); } catch { }
-        }
+        try { Registry.CurrentUser.DeleteSubKeyTree(LegacyPasteClsid, false); } catch { }
     }
 
     public static void SetAutoStart(bool enabled)

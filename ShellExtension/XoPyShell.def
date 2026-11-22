@@ -1,0 +1,4 @@
+LIBRARY "XoPyShell"
+EXPORTS
+    DllGetClassObject
+    DllCanUnloadNow

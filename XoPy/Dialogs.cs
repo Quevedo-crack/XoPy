@@ -161,7 +161,6 @@ internal sealed class OptionsDialog : Form
     private readonly ChoiceButton _conflict;
     private readonly ChoiceButton _onError;
     private readonly NumericUpDown _retries;
-    private readonly CheckBox _explorer;
     private readonly CheckBox _replaceCopier;
     private readonly CheckBox _askWhenBusy;
     private readonly CheckBox _sound;
@@ -196,7 +195,8 @@ internal sealed class OptionsDialog : Form
         MinimizeBox = false;
         MaximizeBox = false;
         var workArea = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1280, 720);
-        ClientSize = new Size(760, Math.Min(660, Math.Max(520, workArea.Height - 70)));
+        ClientSize = new Size(Math.Min(900, Math.Max(720, workArea.Width - 80)),
+            Math.Min(760, Math.Max(500, workArea.Height - 60)));
 
         _tabs = new TabControl
         {
@@ -246,8 +246,7 @@ internal sealed class OptionsDialog : Form
             (int)settings.OnError);
         _retries = Numeric(settings.RetryCount, 0, 20, 1);
 
-        _explorer = Check("Añadir XoPy al menú contextual del Explorador", settings.ExplorerIntegration);
-        _replaceCopier = Check("Sustituir al copiador de Windows: Ctrl+C, Ctrl+X y Ctrl+V usan XoPy", settings.ReplaceWindowsCopier);
+        _replaceCopier = Check("Usar XoPy para Ctrl+V, Mayús+Insert y «Enviar a → XoPy»", settings.ReplaceWindowsCopier);
         _askWhenBusy = Check("Preguntar qué hacer si ya hay una transferencia en curso", settings.AskWhenBusy);
 
         _sound = Check("Reproducir un sonido al terminar", settings.PlaySoundWhenDone);
@@ -350,7 +349,7 @@ internal sealed class OptionsDialog : Form
         extraPanel.Controls.Add(extraButtons, 0, 1);
 
         _tabs.TabPages.Add(Page("Transferencia", 11,
-            ("Transferencias simultáneas", _parallel, 44),
+            ("Máximo de hilos (modo multihilo)", _parallel, 44),
             ("Búfer por archivo (KiB)", _buffer, 44),
             ("Límite de velocidad (MiB/s, 0 = sin límite)", _speed, 44),
             ("", _preserveTimestamps, 36),
@@ -396,18 +395,19 @@ internal sealed class OptionsDialog : Form
 
         _tabs.TabPages.Add(Page("Integración", 3,
             ("", _replaceCopier, 60),
-            ("", _explorer, 40),
             ("", new Label
             {
-                Text = "Al pegar en el escritorio o en cualquier carpeta (discos internos, externos\n" +
-                       "o unidades de red) se abre XoPy con su ventana y su progreso. Si venías de\n" +
-                       "«Cortar», se mueve y se borra el origen. Desactívalo para volver al\n" +
-                       "copiador de Windows cuando quieras.",
+                Text = "Ctrl+V y Mayús+Insert en el Explorador y el escritorio se transfieren con XoPy.\n" +
+                       "«Enviar a → XoPy» abre el selector de destino. Si el portapapeles contiene\n" +
+                       "elementos cortados, XoPy los mueve y elimina el origen al finalizar.\n\n" +
+                       "El pegado nativo del menú contextual de Windows se conserva: Windows no ofrece\n" +
+                       "una forma compatible de reemplazarlo globalmente. XoPy no añade otra opción\n" +
+                       "«Pegar» al menú contextual; así se evita el duplicado y no se reinicia Explorer.", 
                 AutoSize = true,
                 ForeColor = _palette.Muted,
                 Font = new Font("Segoe UI", 8.5f),
                 BackColor = Color.Transparent
-            }, 120)));
+            }, 160)));
 
         _tabs.TabPages.Add(Page("Al terminar", 5,
             ("", _sound, 42),
@@ -486,13 +486,25 @@ internal sealed class OptionsDialog : Form
             var text = new Label
             {
                 Text = label,
-                AutoSize = true,
+                AutoSize = false,
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleLeft,
+                AutoEllipsis = true,
                 ForeColor = _palette.Muted,
                 BackColor = Color.Transparent,
-                Anchor = AnchorStyles.Left,
                 Margin = new Padding(0, 0, 14, 0)
             };
-            control.Anchor = control is Label ? AnchorStyles.Left : AnchorStyles.Left;
+            if (control is Label description)
+            {
+                description.AutoSize = false;
+                description.Dock = DockStyle.Fill;
+                description.TextAlign = ContentAlignment.MiddleLeft;
+                description.AutoEllipsis = false;
+            }
+            else
+            {
+                control.Anchor = AnchorStyles.Left;
+            }
             control.Margin = new Padding(0, 0, 0, 0);
             layout.Controls.Add(text, 0, row);
             layout.Controls.Add(control, 1, row);
@@ -588,7 +600,7 @@ internal sealed class OptionsDialog : Form
         Result.Conflict = (ConflictPolicy)_conflict.SelectedIndex;
         Result.OnError = (ErrorPolicy)_onError.SelectedIndex;
         Result.RetryCount = (int)_retries.Value;
-        Result.ExplorerIntegration = _explorer.Checked;
+        Result.ExplorerIntegration = false;
         Result.ReplaceWindowsCopier = _replaceCopier.Checked;
         Result.AskWhenBusy = _askWhenBusy.Checked;
         Result.PlaySoundWhenDone = _sound.Checked;
@@ -608,6 +620,7 @@ internal sealed class OptionsDialog : Form
         target.StartWithWindows = Result.StartWithWindows;
         target.StartMinimized = Result.StartMinimized;
         target.Parallelism = Result.Parallelism;
+        target.MultiThreadCopy = Result.MultiThreadCopy;
         target.BufferKiB = Result.BufferKiB;
         target.SpeedLimitMiB = Result.SpeedLimitMiB;
         target.PreserveTimestamps = Result.PreserveTimestamps;
@@ -624,7 +637,7 @@ internal sealed class OptionsDialog : Form
         target.Conflict = Result.Conflict;
         target.OnError = Result.OnError;
         target.RetryCount = Result.RetryCount;
-        target.ExplorerIntegration = Result.ExplorerIntegration;
+        target.ExplorerIntegration = false;
         target.ReplaceWindowsCopier = Result.ReplaceWindowsCopier;
         target.AskWhenBusy = Result.AskWhenBusy;
         target.PlaySoundWhenDone = Result.PlaySoundWhenDone;
@@ -643,6 +656,7 @@ internal sealed class OptionsDialog : Form
         StartWithWindows = source.StartWithWindows,
         StartMinimized = source.StartMinimized,
         Parallelism = source.Parallelism,
+        MultiThreadCopy = source.MultiThreadCopy,
         BufferKiB = source.BufferKiB,
         SpeedLimitMiB = source.SpeedLimitMiB,
         PreserveTimestamps = source.PreserveTimestamps,

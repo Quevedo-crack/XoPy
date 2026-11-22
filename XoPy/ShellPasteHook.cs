@@ -8,14 +8,15 @@ using System.Windows.Forms;
 namespace XoPy;
 
 /// <summary>
-/// Sustituye al copiador de Windows: escucha Ctrl+V en el Explorador y el escritorio.
-/// Cuando hay archivos en el portapapeles se cancela el pegado de Windows y se hace con XoPy.
+/// Intercepta los atajos Ctrl+V y Mayús+Insert en el Explorador y el escritorio.
+/// Cuando hay archivos en el portapapeles se cancela el pegado nativo y se hace con XoPy.
 /// Si el portapapeles viene de un «Cortar» (Ctrl+X), se mueve y se borra el origen.
 /// </summary>
 public sealed class ShellPasteHook : IDisposable
 {
     private const int WhKeyboardLl = 13;
     private const int WmKeyDown = 0x0100;
+    private const int VkInsert = 0x2D;
 
     private delegate IntPtr HookProc(int code, IntPtr wParam, IntPtr lParam);
 
@@ -80,7 +81,9 @@ public sealed class ShellPasteHook : IDisposable
         var key = Marshal.ReadInt32(lParam);
         var control = (GetAsyncKeyState(0x11) & 0x8000) != 0;
         var shift = (GetAsyncKeyState(0x10) & 0x8000) != 0;
-        if (key != 0x56 || !control || shift) return CallNextHookEx(_hook, code, wParam, lParam);
+        var ctrlV = key == 0x56 && control && !shift;
+        var shiftInsert = key == VkInsert && shift && !control;
+        if (!ctrlV && !shiftInsert) return CallNextHookEx(_hook, code, wParam, lParam);
 
         try
         {
@@ -134,7 +137,7 @@ public sealed class ShellPasteHook : IDisposable
         return result;
     }
 
-    private static bool ClipboardIsCut()
+    public static bool ClipboardIsCut()
     {
         try
         {

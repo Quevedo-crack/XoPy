@@ -12,6 +12,7 @@ namespace XoPy;
 public sealed partial class MainForm
 {
     private readonly List<Task> _pendingScans = new();
+    private readonly List<Guid> _visualOrder = new();
 
     // ---------------------------------------------------------------- cola
 
@@ -31,13 +32,16 @@ public sealed partial class MainForm
 
     private void DropPaths(DragEventArgs e)
     {
-        if (e.Data?.GetData(DataFormats.FileDrop) is string[] paths) _ = AddPathsAsync(paths);
+        if (e.Data?.GetData(DataFormats.FileDrop) is string[] paths) _ = HandleExternalFiles(paths, null, false);
     }
 
-    private async Task AddPathsAsync(IEnumerable<string> paths)
+    private async Task AddPathsAsync(IEnumerable<string> paths, TransferList? targetList = null)
     {
         try
         {
+            if (targetList is not null && targetList != _activeList) SwitchToList(targetList);
+            EnsureDefaultList();
+
             var scans = new List<Task>();
             var files = new List<TransferItem>();
 
@@ -74,7 +78,7 @@ public sealed partial class MainForm
                             RelativePath = Path.GetFileName(path),
                             SizeKnown = false,
                             State = ItemState.Measuring,
-                            IsExpanded = true
+                            IsExpanded = false
                         };
                         _items.Add(folder);
                         var scan = ScanAndApplyAsync(folder);
@@ -338,7 +342,7 @@ public sealed partial class MainForm
                 SizeBytes = child.Size,
                 SizeKnown = true,
                 State = ItemState.Pending,
-                IsExpanded = true
+                IsExpanded = false
             };
             rows.Add(item);
             if (child.IsDirectory && !isLeafDirectory) AppendScanRows(child, item, rows);
@@ -363,6 +367,58 @@ public sealed partial class MainForm
     }
 
     private List<TransferItem> RootItems() => _items.Where(item => item.ParentId is null).ToList();
+
+    // Keep display order separate from _items: transfer order and source hierarchy
+    // must not change when a file is merely dragged to another visual position.
+    private List<TransferItem> VisualItems()
+    {
+        var byId = _items.ToDictionary(item => item.Id);
+        _visualOrder.RemoveAll(id => !byId.ContainsKey(id));
+        var present = _visualOrder.ToHashSet();
+
+        for (var index = 0; index < _items.Count;)
+        {
+            if (present.Contains(_items[index].Id))
+            {
+                index++;
+                continue;
+            }
+
+            var start = index;
+            var additions = new List<Guid>();
+            while (index < _items.Count && !present.Contains(_items[index].Id))
+            {
+                var id = _items[index++].Id;
+                present.Add(id);
+                additions.Add(id);
+            }
+
+            var insertAt = -1;
+            for (var previous = start - 1; previous >= 0; previous--)
+            {
+                var visualIndex = _visualOrder.IndexOf(_items[previous].Id);
+                if (visualIndex < 0) continue;
+                insertAt = visualIndex + 1;
+                break;
+            }
+            if (insertAt < 0)
+            {
+                for (var next = index; next < _items.Count; next++)
+                {
+                    var visualIndex = _visualOrder.IndexOf(_items[next].Id);
+                    if (visualIndex < 0) continue;
+                    insertAt = visualIndex;
+                    break;
+                }
+            }
+            if (insertAt < 0) insertAt = _visualOrder.Count;
+            _visualOrder.InsertRange(insertAt, additions);
+        }
+
+        return _visualOrder.Select(id => byId[id]).ToList();
+    }
+
+    private void ResetVisualOrder() => _visualOrder.Clear();
 
     private List<TransferItem> SelectedItems()
         => _list.SelectedItems.Cast<ListViewItem>().Select(row => row.Tag).OfType<TransferItem>().ToList();
@@ -397,7 +453,7 @@ public sealed partial class MainForm
         {
             _list.Items.Clear();
             _rows.Clear();
-            foreach (var item in _items)
+            foreach (var item in VisualItems())
             {
                 if (!IsVisibleRow(item)) continue;
                 var row = new ListViewItem(new[] { item.Name, item.SizeText, item.StateText, string.Empty, string.Empty, string.Empty })
@@ -553,9 +609,10 @@ public sealed partial class MainForm
         var selected = SelectedItems();
         if (selected.Count == 0) { SetStatus("Selecciona un elemento para cambiar su orden."); return; }
 
+        var visual = VisualItems();
         var ordered = delta < 0
-            ? selected.OrderBy(item => _items.IndexOf(item)).ToList()
-            : selected.OrderByDescending(item => _items.IndexOf(item)).ToList();
+            ? selected.OrderBy(item => visual.IndexOf(item)).ToList()
+            : selected.OrderByDescending(item => visual.IndexOf(item)).ToList();
 
         var moved = 0;
         foreach (var item in ordered)
@@ -571,6 +628,20 @@ public sealed partial class MainForm
 
     private bool MoveBlock(TransferItem item, int delta)
     {
+        // Files are presentation rows: update only the visual sequence. The
+        // underlying transfer order, ParentId, RelativePath and Depth stay intact.
+        if (item.Kind == ItemKind.File)
+        {
+            var files = VisualItems().Where(candidate => candidate.Kind == ItemKind.File).ToList();
+            var fileIndex = files.IndexOf(item);
+            var fileTarget = fileIndex + delta;
+            if (fileIndex < 0 || fileTarget < 0 || fileTarget >= files.Count) return false;
+            var first = _visualOrder.IndexOf(files[fileIndex].Id);
+            var second = _visualOrder.IndexOf(files[fileTarget].Id);
+            (_visualOrder[first], _visualOrder[second]) = (_visualOrder[second], _visualOrder[first]);
+            return true;
+        }
+
         var parent = item.ParentId is null ? null : _items.FirstOrDefault(candidate => candidate.Id == item.ParentId.Value);
         var siblings = parent is null ? RootItems() : Children(parent);
         var index = siblings.IndexOf(item);
@@ -597,6 +668,7 @@ public sealed partial class MainForm
 
         _items.Clear();
         _items.AddRange(rebuilt);
+        ResetVisualOrder();
         return true;
     }
 
@@ -703,7 +775,12 @@ public sealed partial class MainForm
     private void ListMouseDown(object? sender, MouseEventArgs e)
     {
         var info = _list.HitTest(e.Location);
-        if (info.Item?.Tag is not TransferItem item || item.Kind != ItemKind.Folder) return;
+        if (e.Button == MouseButtons.Right && info.Item is not null && !info.Item.Selected)
+        {
+            _list.SelectedItems.Clear();
+            info.Item.Selected = true;
+        }
+        if (e.Button != MouseButtons.Left || info.Item?.Tag is not TransferItem item || item.Kind != ItemKind.Folder) return;
         var indent = 8 + item.Depth * 18;
         if (e.X < info.Item.Bounds.Left + indent + 18 && e.X >= info.Item.Bounds.Left + indent - 2)
             ToggleExpand(item);
@@ -930,21 +1007,87 @@ public sealed partial class MainForm
                 return;
             }
 
-            try
+            // Si el destino no es válido se ofrece qué hacer, en lugar de mostrar solo un error.
+            var overlapConfirmed = false;
+            while (true)
             {
-                destination = Path.GetFullPath(destination);
-                if (operation != OperationType.Test) Directory.CreateDirectory(destination);
-                if (!Directory.Exists(destination)) throw new DirectoryNotFoundException("La carpeta de destino no existe: " + destination);
-            }
-            catch (Exception ex)
-            {
-                ShowError("La carpeta de destino no es válida: " + CopyEngine.Describe(ex));
-                return;
+                try
+                {
+                    destination = Path.GetFullPath(destination);
+                    if (operation is OperationType.Copy or OperationType.Move &&
+                        FindNestedSourceOverlap(destination, basis) is { } overlappingSource && !overlapConfirmed)
+                    {
+                        var choice = PromptDialog.Ask(this, _palette, "Origen y destino coinciden",
+                            $"El destino es la carpeta de origen o está dentro de ella:\n{overlappingSource}\n\n" +
+                            "Si continúas, XoPy creará una copia dentro de esa carpeta. ¿Qué quieres hacer?",
+                            null, new[] { "Continuar", "Elegir otro destino…", "Cancelar" });
+                        if (choice == 2) return;
+                        if (choice == 1)
+                        {
+                            _pickDestination.Description = "Elige otra carpeta de destino";
+                            if (_pickDestination.ShowDialog(this) != DialogResult.OK) return;
+                            destination = _pickDestination.SelectedPath;
+                            overlapConfirmed = false;
+                            continue;
+                        }
+                        overlapConfirmed = true;
+                    }
+                    if (operation != OperationType.Test) Directory.CreateDirectory(destination);
+                    if (!Directory.Exists(destination)) throw new DirectoryNotFoundException("La carpeta de destino no existe: " + destination);
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    var choice = PromptDialog.Ask(this, _palette,
+                        "Carpeta de destino no válida",
+                        "No se pudo usar la carpeta de destino:\n" + CopyEngine.Describe(ex) +
+                        "\n\n¿Qué quieres hacer?",
+                        null,
+                        new[] { "Elegir otra carpeta…", "Crear la carpeta", "Usar carpeta predeterminada", "Cancelar" });
+                    if (choice == 3) return;
+                    if (choice == 2)
+                    {
+                        destination = AppSettings.DefaultDestination();
+                        overlapConfirmed = false;
+                        continue;
+                    }
+                    if (choice == 1)
+                    {
+                        try { Directory.CreateDirectory(destination); }
+                        catch { /* se vuelve a preguntar */ }
+                        continue;
+                    }
+
+                    try
+                    {
+                        if (Directory.Exists(destination)) _pickDestination.SelectedPath = destination;
+                    }
+                    catch { }
+                    _pickDestination.Description = "Elige otra carpeta de destino";
+                    if (_pickDestination.ShowDialog(this) != DialogResult.OK) return;
+                    destination = _pickDestination.SelectedPath;
+                    overlapConfirmed = false;
+                }
             }
 
             _destination.Text = destination;
             _settings.Destination = destination;
             _store.Save(_settings);
+        }
+
+        var additionalDestinations = ExtraDestinations(operation);
+        if (operation is OperationType.Copy or OperationType.Move)
+        {
+            foreach (var extraDestination in additionalDestinations)
+            {
+                var overlappingSource = FindNestedSourceOverlap(extraDestination, basis);
+                if (overlappingSource is null) continue;
+                var choice = PromptDialog.Ask(this, _palette, "Origen y destino coinciden",
+                    $"El destino adicional es la carpeta de origen o está dentro de ella:\n{overlappingSource}\n\n" +
+                    "Si continúas, XoPy creará una copia dentro de esa carpeta. ¿Qué quieres hacer?",
+                    null, new[] { "Continuar", "Cancelar" });
+                if (choice != 0) return;
+            }
         }
 
         var required = leaves.Sum(item => Math.Max(0, item.SizeBytes));
@@ -1000,7 +1143,7 @@ public sealed partial class MainForm
             VerifyAfterCopy = _settings.VerifyAfterCopy,
             ComputeHashes = _settings.WriteChecksumFile,
             RetryCount = _settings.RetryCount,
-            Parallelism = _settings.Parallelism,
+            Parallelism = _settings.MultiThreadCopy ? _settings.Parallelism : 1,
             BufferSize = _settings.BufferKiB * 1024,
             SpeedLimitBytesPerSecond = _settings.SpeedLimitMiB * 1024L * 1024L,
             PreserveTimestamps = _settings.PreserveTimestamps,
@@ -1009,13 +1152,13 @@ public sealed partial class MainForm
             Engine = _engineOverride ?? _settings.Engine,
             ResumePartials = _settings.ResumePartials,
             SecureDeletePasses = _settings.SecureDeletePasses,
-            Destinations = ExtraDestinations(operation)
+            Destinations = additionalDestinations
         };
 
         _lastOperation = operation;
         _lastDestination = destination;
         SaveQueueFile(_store.LastQueueFile, silent: true);
-        _graph.Reset();
+        _footerGraph.Reset();
         _completedAt = DateTime.MinValue;
         _trayPercent = -1;
         _trayError = false;
@@ -1048,6 +1191,22 @@ public sealed partial class MainForm
         UpdateButtons();
     }
 
+    private static string? FindNestedSourceOverlap(string destination, IReadOnlyCollection<TransferItem> basis)
+    {
+        const StringComparison comparison = StringComparison.OrdinalIgnoreCase;
+        var normalizedDestination = Path.TrimEndingDirectorySeparator(Path.GetFullPath(destination));
+        foreach (var sourceFolder in basis.Where(item => item.Kind == ItemKind.Folder))
+        {
+            var source = Path.TrimEndingDirectorySeparator(Path.GetFullPath(sourceFolder.SourcePath));
+            var childPrefix = source.EndsWith(Path.DirectorySeparatorChar) || source.EndsWith(Path.AltDirectorySeparatorChar)
+                ? source
+                : source + Path.DirectorySeparatorChar;
+            if (normalizedDestination.Equals(source, comparison) || normalizedDestination.StartsWith(childPrefix, comparison))
+                return source;
+        }
+        return null;
+    }
+
     private List<string> ExtraDestinations(OperationType operation)
     {
         var list = new List<string>();
@@ -1063,6 +1222,130 @@ public sealed partial class MainForm
             catch { }
         }
         return list;
+    }
+
+    private void ChangeCopyMode()
+    {
+        if (_copyMode is null || _copyMode.SelectedIndex < 0) return;
+        _settings.MultiThreadCopy = _copyMode.SelectedIndex == 1;
+        _store.Save(_settings);
+        var parallelism = _settings.MultiThreadCopy ? _settings.Parallelism : 1;
+        if (_engine.IsRunning)
+        {
+            _engine.SetParallelism(parallelism);
+            SetStatus(_settings.MultiThreadCopy
+                ? $"Modo multihilo activado ({parallelism} transferencias simultáneas)."
+                : "Modo secuencial activado; los archivos en curso terminarán uno por uno.");
+        }
+        else
+        {
+            SetStatus(_settings.MultiThreadCopy ? "Modo multihilo seleccionado." : "Modo secuencial seleccionado.");
+        }
+        UpdateFooter();
+    }
+
+    private void ToggleSelectedFilePause()
+    {
+        if (!_engine.IsRunning) { SetStatus("No hay una transferencia en curso."); return; }
+        var files = SelectedItems()
+            .SelectMany(item => item.Kind == ItemKind.Folder ? Descendants(item) : new[] { item })
+            .Where(item => item.Kind == ItemKind.File)
+            .DistinctBy(item => item.Id)
+            .ToList();
+        if (files.Count == 0) { SetStatus("Selecciona uno o varios archivos en la lista."); return; }
+
+        var pause = files.Any(item => !_engine.IsItemPaused(item) && item.State is not (ItemState.Completed or ItemState.Failed or ItemState.Skipped or ItemState.Cancelled));
+        foreach (var item in files)
+        {
+            if (pause) _engine.PauseItem(item);
+            else _engine.ResumeItem(item);
+        }
+        SetStatus(pause ? $"Pausando {files.Count} archivo(s) seleccionado(s)…" : $"Reanudando {files.Count} archivo(s)…");
+        SyncRows();
+        UpdateFooter();
+    }
+
+    private void UpdateListMenuState()
+    {
+        if (_listMenu is null) return;
+        var pauseItem = _listMenu.Items.Find("pause-single-file", false).FirstOrDefault();
+        if (pauseItem is null) return;
+        var files = SelectedItems().SelectMany(item => item.Kind == ItemKind.Folder ? Descendants(item) : new[] { item })
+            .Where(item => item.Kind == ItemKind.File).DistinctBy(item => item.Id).ToList();
+        var canPause = _engine.IsRunning && files.Any(item => item.State is not (ItemState.Completed or ItemState.Failed or ItemState.Skipped or ItemState.Cancelled));
+        pauseItem.Enabled = canPause;
+        pauseItem.Text = files.Count > 0 && files.All(_engine.IsItemPaused)
+            ? "Reanudar archivo(s) seleccionado(s)"
+            : "Pausar archivo(s) seleccionado(s)";
+    }
+
+    private void ListItemDrag(object? sender, ItemDragEventArgs e)
+    {
+        if (_engine.IsRunning || e.Item is not ListViewItem row || row.Tag is not TransferItem item) return;
+        var payload = new DataObject();
+        payload.SetData("XoPy.QueueItem", item.Id.ToString("D"));
+        _list.DoDragDrop(payload, DragDropEffects.Move);
+    }
+
+    private void ListDragEnter(object? sender, DragEventArgs e)
+    {
+        if (e.Data?.GetDataPresent("XoPy.QueueItem") == true && !_engine.IsRunning)
+            e.Effect = DragDropEffects.Move;
+        else if (e.Data?.GetDataPresent(DataFormats.FileDrop) == true)
+            e.Effect = DragDropEffects.Copy;
+        else
+            e.Effect = DragDropEffects.None;
+    }
+
+    private void ListDragDrop(object? sender, DragEventArgs e)
+    {
+        if (e.Data?.GetDataPresent("XoPy.QueueItem") == true)
+        {
+            if (e.Data.GetData("XoPy.QueueItem") is string idText && Guid.TryParse(idText, out var id))
+            {
+                var point = _list.PointToClient(new Point(e.X, e.Y));
+                ReorderByDrop(id, point);
+            }
+            return;
+        }
+        if (e.Data?.GetDataPresent(DataFormats.FileDrop) == true) DropPaths(e);
+    }
+
+    private void ReorderByDrop(Guid draggedId, Point point)
+    {
+        if (_engine.IsRunning) return;
+        var source = _items.FirstOrDefault(item => item.Id == draggedId);
+        var targetRow = _list.HitTest(point).Item;
+        var target = targetRow?.Tag as TransferItem;
+        var canCrossGroups = source?.Kind == ItemKind.File && target?.Kind == ItemKind.File;
+        if (source is null || target is null || ReferenceEquals(source, target) ||
+            (!canCrossGroups && source.ParentId != target.ParentId))
+        {
+            SetStatus("Los archivos se pueden intercalar entre carpetas; las carpetas se reordenan dentro de su nivel.");
+            return;
+        }
+
+        var siblings = canCrossGroups
+            ? VisualItems().Where(item => item.Kind == ItemKind.File).ToList()
+            : source.ParentId is null ? RootItems() : Children(_items.First(item => item.Id == source.ParentId.Value));
+        var oldIndex = siblings.IndexOf(source);
+        var targetIndex = siblings.IndexOf(target);
+        if (oldIndex < 0 || targetIndex < 0) return;
+        var after = point.Y >= targetRow!.Bounds.Top + targetRow.Bounds.Height / 2;
+        var desired = targetIndex + (after ? 1 : 0);
+        if (oldIndex < desired) desired--;
+        while (oldIndex != desired)
+        {
+            var delta = desired < oldIndex ? -1 : 1;
+            if (!MoveBlock(source, delta)) break;
+            siblings = canCrossGroups
+                ? VisualItems().Where(item => item.Kind == ItemKind.File).ToList()
+                : source.ParentId is null ? RootItems() : Children(_items.First(item => item.Id == source.ParentId.Value));
+            oldIndex = siblings.IndexOf(source);
+        }
+        RebuildRows();
+        if (_rows.TryGetValue(source.Id, out var row)) row.Selected = true;
+        SetStatus("Elemento reordenado en la cola.");
     }
 
     private void TogglePause()
@@ -1130,6 +1413,20 @@ public sealed partial class MainForm
     {
         var detail = $"Origen: {prompt.SourcePath} ({Format.Bytes(prompt.SourceSize)}, {prompt.SourceModified:g})\n" +
                      $"Destino: {prompt.TargetPath} ({Format.Bytes(prompt.TargetSize)}, {prompt.TargetModified:g})";
+        var samePath = string.Equals(Path.GetFullPath(prompt.SourcePath), Path.GetFullPath(prompt.TargetPath), StringComparison.OrdinalIgnoreCase);
+        if (samePath)
+        {
+            var sameChoice = PromptDialog.Ask(this, _palette, "Origen y destino son el mismo archivo",
+                "El archivo ya está en la carpeta elegida. Puedes dejarlo sin cambios o crear otra copia con un nombre distinto.",
+                detail, new[] { "Dejar sin cambios", "Crear copia renombrada", "Cancelar" });
+            return sameChoice switch
+            {
+                1 => ConflictChoice.Rename,
+                2 => ConflictChoice.Cancel,
+                _ => ConflictChoice.Skip
+            };
+        }
+
         var choice = PromptDialog.Ask(this, _palette, "Ya existe un archivo",
             "El archivo de destino ya existe. ¿Qué quieres hacer con \"" + Path.GetFileName(prompt.TargetPath) + "\"?",
             detail, new[] { "Sobrescribir", "Omitir", "Cambiar nombre", "Cancelar" }, "Aplicar a todos los conflictos", out var applyAll);
@@ -1326,6 +1623,27 @@ public sealed partial class MainForm
         UpdateFooter();
         UpdateButtons();
 
+        // Barra de progreso y porcentaje de la barra de tareas de Windows.
+        try
+        {
+            if (IsHandleCreated && !IsDisposed)
+            {
+                if (_engine.IsRunning)
+                {
+                    var percent = (int)Math.Clamp(Math.Round(_lastPercent), 0, 100);
+                    var paused = _engine.IsPaused;
+                    var error = _items.Any(item => item.State == ItemState.Failed);
+                    Taskbar.SetProgress(Handle, percent, paused, error, true);
+                    Taskbar.SetOverlay(Handle, percent, paused, error, _settings.DarkTheme);
+                }
+                else
+                {
+                    Taskbar.Clear(Handle);
+                }
+            }
+        }
+        catch { }
+
         if (!_engine.IsRunning && _completedAt != DateTime.MinValue && (DateTime.Now - _completedAt).TotalSeconds > 6)
         {
             _completedAt = DateTime.MinValue;
@@ -1393,8 +1711,6 @@ public sealed partial class MainForm
         _pauseButton.Enabled = running;
         _skipButton.Enabled = running;
         _stopButton.Enabled = running;
-        _browseButton.Enabled = !running;
-        _favoritesButton.Enabled = !running;
         _verifyCheck.Enabled = !running;
         _removeButton.Enabled = !running && _items.Count > 0;
         _clearButton.Enabled = !running && _items.Count > 0;
@@ -1474,7 +1790,7 @@ public sealed partial class MainForm
             _statusLabel.Text = _currentStatus;
 
         UpdateTransferHeader(leaves, runningLeaf, done, total, percent);
-        if (_engine.IsRunning) _graph?.Add(_engine.SpeedBytesPerSecond);
+        if (_engine.IsRunning) _footerGraph?.Add(_engine.SpeedBytesPerSecond);
         UpdateStatusTab(percent, done, total, runningLeaf?.RelativePath ?? string.Empty);
     }
 
@@ -1530,31 +1846,34 @@ public sealed partial class MainForm
 
     private void ShowExplorerIntegration()
     {
-        var enabled = ShellIntegration.IsEnabled();
-        var message = "XoPy añade estas acciones al menú contextual del Explorador:\n\n" +
-                      "· Copiar con XoPy (usa el último destino)\n" +
-                      "· Copiar a… con XoPy (pregunta el destino)\n" +
-                      "· Mover con XoPy / Mover a… con XoPy\n" +
-                      "· Verificar con XoPy\n" +
-                      "· Pegar con XoPy (al hacer clic con el botón derecho en el fondo de una carpeta)\n\n" +
-                      "Además, instala un acceso en «Enviar a», que es la forma más rápida de enviar varios archivos a la vez.\n\n" +
-                      "En Windows 11 estas acciones aparecen en «Mostrar más opciones» (Mayús+F10).\n\n" +
-                      (enabled ? "La integración está ACTIVADA." : "La integración está DESACTIVADA.") +
-                      "\n\n¿Quieres activarla ahora?";
+        var legacy = ShellIntegration.HasLegacyEntries();
+        var message = "XoPy ya NO añade acciones con su nombre ni accesos «Enviar a».\n\n" +
+                      "La extensión de Windows añade una opción llamada «Pegar» que abre XoPy; además,\n" +
+                      "Ctrl+V se intercepta cuando el portapapeles contiene archivos. Si venías de «Cortar»,\n" +
+                      "se mueve y se borra el origen. En Windows 11 la opción de la extensión puede estar\n" +
+                      "en «Mostrar más opciones». La opción de pegado incorporada por Windows no se\n" +
+                      "modifica ni se elimina.\n\n" +
+                      "Las entradas antiguas («Copiar con XoPy», «Mover con XoPy», «Pegar con XoPy»,\n" +
+                      "«Verificar con XoPy», etc.) se borran automáticamente al abrir XoPy.\n\n" +
+                      (legacy
+                          ? "Todavía quedan entradas antiguas en el menú contextual.\n¿Quieres quitarlas ahora?"
+                          : "No quedan entradas antiguas en el menú contextual.");
 
-        if (MessageBox.Show(this, message, "Integración con el Explorador",
-                MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+        var choice = PromptDialog.Ask(this, _palette,
+            "Integración con el Explorador",
+            message,
+            null,
+            legacy ? new[] { "Quitar entradas antiguas", "Cerrar" } : new[] { "Cerrar" });
+        if (choice != 0 || !legacy) return;
 
         try
         {
-            _settings.ExplorerIntegration = true;
-            ShellIntegration.Apply(true);
-            _store.Save(_settings);
-            SetStatus("Integración activada. Ya puedes hacer clic derecho en archivos y carpetas.");
+            ShellIntegration.Cleanup();
+            SetStatus("Entradas antiguas del menú contextual eliminadas.");
         }
         catch (Exception ex)
         {
-            ShowError("No se pudo activar la integración: " + ex.Message);
+            ShowError("No se pudieron quitar las entradas antiguas: " + ex.Message);
         }
     }
 
@@ -1591,43 +1910,54 @@ public sealed partial class MainForm
         child1.RelativePath = Path.Combine("Carpeta", "foto1.jpg");
         var child2 = Make("foto2.jpg", 80, folder.Id, 1);
         child2.RelativePath = Path.Combine("Carpeta", "foto2.jpg");
+        var otherFolder = new TransferItem
+        {
+            Kind = ItemKind.Folder,
+            SourcePath = @"X:\inexistente\Otra",
+            RelativePath = "Otra",
+            SizeBytes = 40,
+            SizeKnown = true,
+            State = ItemState.Pending
+        };
+        var otherChild = Make("documento.txt", 40, otherFolder.Id, 1);
+        otherChild.RelativePath = Path.Combine("Otra", "documento.txt");
         var a = Make("a.txt", 300);
         var b = Make("b.txt", 100);
 
-        _items.AddRange(new[] { folder, child1, child2, a, b });
+        _items.AddRange(new[] { folder, child1, child2, otherFolder, otherChild, a, b });
         RebuildRows();
 
-        if (!MoveBlock(a, -1) || !ReferenceEquals(RootItems()[0], a))
-            report.AppendLine("FALLO: subir un archivo de la raíz no cambió el orden.");
-        if (!MoveBlock(b, -1) || RootItems().IndexOf(b) != 1)
-            report.AppendLine("FALLO: bajar un archivo de la raíz no cambió el orden.");
-        if (!MoveBlock(child2, -1) || Children(folder)[0] != child2)
-            report.AppendLine("FALLO: no se pudo reordenar dentro de la carpeta.");
-        if (Children(folder)[0].Depth != 1 || Children(folder)[0].ParentId != folder.Id)
-            report.AppendLine("FALLO: el archivo se separó de su carpeta al reordenar.");
+        if (!MoveBlock(a, -1) || VisualItems().Where(item => item.Kind == ItemKind.File).ToList()[2] != a)
+            report.AppendLine("FALLO: no se pudo intercalar un archivo entre grupos de carpetas distintos.");
+        if (_items.Where(item => item.Kind == ItemKind.File).ToList()[3] != a ||
+            !Children(folder).SequenceEqual(new[] { child1, child2 }) || a.ParentId is not null || a.RelativePath != "a.txt")
+            report.AppendLine("FALLO: el orden de transferencia, jerarquía o ruta cambió al reordenar visualmente.");
+        if (child2.Depth != 1 || child2.ParentId != folder.Id || child2.RelativePath != Path.Combine("Carpeta", "foto2.jpg") ||
+            otherChild.Depth != 1 || otherChild.ParentId != otherFolder.Id || otherChild.RelativePath != Path.Combine("Otra", "documento.txt"))
+            report.AppendLine("FALLO: el orden visual cambió la jerarquía o rutas de transferencia.");
 
         SortQueue(QueueSortField.Size);
         var roots = RootItems();
-        if (!roots.SequenceEqual(new[] { b, folder, a }))
-            report.AppendLine("FALLO: ordenar por tamaño no dejó b, carpeta, a.");
+        if (!roots.SequenceEqual(new[] { otherFolder, b, folder, a }))
+            report.AppendLine("FALLO: ordenar por tamaño no conservó los grupos raíz.");
 
         SortQueue(QueueSortField.Name);
-        if (!RootItems().SequenceEqual(new[] { a, b, folder }))
-            report.AppendLine("FALLO: el orden por nombre no dejó a, b, carpeta.");
+        if (!RootItems().SequenceEqual(new[] { a, b, folder, otherFolder }))
+            report.AppendLine("FALLO: el orden por nombre no conservó los grupos raíz.");
 
         SortQueue(QueueSortField.Source);
-        if (RootItems().Count != 3)
+        if (RootItems().Count != 4)
             report.AppendLine("FALLO: ordenar por carpeta de origen perdió elementos.");
 
         SortQueue(QueueSortField.Destination);
-        if (RootItems().Count != 3)
+        if (RootItems().Count != 4)
             report.AppendLine("FALLO: ordenar por carpeta de destino perdió elementos.");
 
         var before = _items.Count;
         RemoveItems(new[] { child1 });
         if (_items.Any(item => item.Id == child1.Id) || _items.Count != before - 1)
             report.AppendLine("FALLO: quitar de la lista no eliminó solo el elemento seleccionado.");
-        if (_items.Count(item => item.Kind == ItemKind.File) != 3)
+        if (_items.Count(item => item.Kind == ItemKind.File) != 4)
             report.AppendLine("FALLO: el recuento de archivos tras quitar es incorrecto.");
         if (_items.Any(item => File.Exists(item.SourcePath)))
             report.AppendLine("FALLO: la prueba tocó archivos reales.");
@@ -1817,6 +2147,7 @@ public sealed partial class MainForm
 
         _items.Clear();
         _items.AddRange(rebuilt);
+        ResetVisualOrder();
         RebuildRows();
         UpdateFooter();
         var label = field switch
@@ -2017,12 +2348,20 @@ public sealed partial class MainForm
 
     private void RestoreWindow()
     {
-        if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
-        ShowInTaskbar = true;
-        Show();
-        Activate();
-        BringToFront();
-        try { SetForegroundWindow(Handle); } catch { }
+        try
+        {
+            if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
+            ShowInTaskbar = true;
+            if (!Visible) Show();
+            Activate();
+            BringToFront();
+            // Windows solo concede SetForegroundWindow a procesos con permiso del usuario.
+            // TopMost temporal ayuda a sacar la ventana cuando está minimizada u ocultada en bandeja.
+            TopMost = true;
+            TopMost = false;
+            try { SetForegroundWindow(Handle); } catch { }
+        }
+        catch { }
     }
 
     private void MinimizeToTray()
@@ -2082,11 +2421,11 @@ public sealed partial class MainForm
             _tray.Dispose();
             _trayMenu.Dispose();
             if (_listMenu is not null) _listMenu.Dispose();
-            _favoritesMenu.Dispose();
             _percentIcon?.Dispose();
             _baseIcon?.Dispose();
             _pasteHook?.Dispose();
             _pasteHook = null;
+            _destination?.Dispose();
         }
         base.Dispose(disposing);
     }

@@ -14,7 +14,7 @@ public sealed partial class MainForm : Form
     private readonly AppSettings _settings;
     private readonly SettingsStore _store = new();
     private readonly Palette _palette;
-    private readonly List<TransferItem> _items = new();
+    private List<TransferItem> _items = new();
     private readonly Dictionary<Guid, ListViewItem> _rows = new();
     private readonly List<Task> _scanTasks = new();
     private readonly CopyEngine _engine = new();
@@ -30,8 +30,6 @@ public sealed partial class MainForm : Form
     private readonly OpenFileDialog _loadQueue = new() { Title = "Abrir cola", Filter = "Cola de XoPy (*.xopyq)|*.xopyq|JSON (*.json)|*.json" };
 
     private TextBox _destination = null!;
-    private Button _favoritesButton = null!;
-    private readonly ContextMenuStrip _favoritesMenu = new();
     private CheckBox _verifyCheck = null!;
     private ToolStripButton _addFilesButton = null!;
     private ToolStripButton _addFolderButton = null!;
@@ -44,7 +42,7 @@ public sealed partial class MainForm : Form
     private ToolStripButton _stopButton = null!;
     private ToolStripButton _optionsButton = null!;
     private ToolStripButton _menuButton = null!;
-    private Button _browseButton = null!;
+    private ToolStripComboBox _copyMode = null!;
     private Button _removeButton = null!;
     private Button _clearButton = null!;
     private Button _upButton = null!;
@@ -55,7 +53,13 @@ public sealed partial class MainForm : Form
     private Label _hdrCopyState = null!, _hdrCopyPath = null!, _hdrCopyInfo = null!, _hdrCopyPercent = null!;
     private Label _hdrTargetState = null!, _hdrTargetPath = null!, _hdrTargetInfo = null!, _hdrTargetPercent = null!;
     private ProgressStrip _hdrCopyBar = null!, _hdrTargetBar = null!;
-    private SpeedGraph _graph = null!;
+    private SpeedGraph _footerGraph = null!;
+    private TableLayoutPanel _rootLayout = null!;
+    private TableLayoutPanel _transferHeader = null!;
+    private ToolStripButton _compactButton = null!;
+    private bool _compactView;
+    private Rectangle _expandedBounds;
+    private bool _expandedWasMaximized;
     private Label[,] _categoryValues = new Label[4, 3];
     private ListBox _extraDestinations = null!;
     private CheckBox _optLocked = null!, _optResume = null!, _optChecksums = null!;
@@ -125,6 +129,15 @@ public sealed partial class MainForm : Form
     private double _lastPercent;
     private TimeSpan _sessionElapsed;
 
+    // ---------------------------------------------------------------- listas de copia múltiples en una misma pestaña
+
+    private readonly List<TransferList> _lists = new();
+    private TransferList? _activeList;
+    private ToolStripComboBox _listSelector = null!;
+    private ToolStripButton _newListButton = null!;
+    private ToolStripButton _deleteListButton = null!;
+    private ToolStripButton _removeFromListButton = null!;
+
     public MainForm(StartupRequest request)
     {
         _startupRequest = request;
@@ -134,22 +147,19 @@ public sealed partial class MainForm : Form
 
         BuildUi();
         LoadSettingsIntoUi();
+        ApplyCompactView(_settings.CompactView, persist: false);
         ApplyCopierReplacement();
         ApplyJobsCollapsed(_settings.CollapseJobs);
         WireEngine();
+        EnsureDefaultList();
         BuildTray();
         ApplyWindowGeometry();
 
-        try
+        if (_settings.ExplorerIntegration)
         {
-            if (ShellIntegration.IsEnabled() && !_settings.ExplorerIntegration)
-            {
-                _settings.ExplorerIntegration = true;
-                _store.Save(_settings);
-            }
-            if (_settings.ExplorerIntegration) ShellIntegration.Apply(true);
+            _settings.ExplorerIntegration = false;
+            _store.Save(_settings);
         }
-        catch { }
 
         _timer.Tick += (_, _) => TimerTick();
         _timer.Start();
@@ -180,25 +190,25 @@ public sealed partial class MainForm : Form
             Dock = DockStyle.Fill,
             ColumnCount = 1,
             BackColor = _palette.Canvas,
-            RowCount = 7,
+            RowCount = 6,
             Padding = new Padding(0)
         };
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 58));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 52));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 68));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 86));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 112));
+        _rootLayout = root;
 
+        InitializeDestinationState();
         _menu = BuildMenu();
         root.Controls.Add(_menu, 0, 0);
         root.Controls.Add(BuildToolbar(), 0, 1);
-        root.Controls.Add(BuildDestinationBar(), 0, 2);
-        root.Controls.Add(BuildTransferHeader(), 0, 3);
-        root.Controls.Add(BuildTabBar(), 0, 4);
-        root.Controls.Add(BuildContent(), 0, 5);
-        root.Controls.Add(BuildFooter(), 0, 6);
+        root.Controls.Add(BuildTransferHeader(), 0, 2);
+        root.Controls.Add(BuildTabBar(), 0, 3);
+        root.Controls.Add(BuildContent(), 0, 4);
+        root.Controls.Add(BuildFooter(), 0, 5);
 
         Controls.Add(root);
         MainMenuStrip = _menu;
@@ -212,6 +222,78 @@ public sealed partial class MainForm : Form
             SelectTab(0);
             ApplyDarkScrollbars();
         };
+    }
+
+    private void ToggleCompactView() => ApplyCompactView(!_compactView, persist: true);
+
+    private void ApplyCompactView(bool compact, bool persist)
+    {
+        _compactView = compact;
+        if (_rootLayout is not null)
+        {
+            _rootLayout.SuspendLayout();
+            _rootLayout.RowStyles[1].Height = compact ? 44 : 52;
+            _rootLayout.RowStyles[2].Height = compact ? 56 : 64;
+            _rootLayout.RowStyles[3].Height = compact ? 0 : 38;
+            _rootLayout.RowStyles[4].SizeType = compact ? SizeType.Absolute : SizeType.Percent;
+            _rootLayout.RowStyles[4].Height = compact ? 0 : 100;
+            _rootLayout.RowStyles[5].Height = compact ? 88 : 112;
+            if (_transferHeader is not null && _transferHeader.RowStyles.Count > 1)
+            {
+                // Ambas barras (general y del archivo actual) siguen visibles aunque la lista esté oculta.
+                _transferHeader.RowStyles[0].Height = compact ? 24 : 30;
+                _transferHeader.RowStyles[1].Height = compact ? 24 : 30;
+            }
+            UpdateToolbarForCompact(compact);
+            if (_compactButton is not null)
+            {
+                _compactButton.Image = Icons.Glyph(compact ? Icons.ChevronDown : Icons.ChevronRight, _palette.Text, 18);
+                _compactButton.Text = compact ? "Mostrar" : "Ocultar";
+                _compactButton.ToolTipText = compact
+                    ? "Mostrar la lista de copia"
+                    : "Ocultar la lista y dejar visibles los controles y el progreso";
+                _compactButton.AccessibleName = _compactButton.ToolTipText;
+            }
+            _rootLayout.ResumeLayout(true);
+        }
+
+        MinimumSize = compact ? new Size(1024, 230) : new Size(1024, 560);
+        if (persist)
+        {
+            if (compact)
+            {
+                _expandedWasMaximized = WindowState == FormWindowState.Maximized;
+                _expandedBounds = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
+                WindowState = FormWindowState.Normal;
+                Height = 230;
+            }
+            else if (_expandedBounds.Width > 0)
+            {
+                Bounds = new Rectangle(_expandedBounds.X, _expandedBounds.Y,
+                    Math.Max(MinimumSize.Width, _expandedBounds.Width), Math.Max(MinimumSize.Height, _expandedBounds.Height));
+                if (_expandedWasMaximized) WindowState = FormWindowState.Maximized;
+                _expandedBounds = Rectangle.Empty;
+                _expandedWasMaximized = false;
+            }
+            _settings.CompactView = compact;
+            _store.Save(_settings);
+        }
+    }
+
+    private void UpdateToolbarForCompact(bool compact)
+    {
+        // Al ocultar la lista se quitan las opciones que solo tienen sentido con la lista visible
+        // (añadir/copiar/mover/verificar/eliminar) y se priorizan pausa/reanudar y detener.
+        var listButtons = new[] { _addFilesButton, _addFolderButton, _copyButton, _moveButton, _testButton, _deleteButton };
+        foreach (var button in listButtons)
+        {
+            if (button is not null) button.Visible = !compact;
+        }
+        _pauseButton.Visible = true;
+        _skipButton.Visible = true;
+        _stopButton.Visible = true;
+        if (_listSelector is not null) _listSelector.Visible = true;
+        if (_newListButton is not null) _newListButton.Visible = true;
     }
 
     private MenuStrip BuildMenu()
@@ -241,7 +323,7 @@ public sealed partial class MainForm : Form
         var transfer = new ToolStripMenuItem("Transferencia");
         transfer.DropDownItems.Add(MenuItem("Copiar", (_, _) => StartTransfer(OperationType.Copy), Keys.F5));
         transfer.DropDownItems.Add(MenuItem("Mover", (_, _) => StartTransfer(OperationType.Move), Keys.Control | Keys.F5));
-        transfer.DropDownItems.Add(MenuItem("Eliminar", (_, _) => StartTransfer(OperationType.Delete)));
+        transfer.DropDownItems.Add(MenuItem("Eliminar…", (_, _) => StartTransfer(OperationType.Delete), Keys.Shift | Keys.Delete));
         transfer.DropDownItems.Add(MenuItem("Verificar", (_, _) => StartTransfer(OperationType.Test), Keys.F6));
         transfer.DropDownItems.Add(new ToolStripSeparator());
         transfer.DropDownItems.Add(MenuItem("Pausar / reanudar", (_, _) => TogglePause()));
@@ -266,6 +348,7 @@ public sealed partial class MainForm : Form
         queue.DropDownItems.Add(MenuItem("Quitar seleccionados", (_, _) => RemoveSelected()));
         queue.DropDownItems.Add(MenuItem("Limpiar la lista", (_, _) => ClearList()));
         queue.DropDownItems.Add(new ToolStripSeparator());
+        queue.DropDownItems.Add(MenuItem("Ocultar o mostrar la lista de copia", (_, _) => ToggleCompactView()));
         queue.DropDownItems.Add(MenuItem("Mostrar u ocultar la columna de trabajos", (_, _) => ToggleJobsPanel()));
 
         var tools = new ToolStripMenuItem("Herramientas");
@@ -308,15 +391,59 @@ public sealed partial class MainForm : Form
         _addFolderButton = BarButton("Carpeta", Icons.FolderAdd, (_, _) => AddFolder());
         _copyButton = BarButton("Copiar", Icons.Copy, (_, _) => StartTransfer(OperationType.Copy), true);
         _moveButton = BarButton("Mover", Icons.Move, (_, _) => StartTransfer(OperationType.Move));
-        _testButton = BarButton("Test", Icons.Verify, (_, _) => StartTransfer(OperationType.Test));
+        _testButton = BarButton("Verificar", Icons.Verify, (_, _) => StartTransfer(OperationType.Test));
         _deleteButton = BarButton("Eliminar", Icons.Delete, (_, _) => StartTransfer(OperationType.Delete));
         _pauseButton = BarButton("Pausar", Icons.Pause, (_, _) => TogglePause());
         _skipButton = BarButton("Saltar", Icons.ChevronRight, (_, _) => SkipCurrent());
         _stopButton = BarButton("Detener", Icons.Stop, (_, _) => StopTransfer());
+        _copyMode = new ToolStripComboBox
+        {
+            AutoSize = false,
+            Width = 116,
+            DropDownStyle = ComboBoxStyle.DropDownList,
+            Font = new Font("Segoe UI", 8.5f),
+            ToolTipText = "Modo de copia: secuencial o varios archivos en paralelo"
+        };
+        _copyMode.Items.AddRange(new object[] { "Secuencial", "Multihilo" });
+        _copyMode.SelectedIndex = _settings.MultiThreadCopy ? 1 : 0;
+        _copyMode.SelectedIndexChanged += (_, _) => ChangeCopyMode();
+        _compactButton = BarButton("Ocultar", Icons.ChevronRight, (_, _) => ToggleCompactView());
+        _compactButton.Margin = new Padding(2, 0, 4, 0);
+        _compactButton.ToolTipText = "Ocultar la lista y dejar visibles los controles y el progreso";
         _optionsButton = BarButton("Opciones", Icons.Settings, (_, _) => ShowOptions(), false, true);
         _optionsButton.Margin = new Padding(6, 0, 4, 0);
         _menuButton = BarButton("Menú", Icons.More, (_, _) => ShowMainMenu(), false, true);
         _menuButton.Margin = new Padding(0);
+
+        _listSelector = new ToolStripComboBox
+        {
+            DropDownStyle = ComboBoxStyle.DropDownList,
+            Width = 220,
+            ToolTipText = "Lista de copia activa. Cada instancia externa se agrega como una lista independiente en esta misma pestaña."
+        };
+        _listSelector.ComboBox.DisplayMember = nameof(TransferList.DisplayName);
+        _listSelector.SelectedIndexChanged += (_, _) =>
+        {
+            if (_listSelector.SelectedItem is TransferList list) SwitchToList(list);
+        };
+
+        _newListButton = BarButton("Nueva lista", Icons.Add, (_, _) =>
+        {
+            var dest = _destination.Text.Trim();
+            if (!Directory.Exists(dest) && _activeList is not null && Directory.Exists(_activeList.Destination))
+                dest = _activeList.Destination;
+            AddNewList(dest);
+        }, iconOnly: true);
+        _newListButton.Width = 40;
+        _newListButton.ToolTipText = "Crear una nueva lista de copia independiente";
+
+        _deleteListButton = BarButton("Eliminar lista", Icons.Delete, (_, _) => DeleteActiveList(), iconOnly: true);
+        _deleteListButton.Width = 40;
+        _deleteListButton.ToolTipText = "Borrar esta lista de copia (sólo del listado, no borra los archivos del disco)";
+
+        _removeFromListButton = BarButton("Quitar selección", Icons.Delete, (_, _) => RemoveSelected(), iconOnly: true);
+        _removeFromListButton.Width = 40;
+        _removeFromListButton.ToolTipText = "Quitar del listado los archivos seleccionados (no borra nada del disco)";
 
         var left = new ToolStrip
         {
@@ -348,7 +475,15 @@ public sealed partial class MainForm : Form
             Renderer = new DarkMenuRenderer(_palette),
             Padding = new Padding(0)
         };
-        right.Items.AddRange(new ToolStripItem[] { _optionsButton, _menuButton });
+        right.Items.AddRange(new ToolStripItem[]
+        {
+            new ToolStripLabel("Modo:"), _copyMode,
+            new ToolStripControlHost(_verifyCheck) { Margin = new Padding(2, 2, 4, 0), AutoSize = true },
+            new ToolStripLabel("  Lista:"),
+            _listSelector, _newListButton, _deleteListButton,
+            _removeFromListButton,
+            _compactButton, _optionsButton, _menuButton
+        });
 
         bar.Controls.Add(left, 0, 0);
         bar.Controls.Add(right, 1, 0);
@@ -398,64 +533,17 @@ public sealed partial class MainForm : Form
         _ => text
     };
 
-    private Control BuildDestinationBar()
+    private void InitializeDestinationState()
     {
-        var bar = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            ColumnCount = 5,
-            BackColor = _palette.Canvas,
-            Padding = new Padding(10, 9, 10, 7),
-            RowCount = 1
-        };
-        bar.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
-        bar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        bar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        bar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        bar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        bar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-
-        var label = Ui.Label("Destino:", _palette, 9f, true, _palette.Muted);
-        label.Anchor = AnchorStyles.Left;
-        label.Margin = new Padding(0, 8, 8, 0);
-
-        _destination = new TextBox
-        {
-            Dock = DockStyle.Fill,
-            BorderStyle = BorderStyle.FixedSingle,
-            BackColor = _palette.Surface,
-            ForeColor = _palette.Text,
-            Font = new Font("Segoe UI", 9.5f),
-            Margin = new Padding(0, 5, 6, 4),
-            Anchor = AnchorStyles.Left | AnchorStyles.Right
-        };
+        // Destination is an internal target selected from the active Explorer window
+        // or the Destino tab; keep it out of the always-visible toolbar.
+        _destination = new TextBox { Text = _settings.Destination };
         _destination.TextChanged += (_, _) =>
         {
+            if (_activeList is not null) _activeList.Destination = _destination.Text.Trim();
             UpdateFooter();
             UpdateTargetTab();
         };
-        _destination.KeyDown += (_, e) =>
-        {
-            if (e.KeyCode != Keys.Enter) return;
-            e.SuppressKeyPress = true;
-            e.Handled = true;
-            if (_items.Count > 0) StartTransfer(OperationType.Copy);
-        };
-
-        _browseButton = Ui.ToolButton("Examinar", Icons.Folder, _palette);
-        _browseButton.Size = new Size(106, 30);
-        _browseButton.Margin = new Padding(0, 2, 6, 0);
-        _browseButton.Anchor = AnchorStyles.Left;
-        _browseButton.Click += (_, _) => BrowseDestination();
-
-        _favoritesButton = Ui.ToolButton("Favoritos", Icons.Star, _palette);
-        _favoritesButton.Size = new Size(112, 30);
-        _favoritesButton.Margin = new Padding(0, 2, 6, 0);
-        _favoritesButton.Anchor = AnchorStyles.Left;
-        _favoritesButton.Click += (_, _) => ShowFavoritesMenu();
-
-        Ui.StyleMenu(_favoritesMenu, _palette);
-        _favoritesMenu.ShowImageMargin = true;
 
         _verifyCheck = new CheckBox
         {
@@ -463,7 +551,7 @@ public sealed partial class MainForm : Form
             AutoSize = true,
             ForeColor = _palette.Text,
             BackColor = Color.Transparent,
-            Margin = new Padding(0, 8, 0, 0),
+            Margin = new Padding(4, 2, 4, 0),
             Anchor = AnchorStyles.Left
         };
         new ToolTip().SetToolTip(_verifyCheck, "Compara cada archivo copiado con el original");
@@ -476,13 +564,6 @@ public sealed partial class MainForm : Form
             _store.Save(_settings);
             UpdateHashColumns();
         };
-
-        bar.Controls.Add(label, 0, 0);
-        bar.Controls.Add(_destination, 1, 0);
-        bar.Controls.Add(_browseButton, 2, 0);
-        bar.Controls.Add(_favoritesButton, 3, 0);
-        bar.Controls.Add(_verifyCheck, 4, 0);
-        return bar;
     }
 
     private Control BuildTabBar()
@@ -639,6 +720,7 @@ public sealed partial class MainForm : Form
             Padding = new Padding(12, 4, 12, 2),
             Margin = new Padding(0)
         };
+        _transferHeader = host;
         host.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
         host.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
 
@@ -748,11 +830,12 @@ public sealed partial class MainForm : Form
             ColumnCount = 1,
             BackColor = _palette.Surface,
             Padding = new Padding(12, 8, 12, 8),
-            RowCount = 3
+            RowCount = 4
         };
-        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 19));
-        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 13));
-        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
+        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 17));
+        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 35));
+        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 10));
+        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
 
         _currentLabel = new Label
         {
@@ -766,7 +849,8 @@ public sealed partial class MainForm : Form
             Margin = new Padding(0)
         };
 
-        _progress = new ProgressStrip(_palette) { Dock = DockStyle.Fill, Height = 12, Margin = new Padding(0, 1, 0, 1) };
+        _footerGraph = new SpeedGraph(_palette) { Dock = DockStyle.Fill, Height = 32, Margin = new Padding(0, 1, 0, 2) };
+        _progress = new ProgressStrip(_palette) { Dock = DockStyle.Fill, Height = 10, Margin = new Padding(0, 0, 0, 1) };
 
         _statusLabel = new Label
         {
@@ -817,8 +901,9 @@ public sealed partial class MainForm : Form
         statusRow.Controls.Add(_speedLabel, 2, 0);
 
         footer.Controls.Add(_currentLabel, 0, 0);
-        footer.Controls.Add(_progress, 0, 1);
-        footer.Controls.Add(statusRow, 0, 2);
+        footer.Controls.Add(_footerGraph, 0, 1);
+        footer.Controls.Add(_progress, 0, 2);
+        footer.Controls.Add(statusRow, 0, 3);
         return footer;
     }
 
@@ -900,7 +985,7 @@ public sealed partial class MainForm : Form
             SmallImageList = BuildRowImageList(),
             AllowDrop = true,
             ShowItemToolTips = true,
-            Font = new Font("Segoe UI", 9f),
+            Font = new Font("Segoe UI", 8.5f),
             Margin = new Padding(0),
             LabelEdit = false,
             GridLines = false
@@ -922,8 +1007,10 @@ public sealed partial class MainForm : Form
         _list.KeyDown += ListKeyDown;
         _list.DoubleClick += ListDoubleClick;
         _list.MouseDown += ListMouseDown;
-        _list.DragEnter += (_, e) => e.Effect = e.Data?.GetDataPresent(DataFormats.FileDrop) == true ? DragDropEffects.Copy : DragDropEffects.None;
-        _list.DragDrop += (_, e) => DropPaths(e);
+        _list.ItemDrag += ListItemDrag;
+        _list.DragEnter += ListDragEnter;
+        _list.DragOver += ListDragEnter;
+        _list.DragDrop += ListDragDrop;
         _list.SelectedIndexChanged += (_, _) => UpdateButtons();
 
         // Doble búfer para que la lista no parpadee mientras se actualiza el progreso.
@@ -944,8 +1031,8 @@ public sealed partial class MainForm : Form
 
     private static ImageList BuildRowImageList()
     {
-        var images = new ImageList { ImageSize = new Size(1, 30) };
-        var bitmap = new Bitmap(1, 30);
+        var images = new ImageList { ImageSize = new Size(1, 20) };
+        var bitmap = new Bitmap(1, 20);
         using (var graphics = Graphics.FromImage(bitmap)) graphics.Clear(Color.Transparent);
         images.Images.Add(bitmap);
         return images;
@@ -967,6 +1054,11 @@ public sealed partial class MainForm : Form
         _listMenu.Items.Add("Subir", null, (_, _) => MoveSelected(-1));
         _listMenu.Items.Add("Bajar", null, (_, _) => MoveSelected(1));
         _listMenu.Items.Add(new ToolStripSeparator());
+        var pauseItem = new ToolStripMenuItem("Pausar archivo seleccionado");
+        pauseItem.Click += (_, _) => ToggleSelectedFilePause();
+        pauseItem.Name = "pause-single-file";
+        _listMenu.Items.Add(pauseItem);
+        _listMenu.Opening += (_, _) => UpdateListMenuState();
         _listMenu.Items.Add(new ToolStripSeparator());
         _listMenu.Items.Add("Quitar de la lista (Supr)", null, (_, _) => RemoveSelected());
         _listMenu.Items.Add("Reintentar los fallidos", null, (_, _) => RetryFailed());
@@ -1057,7 +1149,7 @@ public sealed partial class MainForm : Form
     {
         var workingArea = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1920, 1080);
         var width = _settings.WindowWidth >= MinimumSize.Width ? _settings.WindowWidth : 1200;
-        var height = _settings.WindowHeight >= MinimumSize.Height ? _settings.WindowHeight : 740;
+        var height = _compactView ? MinimumSize.Height : _settings.WindowHeight >= MinimumSize.Height ? _settings.WindowHeight : 740;
         if (!_startupRequest.Screenshot)
         {
             width = Math.Min(width, workingArea.Width - 20);
@@ -1102,32 +1194,6 @@ public sealed partial class MainForm : Form
         SyncQuickOptions();
     }
 
-    private void ShowFavoritesMenu()
-    {
-        _favoritesMenu.Items.Clear();
-        var favorites = _settings.Favorites.Where(Directory.Exists).ToList();
-        if (favorites.Count == 0)
-        {
-            _favoritesMenu.Items.Add(new ToolStripMenuItem("Sin favoritos todavía") { Enabled = false });
-        }
-        foreach (var favorite in favorites)
-        {
-            var path = favorite;
-            var item = new ToolStripMenuItem(path);
-            item.Click += (_, _) =>
-            {
-                _destination.Text = path;
-                SetStatus("Destino: " + path);
-            };
-            _favoritesMenu.Items.Add(item);
-        }
-        _favoritesMenu.Items.Add(new ToolStripSeparator());
-        var add = new ToolStripMenuItem("Guardar la carpeta de destino en favoritos");
-        add.Click += (_, _) => AddFavorite();
-        _favoritesMenu.Items.Add(add);
-        _favoritesMenu.Show(_favoritesButton, new Point(0, _favoritesButton.Height));
-    }
-
     private void AddFavorite()
     {
         var path = _destination.Text.Trim();
@@ -1158,6 +1224,7 @@ public sealed partial class MainForm : Form
     {
         try
         {
+            ShellIntegration.Apply(_settings.ReplaceWindowsCopier);
             if (_settings.ReplaceWindowsCopier)
             {
                 if (_pasteHook is not null) return;
@@ -1190,16 +1257,7 @@ public sealed partial class MainForm : Form
         try
         {
             if (IsDisposed) return;
-            RestoreWindow();
-            if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
-            Activate();
-
-            _destination.Text = destination;
-            _settings.Destination = destination;
-            _store.Save(_settings);
-            UpdateTargetTab();
-            await AddPathsAsync(files);
-            StartTransfer(move ? OperationType.Move : OperationType.Copy);
+            await HandleExternalFiles(files, destination, move);
         }
         catch (Exception ex)
         {
@@ -1238,6 +1296,18 @@ public sealed partial class MainForm : Form
     protected override void OnShown(EventArgs e)
     {
         base.OnShown(e);
+        // La ventana debe verse siempre al abrir XoPy (salvo si se pidió arrancar minimizado).
+        if (!_settings.StartMinimized && !_startupRequest.StartMinimized)
+        {
+            try
+            {
+                Show();
+                if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
+                Activate();
+                BringToFront();
+            }
+            catch { }
+        }
         _ = HandleExternalAsync(_startupRequest, true);
     }
 
@@ -1247,10 +1317,17 @@ public sealed partial class MainForm : Form
     {
         if (!isStartup) RestoreWindow();
 
-        if (request.Paths.Count > 0) await AddPathsAsync(request.Paths);
-        if (!string.IsNullOrWhiteSpace(request.Destination) && Directory.Exists(request.Destination))
+        if (!string.IsNullOrWhiteSpace(request.Destination) && _activeList is not null)
+            _activeList.Destination = request.Destination;
+
+        if (request.Paths.Count > 0)
+            await HandleExternalFiles(request.Paths, request.Destination, request.Operation == OperationType.Move);
+        else if (!string.IsNullOrWhiteSpace(request.Destination))
+        {
             _destination.Text = request.Destination!;
-        if (request.PasteFromClipboard) PasteFromClipboard(request.Destination ?? _destination.Text);
+            UpdateTargetTab();
+        }
+        if (request.PasteFromClipboard) PasteFromClipboard(request.Destination);
 
         if (request.Conflict is not null) _settings.Conflict = request.Conflict.Value;
         if (request.VerifyAlgorithm is not null) _settings.Verify = request.VerifyAlgorithm.Value;
@@ -1291,8 +1368,302 @@ public sealed partial class MainForm : Form
             MinimizeToTray();
     }
 
+    // ---------------------------------------------------------------- listas de copia múltiples en una misma pestaña
+
+    private void EnsureDefaultList()
+    {
+        if (_lists.Count > 0) return;
+        var list = new TransferList
+        {
+            Name = "Lista de copia",
+            Destination = string.IsNullOrWhiteSpace(_settings.Destination)
+                ? AppSettings.DefaultDestination() : _settings.Destination
+        };
+        _lists.Add(list);
+        _activeList = list;
+        _items = list.Items;
+        RefreshListSelector();
+    }
+
+    private void AddNewList(string? destination)
+    {
+        var next = _lists.Count + 1;
+        var list = new TransferList
+        {
+            Name = $"Lista de copia {next}",
+            Destination = string.IsNullOrWhiteSpace(destination) ? AppSettings.DefaultDestination() : destination
+        };
+        _lists.Add(list);
+        SwitchToList(list);
+    }
+
+    /// <summary>
+    /// Borra la lista de copia activa del listado. Nunca toca los archivos del disco:
+    /// sólo quita la entrada de la lista y sus referencias en memoria.
+    /// </summary>
+    private void DeleteActiveList()
+    {
+        if (_activeList is null) return;
+        if (_engine.IsRunning)
+        {
+            SetStatus("Detén la transferencia antes de borrar una lista.");
+            return;
+        }
+
+        var answer = MessageBox.Show(this,
+            $"¿Borrar la lista «{_activeList.DisplayName}»?\n\n" +
+            "Esto sólo elimina la lista del listado de XoPy. No borra ningún archivo del disco.",
+            "XoPy", MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2);
+        if (answer != DialogResult.Yes) return;
+
+        _lists.Remove(_activeList);
+        if (_lists.Count == 0)
+        {
+            EnsureDefaultList();
+        }
+        else
+        {
+            SwitchToList(_lists[0]);
+        }
+        SetStatus("Lista borrada del listado.");
+    }
+
+    private void SwitchToList(TransferList? list)
+    {
+        if (list is null) return;
+        if (_engine.IsRunning && list != _activeList)
+        {
+            SetStatus("Hay una transferencia en curso: los archivos se añaden a la lista activa.");
+            list = _activeList;
+            if (list is null) return;
+        }
+
+        _activeList = list;
+        _items = list.Items;
+
+        if (!string.IsNullOrWhiteSpace(list.Destination))
+        {
+            _destination.Text = list.Destination;
+        }
+        list.UpdatedAt = DateTime.Now;
+        RefreshListSelector();
+        UpdateTargetTab();
+        UpdateButtons();
+        SyncRows();
+        SetStatus($"Lista activa: {list.DisplayName} ({list.Items.Count} archivo(s))");
+    }
+
+    private void RefreshListSelector()
+    {
+        if (_listSelector is null) return;
+        var current = _listSelector.SelectedItem as TransferList;
+        _listSelector.Items.Clear();
+        foreach (var list in _lists) _listSelector.Items.Add(list);
+        _listSelector.SelectedItem = _activeList ?? current;
+    }
+
+    /// <summary>
+    /// Pregunta al usuario a qué lista de copia añadir los archivos recibidos. Respeta el estilo
+    /// visual de la aplicación. Devuelve null si el usuario cancela.
+    /// </summary>
+    private (TransferList List, bool ChangeDestination)? AskListDecision(
+        IReadOnlyList<string> files, string detectedDestination, bool move)
+    {
+        var dlg = new Form
+        {
+            Text = "Añadir archivos a la copia",
+            BackColor = _palette.Canvas,
+            ForeColor = _palette.Text,
+            StartPosition = FormStartPosition.CenterParent,
+            FormBorderStyle = FormBorderStyle.FixedDialog,
+            MinimizeBox = false,
+            MaximizeBox = false,
+            ClientSize = new Size(600, 380),
+        };
+
+        var verb = move ? "mover" : "copiar";
+        var message = new Label
+        {
+            Text = $"{files.Count} elemento(s) listos para {verb}.\nDestino detectado: {detectedDestination}",
+            AutoSize = false,
+            Dock = DockStyle.Fill,
+            Padding = new Padding(16, 14, 16, 0),
+            ForeColor = _palette.Text,
+            BackColor = _palette.Canvas,
+            Font = new Font("Segoe UI", 9.5f),
+        };
+
+        var options = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            FlowDirection = FlowDirection.TopDown,
+            AutoScroll = true,
+            Padding = new Padding(12, 8, 12, 8),
+            BackColor = _palette.Canvas,
+            AutoSize = false,
+        };
+
+        var defaultDestination = detectedDestination;
+        var sameDestination = _activeList is not null
+            && _activeList.Destination.Length > 0
+            && string.Equals(_activeList.Destination, detectedDestination, StringComparison.OrdinalIgnoreCase);
+
+        TransferList? chosen = null;
+
+        void AddOption(TransferList list, bool changeToDetected, string text)
+        {
+            var rb = new RadioButton
+            {
+                Text = text,
+                AutoSize = true,
+                Margin = new Padding(4, 6, 4, 2),
+                ForeColor = _palette.Text,
+                BackColor = _palette.Canvas,
+                Font = new Font("Segoe UI", 9f),
+                Checked = list == _activeList && sameDestination && !changeToDetected,
+            };
+            rb.CheckedChanged += (_, _) =>
+            {
+                if (rb.Checked) chosen = list;
+            };
+            options.Controls.Add(rb);
+        }
+
+        foreach (var list in _lists)
+        {
+            var same = string.Equals(list.Destination, detectedDestination, StringComparison.OrdinalIgnoreCase);
+            AddOption(list, false,
+                $"Añadir a «{list.DisplayName}» (destino: {list.Destination})" + (same ? " · mismo destino" : string.Empty));
+            if (!same)
+            {
+                AddOption(list, true,
+                    $"Añadir a «{list.DisplayName}» con el destino detectado (cambiar destino a: {detectedDestination})");
+            }
+        }
+
+        var nueva = new TransferList { Name = $"Lista de copia {_lists.Count + 1}", Destination = detectedDestination };
+        AddOption(nueva, true, $"Crear una nueva lista (destino: {detectedDestination})");
+
+        if (chosen is null) chosen = sameDestination && _activeList is not null ? _activeList : _lists.FirstOrDefault();
+
+        var buttons = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Bottom,
+            FlowDirection = FlowDirection.RightToLeft,
+            Padding = new Padding(12, 8, 12, 8),
+            BackColor = _palette.Surface,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+        };
+
+        var cancel = new Button { Text = "Cancelar", Width = 96, Height = 32, DialogResult = DialogResult.Cancel };
+        var add = new Button
+        {
+            Text = $"Añadir a «{(chosen?.DisplayName ?? "la lista")}»",
+            Width = 220, Height = 32,
+            BackColor = _palette.Accent,
+            ForeColor = Color.White,
+            FlatStyle = FlatStyle.Flat,
+            Font = new Font("Segoe UI", 9f, FontStyle.Bold),
+        };
+        add.FlatAppearance.BorderSize = 0;
+        add.Click += (_, _) => dlg.DialogResult = DialogResult.OK;
+        cancel.Click += (_, _) => dlg.DialogResult = DialogResult.Cancel;
+        buttons.Controls.AddRange(new Control[] { add, cancel });
+        dlg.CancelButton = cancel;
+        dlg.AcceptButton = add;
+
+        var host = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3, BackColor = _palette.Canvas, Padding = new Padding(0) };
+        host.RowStyles.Add(new RowStyle(SizeType.Absolute, 56));
+        host.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        host.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        host.Controls.Add(message, 0, 0);
+        host.Controls.Add(options, 0, 1);
+        host.Controls.Add(buttons, 0, 2);
+        dlg.Controls.Add(host);
+
+        if (dlg.ShowDialog(this) != DialogResult.OK) return null;
+        var target = chosen ?? _activeList!;
+        if (!_lists.Contains(target)) _lists.Add(target);
+        var changeDestination = target != _activeList
+            || !string.Equals(target.Destination, detectedDestination, StringComparison.OrdinalIgnoreCase);
+        return (target, changeDestination);
+    }
+
+    /// <summary>
+    /// Ruta común para archivos que llegan de fuera (pegado del Explorador, segunda instancia,
+    /// arrastrar archivos a la pestaña). Ofrece añadir a la lista actual, a otra lista activa
+    /// o crear una lista nueva, y usa el destino detectado sin mostrar un selector de carpeta.
+    /// </summary>
+    private async Task HandleExternalFiles(IReadOnlyList<string> files, string? detectedDestination, bool move)
+    {
+        if (files == null || files.Count == 0) return;
+        if (IsDisposed) return;
+
+        EnsureDefaultList();
+        var target = _activeList!;
+        bool changeDestination = false;
+        string? resolvedDestination = detectedDestination;
+
+        var validDetected = !string.IsNullOrWhiteSpace(detectedDestination)
+            && Directory.Exists(detectedDestination);
+
+        // Con varias listas activas el usuario elige a cuál añadir; con una sola y un destino
+        // detectado válido se usa directamente (sin selector de carpeta).
+        if (_lists.Count > 1 && validDetected)
+        {
+            var decision = AskListDecision(files, detectedDestination!, move);
+            if (decision is null) return;
+            target = decision.Value.List;
+            changeDestination = decision.Value.ChangeDestination;
+            resolvedDestination = detectedDestination;
+        }
+        else if (validDetected
+                 && !string.Equals(target.Destination, detectedDestination, StringComparison.OrdinalIgnoreCase))
+        {
+            changeDestination = true;
+        }
+
+        if (target != _activeList && _engine.IsRunning)
+        {
+            SetStatus("Transferencia en curso: los archivos se añaden a la lista activa.");
+            target = _activeList;
+            changeDestination = false;
+        }
+
+        SwitchToList(target);
+        if (changeDestination && resolvedDestination is { Length: > 0 })
+        {
+            target.Destination = resolvedDestination;
+            _destination.Text = resolvedDestination;
+            UpdateTargetTab();
+        }
+
+        await AddPathsAsync(files);
+        if (!_engine.IsRunning)
+            StartTransfer(move ? OperationType.Move : OperationType.Copy);
+    }
+
     private void PromptDestinationAndStart(OperationType operation)
     {
+        // En lugar de abrir directamente el selector, se ofrece qué hacer con el destino.
+        var verb = operation == OperationType.Move ? "mover" : "copiar";
+        var choice = PromptDialog.Ask(this, _palette,
+            "Falta la carpeta de destino",
+            $"¿A qué carpeta quieres {verb} los elementos?",
+            null,
+            new[] { "Elegir carpeta…", "Usar carpeta predeterminada", "Cancelar" });
+        if (choice == 2) return;
+        if (choice == 1)
+        {
+            var downloads = AppSettings.DefaultDestination();
+            _destination.Text = downloads;
+            _settings.Destination = downloads;
+            _store.Save(_settings);
+            StartTransfer(operation);
+            return;
+        }
+
         try
         {
             if (Directory.Exists(_destination.Text.Trim())) _pickDestination.SelectedPath = _destination.Text.Trim();
@@ -1322,13 +1693,48 @@ public sealed partial class MainForm : Form
             return;
         }
         if (files.Length == 0) { SetStatus("El portapapeles no contiene archivos."); return; }
+
+        var move = ShellPasteHook.ClipboardIsCut();
+
+        if (_lists.Count > 1 && !string.IsNullOrWhiteSpace(destination) && Directory.Exists(destination))
+        {
+            var decision = AskListDecision(files, destination, move);
+            if (decision is null) return;
+            SwitchToList(decision.Value.List);
+            if (decision.Value.ChangeDestination)
+            {
+                _activeList!.Destination = destination;
+                _destination.Text = destination;
+            }
+            else
+            {
+                destination = _activeList!.Destination;
+            }
+        }
+
         if (string.IsNullOrWhiteSpace(destination) || !Directory.Exists(destination))
         {
-            SetStatus("Copia primero archivos y usa «Pegar con XoPy» sobre una carpeta.");
-            return;
+            // Never guess Downloads here: that can be the source folder and cause
+            // a paste to target the same place. Ask only when no valid target exists.
+            try
+            {
+                if (Directory.Exists(_destination.Text.Trim())) _pickDestination.SelectedPath = _destination.Text.Trim();
+            }
+            catch { }
+            _pickDestination.Description = "No se pudo determinar el destino del pegado. Elige la carpeta correcta.";
+            if (_pickDestination.ShowDialog(this) != DialogResult.OK) return;
+            destination = _pickDestination.SelectedPath;
+            if (!Directory.Exists(destination))
+            {
+                SetStatus("La carpeta de destino elegida ya no existe.");
+                return;
+            }
         }
         _destination.Text = destination;
+        _settings.Destination = destination;
+        _store.Save(_settings);
         _ = AddPathsAsync(files);
-        StartTransfer(OperationType.Copy);
+        var operation = ShellPasteHook.ClipboardIsCut() ? OperationType.Move : OperationType.Copy;
+        StartTransfer(operation);
     }
 }
