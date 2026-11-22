@@ -104,7 +104,7 @@ begin
       'No: se conserva el historial; solo se elimina la aplicación y sus entradas de menú.',
       mbConfirmation, MB_YESNO) = IDYES then
   begin
-    DelTree(ExpandConstant('{localappdata}\\XoPy'), True);
+    DelTree(ExpandConstant('{localappdata}\\XoPy'));
   end;
 
   Result := True;
