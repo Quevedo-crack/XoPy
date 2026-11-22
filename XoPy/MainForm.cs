@@ -149,13 +149,11 @@ public sealed partial class MainForm : Form
         BuildUi();
         LoadSettingsIntoUi();
         ApplyCompactView(_settings.CompactView, persist: false);
-        // ShellPasteHook y ShellIntegration se activan tras OnShown para evitar
-        // desbordamiento de pila (0xc00000fd) durante el arranque por SetWindowsHookEx/WScript.Shell.
-        try { ApplyCopierReplacement(); } catch { }
+        ApplyCopierReplacement();
         ApplyJobsCollapsed(_settings.CollapseJobs);
         WireEngine();
         EnsureDefaultList();
-        try { BuildTray(); } catch { }
+        BuildTray();
         ApplyWindowGeometry();
 
         if (_settings.ExplorerIntegration)
@@ -1325,6 +1323,7 @@ public sealed partial class MainForm : Form
         {
             try
             {
+                Show();
                 if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
                 Activate();
                 BringToFront();
@@ -1332,13 +1331,10 @@ public sealed partial class MainForm : Form
             catch { }
         }
 
-        // Instalar el hook de pegado y procesar la solicitud de arranque despues de que
-        // el formulario este completamente inicializado, para evitar reentrancy durante el arranque.
-        BeginInvoke(new Action(() =>
-        {
-            try { InstallShellHookIfNeeded(); } catch { }
-            try { _ = HandleExternalAsync(_startupRequest, true); } catch { }
-        }));
+        // Instalar el hook de pegado ahora que la ventana está lista, no durante el constructor.
+        InstallShellHookIfNeeded();
+
+        _ = HandleExternalAsync(_startupRequest, true);
     }
 
     public void HandleExternalRequest(StartupRequest request) => _ = HandleExternalAsync(request, false);
