@@ -94,33 +94,6 @@ begin
   end;
 end;
 
-[Code]
-procedure CurStepChanged(CurStep: TSetupStep);
-var
-  Keys: array of String;
-  I: Integer;
-begin
-  if CurStep = ssInstall then
-  begin
-    { Retira entradas de menú contextual creadas por versiones 2.4.0 y anteriores. }
-    SetArrayLength(Keys, 12);
-    Keys[0] := 'Software\Classes\*\shell\XoPyCopy';
-    Keys[1] := 'Software\Classes\*\shell\XoPyCopyTo';
-    Keys[2] := 'Software\Classes\*\shell\XoPyMove';
-    Keys[3] := 'Software\Classes\*\shell\XoPyMoveTo';
-    Keys[4] := 'Software\Classes\*\shell\XoPyVerify';
-    Keys[5] := 'Software\Classes\Directory\shell\XoPyCopy';
-    Keys[6] := 'Software\Classes\Directory\shell\XoPyCopyTo';
-    Keys[7] := 'Software\Classes\Directory\shell\XoPyMove';
-    Keys[8] := 'Software\Classes\Directory\shell\XoPyMoveTo';
-    Keys[9] := 'Software\Classes\Directory\shell\XoPyVerify';
-    Keys[10] := 'Software\Classes\Directory\Background\shell\XoPyPaste';
-    Keys[11] := 'Software\Classes\Directory\Background\shell\XoPyOpen';
-    for I := 0 to GetArrayLength(Keys) - 1 do
-      RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, Keys[I]);
-  end;
-end;
-
 [Run]
 Filename: "{app}\{#AppExe}"; Description: "Iniciar XoPy"; Flags: postinstall nowait skipifsilent
 
