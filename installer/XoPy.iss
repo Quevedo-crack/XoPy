@@ -46,11 +46,11 @@ Name: "autostart"; Description: "Iniciar XoPy al encender el equipo"; GroupDescr
 
 [Files]
 Source: "..\publish\XoPy.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\publish\XoPyShell.dll"; DestDir: "{app}"; Flags: ignoreversion restartreplace
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [InstallDelete]
-Type: files; Name: "{sendto}\Copiar con XoPy.lnk"
-Type: files; Name: "{sendto}\Mover con XoPy.lnk"
+Type: files; Name: "{sendto}\*XoPy*.lnk"
 
 [Icons]
 Name: "{autoprograms}\XoPy"; Filename: "{app}\{#AppExe}"; Comment: "Gestor de copias XoPy"
@@ -61,6 +61,38 @@ Name: "{autodesktop}\XoPy"; Filename: "{app}\{#AppExe}"; Comment: "Gestor de cop
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\XoPy.exe"; ValueType: string; ValueName: ""; ValueData: "{app}\{#AppExe}"; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\XoPy.exe"; ValueType: string; ValueName: "Path"; ValueData: "{app}"; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "XoPy"; ValueData: """{app}\{#AppExe}"" --tray"; Flags: uninsdeletevalue; Tasks: autostart
+Root: HKCU; Subkey: "Software\Classes\CLSID\{3B1E92A7-7AD6-4E71-A218-75449CE13061}\InprocServer32"; ValueType: string; ValueName: ""; ValueData: "{app}\XoPyShell.dll"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\CLSID\{3B1E92A7-7AD6-4E71-A218-75449CE13061}\InprocServer32"; ValueType: string; ValueName: "ThreadingModel"; ValueData: "Apartment"
+Root: HKCU; Subkey: "Software\Classes\Directory\Background\shellex\ContextMenuHandlers\XoPyPaste"; ValueType: string; ValueName: ""; ValueData: "{3B1E92A7-7AD6-4E71-A218-75449CE13061}"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\Directory\shellex\ContextMenuHandlers\XoPyPaste"; ValueType: string; ValueName: ""; ValueData: "{3B1E92A7-7AD6-4E71-A218-75449CE13061}"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\*\shellex\ContextMenuHandlers\XoPyPaste"; ValueType: string; ValueName: ""; ValueData: "{3B1E92A7-7AD6-4E71-A218-75449CE13061}"; Flags: uninsdeletekey
+
+[Code]
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  Keys: array of String;
+  I: Integer;
+begin
+  if CurStep = ssInstall then
+  begin
+    { Retira entradas de menú contextual creadas por versiones 2.4.0 y anteriores. }
+    SetArrayLength(Keys, 12);
+    Keys[0] := 'Software\Classes\*\shell\XoPyCopy';
+    Keys[1] := 'Software\Classes\*\shell\XoPyCopyTo';
+    Keys[2] := 'Software\Classes\*\shell\XoPyMove';
+    Keys[3] := 'Software\Classes\*\shell\XoPyMoveTo';
+    Keys[4] := 'Software\Classes\*\shell\XoPyVerify';
+    Keys[5] := 'Software\Classes\Directory\shell\XoPyCopy';
+    Keys[6] := 'Software\Classes\Directory\shell\XoPyCopyTo';
+    Keys[7] := 'Software\Classes\Directory\shell\XoPyMove';
+    Keys[8] := 'Software\Classes\Directory\shell\XoPyMoveTo';
+    Keys[9] := 'Software\Classes\Directory\shell\XoPyVerify';
+    Keys[10] := 'Software\Classes\Directory\Background\shell\XoPyPaste';
+    Keys[11] := 'Software\Classes\Directory\Background\shell\XoPyOpen';
+    for I := 0 to GetArrayLength(Keys) - 1 do
+      RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, Keys[I]);
+  end;
+end;
 
 [Code]
 procedure CurStepChanged(CurStep: TSetupStep);

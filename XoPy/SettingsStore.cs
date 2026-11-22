@@ -34,6 +34,7 @@ public sealed class SettingsStore
             // la primera apertura vuelve a ser visible y el cierre normal termina la aplicación.
             settings.MinimizeToTray = false;
             settings.StartMinimized = false;
+            settings.CollapseJobs = true;
             settings.SettingsVersion = 1;
             migrated = true;
         }

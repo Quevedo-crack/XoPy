@@ -134,7 +134,7 @@ public sealed class ShellPasteHook : IDisposable
         return result;
     }
 
-    private static bool ClipboardIsCut()
+    public static bool ClipboardIsCut()
     {
         try
         {

@@ -147,6 +147,7 @@ public sealed class AppSettings
     public bool VerifyAfterCopy { get; set; }
     public int RetryCount { get; set; } = 3;
     public int Parallelism { get; set; } = 4;
+    public bool MultiThreadCopy { get; set; } = true;
     public int BufferKiB { get; set; } = 4096;
     public int SpeedLimitMiB { get; set; }
     public bool PreserveTimestamps { get; set; } = true;
@@ -173,7 +174,7 @@ public sealed class AppSettings
     public int WindowX { get; set; } = int.MinValue;
     public int WindowY { get; set; } = int.MinValue;
     public bool WindowMaximized { get; set; }
-    public bool CollapseJobs { get; set; }
+    public bool CollapseJobs { get; set; } = true;
     public bool ReplaceWindowsCopier { get; set; } = true;
     public bool AskWhenBusy { get; set; } = true;
     public List<string> Favorites { get; set; } = new();

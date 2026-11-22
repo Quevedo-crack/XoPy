@@ -33,6 +33,18 @@ jobs:
           -p:EnableCompressionInSingleFile=true -p:DebugType=none -p:DebugSymbols=false
           -o publish
 
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Compilar extensión de menú contextual x64
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force publish | Out-Null
+          cl.exe /nologo /LD /EHsc /O2 ShellExtension\XoPyShell.cpp /link /OUT:publish\XoPyShell.dll shell32.lib advapi32.lib ole32.lib uuid.lib
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+
       - name: Instalar Inno Setup
         run: choco install innosetup --yes --no-progress
 
@@ -60,20 +72,21 @@ jobs:
           "inicio $(Get-Date -Format o)" | Set-Content $log
           try {
             $setup = (Resolve-Path 'installer-output/XoPy-Setup-win-x64.exe').Path
-            $install = Start-Process -FilePath $setup -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/TASKS=explorer,sendto') -Wait -PassThru
+            $install = Start-Process -FilePath $setup -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/TASKS=autostart') -Wait -PassThru
             "instalador_exit=$($install.ExitCode)" | Add-Content $log
 
             $exe = Join-Path $env:ProgramFiles 'XoPy\XoPy.exe'
             "exe_instalado=$(Test-Path $exe)" | Add-Content $log
 
-            $copyCommand = [Microsoft.Win32.Registry]::GetValue('HKEY_CURRENT_USER\Software\Classes\*\shell\XoPyCopy\command', '', $null)
-            "menu_copiar=$copyCommand" | Add-Content $log
-
-            $pasteCommand = [Microsoft.Win32.Registry]::GetValue('HKEY_CURRENT_USER\Software\Classes\Directory\Background\shell\XoPyPaste\command', '', $null)
-            "menu_pegar=$pasteCommand" | Add-Content $log
-
-            $sendTo = Join-Path $env:APPDATA 'Microsoft\Windows\SendTo\Copiar con XoPy.lnk'
-            "enviar_a=$(Test-Path $sendTo)" | Add-Content $log
+            $legacyMenu = @('*\shell\XoPyCopy', '*\shell\XoPyCopyTo', '*\shell\XoPyMove', '*\shell\XoPyMoveTo', '*\shell\XoPyVerify', 'Directory\shell\XoPyCopy', 'Directory\shell\XoPyCopyTo', 'Directory\shell\XoPyMove', 'Directory\shell\XoPyMoveTo', 'Directory\shell\XoPyVerify', 'Directory\Background\shell\XoPyPaste', 'Directory\Background\shell\XoPyOpen')
+            $remaining = @($legacyMenu | Where-Object { [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey("Software\Classes\$_") -ne $null })
+            "entradas_antiguas=$($remaining.Count)" | Add-Content $log
+            $handler = [Microsoft.Win32.Registry]::GetValue('HKEY_CURRENT_USER\Software\Classes\Directory\Background\shellex\ContextMenuHandlers\XoPyPaste', '', $null)
+            "extensio_pegar=$handler" | Add-Content $log
+            $dll = Join-Path $env:ProgramFiles 'XoPy\XoPyShell.dll'
+            "dll_extension=$(Test-Path $dll)" | Add-Content $log
+            if ($remaining.Count -gt 0) { throw 'El instalador dejó entradas de menú contextual antiguas' }
+            if (-not $handler -or -not (Test-Path $dll)) { throw 'No quedó registrada la extensión del comando Pegar' }
 
             if (-not (Test-Path $exe)) { throw 'No se instaló XoPy.exe en Program Files' }
 

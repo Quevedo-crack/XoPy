@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -66,6 +67,11 @@ public sealed class CopyEngine
 {
     private CancellationTokenSource? _cts;
     private volatile bool _paused;
+    private readonly ConcurrentDictionary<Guid, ManualResetEventSlim> _itemPauseEvents = new();
+    private readonly object _parallelismLock = new();
+    private TaskCompletionSource _parallelismChanged = NewSignal();
+    private EngineOptions? _activeOptions;
+    private int _parallelism = 1;
     private volatile bool _skipCurrent;
     private int _running;
     private long _doneBytes;
@@ -83,6 +89,49 @@ public sealed class CopyEngine
 
     public bool IsRunning => Volatile.Read(ref _running) != 0;
     public bool IsPaused => _paused;
+    public int Parallelism => Volatile.Read(ref _parallelism);
+
+    private static TaskCompletionSource NewSignal() => new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public void SetParallelism(int value)
+    {
+        value = Math.Clamp(value, 1, 16);
+        lock (_parallelismLock)
+        {
+            if (_parallelism == value) return;
+            Volatile.Write(ref _parallelism, value);
+            if (_activeOptions is not null) _activeOptions.Parallelism = value;
+            var signal = _parallelismChanged;
+            _parallelismChanged = NewSignal();
+            signal.TrySetResult();
+        }
+    }
+
+    private (int Limit, Task Changed) ConcurrencySnapshot()
+    {
+        lock (_parallelismLock) return (_parallelism, _parallelismChanged.Task);
+    }
+
+    public void PauseItem(TransferItem item)
+    {
+        if (!IsRunning || item.Kind != ItemKind.File || item.State is ItemState.Completed or ItemState.Failed or ItemState.Skipped or ItemState.Cancelled) return;
+        try { _itemPauseEvents.GetOrAdd(item.Id, _ => new ManualResetEventSlim(true)).Reset(); }
+        catch (ObjectDisposedException) { return; }
+        item.State = ItemState.Paused;
+    }
+
+    public void ResumeItem(TransferItem item)
+    {
+        try { if (_itemPauseEvents.TryGetValue(item.Id, out var gate)) gate.Set(); }
+        catch (ObjectDisposedException) { }
+        if (item.State == ItemState.Paused) item.State = ItemState.Running;
+    }
+
+    public bool IsItemPaused(TransferItem item)
+    {
+        try { return _itemPauseEvents.TryGetValue(item.Id, out var gate) && !gate.IsSet; }
+        catch (ObjectDisposedException) { return false; }
+    }
     public long TotalBytes => Interlocked.Read(ref _totalBytes);
     public long DoneBytes => Interlocked.Read(ref _doneBytes);
     public long Errors => Interlocked.Read(ref _errors);
@@ -142,6 +191,16 @@ public sealed class CopyEngine
         _stickyConflict = null;
         _stickyError = null;
         options.Parallelism = Math.Clamp(options.Parallelism, 1, 16);
+        lock (_parallelismLock)
+        {
+            _activeOptions = options;
+            Volatile.Write(ref _parallelism, options.Parallelism);
+        }
+        foreach (var pair in _itemPauseEvents.ToArray())
+        {
+            pair.Value.Dispose();
+            _itemPauseEvents.TryRemove(pair.Key, out _);
+        }
         options.BufferSize = Math.Clamp(options.BufferSize, 64 * 1024, 8 * 1024 * 1024);
         options.Destinations = DestinationList(options);
         if (options.CopyLockedFiles) Privileges.EnableBackupPrivileges();
@@ -183,46 +242,27 @@ public sealed class CopyEngine
     {
         try
         {
-            await Parallel.ForEachAsync(items, new ParallelOptions
+            var active = new List<Task>();
+            var next = 0;
+            while (next < items.Count || active.Count > 0)
             {
-                MaxDegreeOfParallelism = options.Parallelism,
-                CancellationToken = token
-            }, async (item, _) =>
-            {
-                token.ThrowIfCancellationRequested();
-                item.State = ItemState.Running;
-                item.Error = null;
-                item.TransferredBytes = 0;
-                item.CurrentFile = null;
-                item.HashSource = null;
-                item.HashTarget = null;
-                try
+                if (token.IsCancellationRequested)
+                    for (; next < items.Count; next++) items[next].State = ItemState.Cancelled;
+
+                var snapshot = ConcurrencySnapshot();
+                while (next < items.Count && active.Count < snapshot.Limit && !token.IsCancellationRequested)
                 {
-                    await ProcessAsync(item, options, token).ConfigureAwait(false);
-                    if (token.IsCancellationRequested) item.State = ItemState.Cancelled;
-                    else if (item.State is ItemState.Running or ItemState.Paused or ItemState.Verifying)
-                    {
-                        item.State = string.IsNullOrEmpty(item.Error) ? ItemState.Completed : ItemState.Failed;
-                        if (item.State == ItemState.Completed) item.TransferredBytes = Math.Max(item.TransferredBytes, item.SizeBytes);
-                    }
+                    var item = items[next++];
+                    active.Add(ProcessItemAsync(item, options, token));
                 }
-                catch (OperationCanceledException)
-                {
-                    item.State = ItemState.Cancelled;
-                }
-                catch (Exception ex)
-                {
-                    item.State = ItemState.Failed;
-                    item.Error = Describe(ex);
-                    Interlocked.Increment(ref _errors);
-                    FileLog.Write($"ERROR {item.SourcePath}: {ex}");
-                }
-            }).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-            foreach (var item in items.Where(i => i.State is ItemState.Pending or ItemState.Running or ItemState.Paused or ItemState.Verifying))
-                item.State = ItemState.Cancelled;
+
+                if (active.Count == 0) continue;
+                if (next < items.Count && active.Count >= snapshot.Limit)
+                    await Task.WhenAny(active.Append(snapshot.Changed)).ConfigureAwait(false);
+                else
+                    await Task.WhenAny(active).ConfigureAwait(false);
+                active.RemoveAll(task => task.IsCompleted);
+            }
         }
         catch (Exception ex)
         {
@@ -230,12 +270,51 @@ public sealed class CopyEngine
         }
         finally
         {
+            if (token.IsCancellationRequested)
+                foreach (var item in items.Where(i => i.State is ItemState.Pending or ItemState.Running or ItemState.Paused or ItemState.Verifying))
+                    item.State = ItemState.Cancelled;
+            foreach (var pair in _itemPauseEvents.ToArray())
+            {
+                pair.Value.Dispose();
+                _itemPauseEvents.TryRemove(pair.Key, out _);
+            }
             _clock.Stop();
             Volatile.Write(ref _running, 0);
+            lock (_parallelismLock) _activeOptions = null;
             if (items.Any(item => item.Operation == OperationType.Move) && Errors == 0)
                 CleanupMovedFolders(items);
             FileLog.Write($"Fin: {DoneBytes} bytes en {Elapsed.TotalSeconds:0.0}s, errores={Errors}");
             try { Finished?.Invoke(this, EventArgs.Empty); } catch { }
+        }
+    }
+
+    private async Task ProcessItemAsync(TransferItem item, EngineOptions options, CancellationToken token)
+    {
+        try
+        {
+            await WaitWhilePausedAsync(item, token).ConfigureAwait(false);
+            item.State = ItemState.Running;
+            item.Error = null;
+            item.TransferredBytes = 0;
+            item.CurrentFile = null;
+            item.HashSource = null;
+            item.HashTarget = null;
+            await ProcessAsync(item, options, token).ConfigureAwait(false);
+            if (token.IsCancellationRequested) item.State = ItemState.Cancelled;
+            else if (item.State is ItemState.Running or ItemState.Paused or ItemState.Verifying)
+            {
+                item.State = string.IsNullOrEmpty(item.Error) ? ItemState.Completed : ItemState.Failed;
+                if (item.State == ItemState.Completed) item.TransferredBytes = Math.Max(item.TransferredBytes, item.SizeBytes);
+            }
+        }
+        catch (OperationCanceledException) { item.State = ItemState.Cancelled; }
+        catch (SkipRequestedException) { item.State = ItemState.Skipped; }
+        catch (Exception ex)
+        {
+            item.State = ItemState.Failed;
+            item.Error = Describe(ex);
+            Interlocked.Increment(ref _errors);
+            FileLog.Write($"ERROR {item.SourcePath}: {ex}");
         }
     }
 
@@ -643,7 +722,7 @@ public sealed class CopyEngine
         while (true)
         {
             token.ThrowIfCancellationRequested();
-            if (_paused) await WaitWhilePausedAsync(token).ConfigureAwait(false);
+            await WaitWhilePausedAsync(item, token).ConfigureAwait(false);
             if (_skipCurrent)
             {
                 _skipCurrent = false;
@@ -666,6 +745,12 @@ public sealed class CopyEngine
 
     /// <summary>Abre el origen permitiendo que otro programa lo tenga abierto; si está bloqueado, usa la API de copia de seguridad.</summary>
     /// <summary>Copia un archivo con Robocopy (rápido con muchos archivos, redes y rutas largas).</summary>
+    [DllImport("ntdll.dll")]
+    private static extern int NtSuspendProcess(IntPtr processHandle);
+
+    [DllImport("ntdll.dll")]
+    private static extern int NtResumeProcess(IntPtr processHandle);
+
     private async Task RobocopyAsync(string source, string target, TransferItem item, EngineOptions options, CancellationToken token)
     {
         var sourceDirectory = Path.GetDirectoryName(source);
@@ -699,32 +784,52 @@ public sealed class CopyEngine
         if (!process.Start()) throw new IOException("No se pudo iniciar Robocopy.");
 
         var reported = 0L;
-        while (!process.HasExited)
+        var suspended = false;
+        try
         {
-            token.ThrowIfCancellationRequested();
-            if (_paused) await Task.Delay(150, token).ConfigureAwait(false);
-            if (_skipCurrent)
+            while (!process.HasExited)
             {
-                _skipCurrent = false;
-                try { process.Kill(true); } catch { }
-                throw new SkipRequestedException();
-            }
+                token.ThrowIfCancellationRequested();
+                var shouldPause = _paused || IsItemPaused(item);
+                if (shouldPause && !suspended)
+                {
+                    suspended = NtSuspendProcess(process.Handle) == 0;
+                    if (!suspended) await WaitWhilePausedAsync(item, token).ConfigureAwait(false);
+                }
+                else if (!shouldPause && suspended)
+                {
+                    NtResumeProcess(process.Handle);
+                    suspended = false;
+                }
 
-            long copied = 0;
-            try
-            {
-                var info = new FileInfo(target);
-                if (info.Exists) copied = Math.Min(info.Length, length);
-            }
-            catch { }
+                if (_skipCurrent)
+                {
+                    _skipCurrent = false;
+                    try { process.Kill(true); } catch { }
+                    throw new SkipRequestedException();
+                }
 
-            if (copied > reported)
-            {
-                Interlocked.Add(ref _doneBytes, copied - reported);
-                reported = copied;
-                item.TransferredBytes = copied;
+                long copied = 0;
+                try
+                {
+                    var info = new FileInfo(target);
+                    if (info.Exists) copied = Math.Min(info.Length, length);
+                }
+                catch { }
+
+                if (copied > reported)
+                {
+                    Interlocked.Add(ref _doneBytes, copied - reported);
+                    reported = copied;
+                    item.TransferredBytes = copied;
+                }
+                await Task.Delay(120, CancellationToken.None).ConfigureAwait(false);
             }
-            await Task.Delay(120, CancellationToken.None).ConfigureAwait(false);
+        }
+        finally
+        {
+            if (suspended) { try { NtResumeProcess(process.Handle); } catch { } }
+            if (token.IsCancellationRequested) { try { process.Kill(true); } catch { } }
         }
 
         var code = process.ExitCode;
@@ -747,11 +852,7 @@ public sealed class CopyEngine
             var routine = new NativeMethods.CopyProgressRoutine((_, totalTransferred, _, _, _, _, _, _, _) =>
             {
                 token.ThrowIfCancellationRequested();
-                while (_paused)
-                {
-                    Thread.Sleep(60);
-                    token.ThrowIfCancellationRequested();
-                }
+                WaitWhilePaused(item, token);
                 if (_skipCurrent)
                 {
                     _skipCurrent = false;
@@ -906,7 +1007,7 @@ public sealed class CopyEngine
         foreach (var file in EnumerateFiles(source))
         {
             token.ThrowIfCancellationRequested();
-            await WaitWhilePausedAsync(token).ConfigureAwait(false);
+            await WaitWhilePausedAsync(item, token).ConfigureAwait(false);
             var length = SafeLength(file);
             if (options.SecureDeletePasses > 0) SecureWipe(file, options.SecureDeletePasses);
             DeleteFileForcibly(file);
@@ -997,13 +1098,26 @@ public sealed class CopyEngine
         if (delay > 0.02) await Task.Delay(TimeSpan.FromSeconds(Math.Min(delay, 1)), token).ConfigureAwait(false);
     }
 
-    private async Task WaitWhilePausedAsync(CancellationToken token)
+    private async Task WaitWhilePausedAsync(TransferItem item, CancellationToken token)
     {
-        while (_paused)
+        while (_paused || IsItemPaused(item))
         {
+            if (IsItemPaused(item)) item.State = ItemState.Paused;
             token.ThrowIfCancellationRequested();
-            await Task.Delay(120, token).ConfigureAwait(false);
+            await Task.Delay(100, token).ConfigureAwait(false);
         }
+        if (item.State == ItemState.Paused) item.State = ItemState.Running;
+    }
+
+    private void WaitWhilePaused(TransferItem item, CancellationToken token)
+    {
+        while (_paused || IsItemPaused(item))
+        {
+            if (IsItemPaused(item)) item.State = ItemState.Paused;
+            token.ThrowIfCancellationRequested();
+            Thread.Sleep(80);
+        }
+        if (item.State == ItemState.Paused) item.State = ItemState.Running;
     }
 
     private static IEnumerable<string> EnumerateFiles(string root)

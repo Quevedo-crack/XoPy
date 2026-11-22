@@ -101,10 +101,11 @@ XoPy.exe --multi --copy --to "D:\Copias" "C:\Datos\informe.pdf"
 
 ## Novedades de la versión 2.4.1
 
-- XoPy ya no instala acciones propias en el menú contextual ni accesos «Enviar a».
+- XoPy ya no instala acciones con su nombre en el menú contextual ni accesos «Enviar a»; instala una extensión COM x64 con el comando «Pegar» que lanza la operación en XoPy desde el fondo de una carpeta. En Windows 11, las extensiones clásicas pueden aparecer en «Mostrar más opciones».
 - Al actualizar, se eliminan las entradas antiguas «Copiar con XoPy», «Mover con XoPy», «Pegar con XoPy», etc.
 - La primera apertura tras actualizar se muestra en pantalla y desactiva el ocultamiento heredado en bandeja.
 - Si una transferencia encuentra un destino no válido, se puede elegir otra carpeta, crearla, usar la carpeta predeterminada o cancelar.
+- En la barra de copia se puede alternar entre modo secuencial y multihilo, también durante una transferencia; un archivo se puede pausar/reanudar individualmente desde el menú contextual de la lista. La lista admite reordenado por arrastre; las carpetas se muestran contraídas al añadirse y se pueden desplegar con la flecha o desde el menú. La columna de trabajos también empieza plegada y puede expandirse.
 - El instalador limpia las antiguas claves del menú contextual antes de iniciar la aplicación.
 
 ## Novedades de la versión 2.4.0
@@ -122,13 +123,12 @@ XoPy.exe --multi --copy --to "D:\Copias" "C:\Datos\informe.pdf"
 
 ## Integración con el Explorador de Windows
 
-XoPy no añade opciones con su nombre al menú contextual ni a «Enviar a». El hook actual sustituye
-`Ctrl+V` en el Explorador y el escritorio cuando hay archivos en el portapapeles; detecta «Cortar»
-y los mueve. Si ya está abierto, la transferencia se incorpora a la ventana existente.
-
-**Nota:** el clic en la opción nativa «Pegar» del menú contextual de Windows no se redirige todavía
-a XoPy; el hook intercepta el atajo `Ctrl+V`. Para reemplazar también ese comando del menú nativo
-hace falta una extensión de shell de Windows, distinta del hook de teclado.
+XoPy no añade opciones con su nombre al menú contextual ni a «Enviar a». El hook sustituye `Ctrl+V`
+cuando el portapapeles contiene archivos; además, la extensión COM x64 aporta un comando llamado
+«Pegar» en el fondo de las carpetas y lanza XoPy con el destino de esa carpeta. Si ya está abierto,
+la transferencia se incorpora a la ventana existente. En Windows 11 el comando puede aparecer en
+«Mostrar más opciones». La opción nativa que aporta Windows sigue siendo del sistema; la extensión
+no modifica ni elimina componentes de Windows.
 
 ## Uso rápido
 

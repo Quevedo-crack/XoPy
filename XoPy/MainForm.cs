@@ -44,6 +44,7 @@ public sealed partial class MainForm : Form
     private ToolStripButton _stopButton = null!;
     private ToolStripButton _optionsButton = null!;
     private ToolStripButton _menuButton = null!;
+    private ToolStripComboBox _copyMode = null!;
     private Button _browseButton = null!;
     private Button _removeButton = null!;
     private Button _clearButton = null!;
@@ -308,6 +309,17 @@ public sealed partial class MainForm : Form
         _pauseButton = BarButton("Pausar", Icons.Pause, (_, _) => TogglePause());
         _skipButton = BarButton("Saltar", Icons.ChevronRight, (_, _) => SkipCurrent());
         _stopButton = BarButton("Detener", Icons.Stop, (_, _) => StopTransfer());
+        _copyMode = new ToolStripComboBox
+        {
+            AutoSize = false,
+            Width = 116,
+            DropDownStyle = ComboBoxStyle.DropDownList,
+            Font = new Font("Segoe UI", 8.5f),
+            ToolTipText = "Modo de copia: secuencial o varios archivos en paralelo"
+        };
+        _copyMode.Items.AddRange(new object[] { "Secuencial", "Multihilo" });
+        _copyMode.SelectedIndex = _settings.MultiThreadCopy ? 1 : 0;
+        _copyMode.SelectedIndexChanged += (_, _) => ChangeCopyMode();
         _optionsButton = BarButton("Opciones", Icons.Settings, (_, _) => ShowOptions(), false, true);
         _optionsButton.Margin = new Padding(6, 0, 4, 0);
         _menuButton = BarButton("Menú", Icons.More, (_, _) => ShowMainMenu(), false, true);
@@ -343,7 +355,7 @@ public sealed partial class MainForm : Form
             Renderer = new DarkMenuRenderer(_palette),
             Padding = new Padding(0)
         };
-        right.Items.AddRange(new ToolStripItem[] { _optionsButton, _menuButton });
+        right.Items.AddRange(new ToolStripItem[] { new ToolStripLabel("Modo:"), _copyMode, _optionsButton, _menuButton });
 
         bar.Controls.Add(left, 0, 0);
         bar.Controls.Add(right, 1, 0);
@@ -917,8 +929,10 @@ public sealed partial class MainForm : Form
         _list.KeyDown += ListKeyDown;
         _list.DoubleClick += ListDoubleClick;
         _list.MouseDown += ListMouseDown;
-        _list.DragEnter += (_, e) => e.Effect = e.Data?.GetDataPresent(DataFormats.FileDrop) == true ? DragDropEffects.Copy : DragDropEffects.None;
-        _list.DragDrop += (_, e) => DropPaths(e);
+        _list.ItemDrag += ListItemDrag;
+        _list.DragEnter += ListDragEnter;
+        _list.DragOver += ListDragEnter;
+        _list.DragDrop += ListDragDrop;
         _list.SelectedIndexChanged += (_, _) => UpdateButtons();
 
         // Doble búfer para que la lista no parpadee mientras se actualiza el progreso.
@@ -962,6 +976,11 @@ public sealed partial class MainForm : Form
         _listMenu.Items.Add("Subir", null, (_, _) => MoveSelected(-1));
         _listMenu.Items.Add("Bajar", null, (_, _) => MoveSelected(1));
         _listMenu.Items.Add(new ToolStripSeparator());
+        var pauseItem = new ToolStripMenuItem("Pausar archivo seleccionado");
+        pauseItem.Click += (_, _) => ToggleSelectedFilePause();
+        pauseItem.Name = "pause-single-file";
+        _listMenu.Items.Add(pauseItem);
+        _listMenu.Opening += (_, _) => UpdateListMenuState();
         _listMenu.Items.Add(new ToolStripSeparator());
         _listMenu.Items.Add("Quitar de la lista (Supr)", null, (_, _) => RemoveSelected());
         _listMenu.Items.Add("Reintentar los fallidos", null, (_, _) => RetryFailed());
@@ -1399,6 +1418,7 @@ public sealed partial class MainForm : Form
         _settings.Destination = destination;
         _store.Save(_settings);
         _ = AddPathsAsync(files);
-        StartTransfer(OperationType.Copy);
+        var operation = ShellPasteHook.ClipboardIsCut() ? OperationType.Move : OperationType.Copy;
+        StartTransfer(operation);
     }
 }

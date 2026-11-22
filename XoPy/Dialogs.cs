@@ -348,7 +348,7 @@ internal sealed class OptionsDialog : Form
         extraPanel.Controls.Add(extraButtons, 0, 1);
 
         _tabs.TabPages.Add(Page("Transferencia", 11,
-            ("Transferencias simultáneas", _parallel, 44),
+            ("Máximo de hilos (modo multihilo)", _parallel, 44),
             ("Búfer por archivo (KiB)", _buffer, 44),
             ("Límite de velocidad (MiB/s, 0 = sin límite)", _speed, 44),
             ("", _preserveTimestamps, 36),
@@ -396,12 +396,12 @@ internal sealed class OptionsDialog : Form
             ("", _replaceCopier, 60),
             ("", new Label
             {
-                Text = "XoPy no añade entradas con su nombre al menú contextual ni a «Enviar a».\n" +
-                       "El hook sustituye Ctrl+V en el Explorador y el escritorio cuando el portapapeles\n" +
-                       "contiene archivos; si venías de «Cortar», mueve y borra el origen. Desactívalo\n" +
-                       "para volver al copiador de Windows. El clic en la opción nativa «Pegar» del menú\n" +
-                       "contextual aún no se redirige a XoPy. Las entradas antiguas («Copiar con XoPy»,\n" +
-                       "«Pegar con XoPy», etc.) se borran solas al abrir XoPy.",
+                Text = "XoPy no añade entradas con su nombre ni accesos «Enviar a». La extensión de\n" +
+                       "Windows añade una opción «Pegar» que abre XoPy; Ctrl+V también se intercepta\n" +
+                       "cuando el portapapeles contiene archivos. Si venías de «Cortar», mueve y borra\n" +
+                       "el origen. En Windows 11, la extensión puede aparecer en «Mostrar más opciones».\n" +
+                       "La opción de pegado incorporada por Windows no se modifica ni se elimina. Las\n" +
+                       "entradas antiguas («Copiar con XoPy», etc.) se borran solas al abrir XoPy.",
                 AutoSize = true,
                 ForeColor = _palette.Muted,
                 Font = new Font("Segoe UI", 8.5f),
@@ -607,6 +607,7 @@ internal sealed class OptionsDialog : Form
         target.StartWithWindows = Result.StartWithWindows;
         target.StartMinimized = Result.StartMinimized;
         target.Parallelism = Result.Parallelism;
+        target.MultiThreadCopy = Result.MultiThreadCopy;
         target.BufferKiB = Result.BufferKiB;
         target.SpeedLimitMiB = Result.SpeedLimitMiB;
         target.PreserveTimestamps = Result.PreserveTimestamps;
@@ -642,6 +643,7 @@ internal sealed class OptionsDialog : Form
         StartWithWindows = source.StartWithWindows,
         StartMinimized = source.StartMinimized,
         Parallelism = source.Parallelism,
+        MultiThreadCopy = source.MultiThreadCopy,
         BufferKiB = source.BufferKiB,
         SpeedLimitMiB = source.SpeedLimitMiB,
         PreserveTimestamps = source.PreserveTimestamps,

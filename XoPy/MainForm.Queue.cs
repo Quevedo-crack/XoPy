@@ -74,7 +74,7 @@ public sealed partial class MainForm
                             RelativePath = Path.GetFileName(path),
                             SizeKnown = false,
                             State = ItemState.Measuring,
-                            IsExpanded = true
+                            IsExpanded = false
                         };
                         _items.Add(folder);
                         var scan = ScanAndApplyAsync(folder);
@@ -338,7 +338,7 @@ public sealed partial class MainForm
                 SizeBytes = child.Size,
                 SizeKnown = true,
                 State = ItemState.Pending,
-                IsExpanded = true
+                IsExpanded = false
             };
             rows.Add(item);
             if (child.IsDirectory && !isLeafDirectory) AppendScanRows(child, item, rows);
@@ -703,7 +703,12 @@ public sealed partial class MainForm
     private void ListMouseDown(object? sender, MouseEventArgs e)
     {
         var info = _list.HitTest(e.Location);
-        if (info.Item?.Tag is not TransferItem item || item.Kind != ItemKind.Folder) return;
+        if (e.Button == MouseButtons.Right && info.Item is not null && !info.Item.Selected)
+        {
+            _list.SelectedItems.Clear();
+            info.Item.Selected = true;
+        }
+        if (e.Button != MouseButtons.Left || info.Item?.Tag is not TransferItem item || item.Kind != ItemKind.Folder) return;
         var indent = 8 + item.Depth * 18;
         if (e.X < info.Item.Bounds.Left + indent + 18 && e.X >= info.Item.Bounds.Left + indent - 2)
             ToggleExpand(item);
@@ -1030,7 +1035,7 @@ public sealed partial class MainForm
             VerifyAfterCopy = _settings.VerifyAfterCopy,
             ComputeHashes = _settings.WriteChecksumFile,
             RetryCount = _settings.RetryCount,
-            Parallelism = _settings.Parallelism,
+            Parallelism = _settings.MultiThreadCopy ? _settings.Parallelism : 1,
             BufferSize = _settings.BufferKiB * 1024,
             SpeedLimitBytesPerSecond = _settings.SpeedLimitMiB * 1024L * 1024L,
             PreserveTimestamps = _settings.PreserveTimestamps,
@@ -1093,6 +1098,124 @@ public sealed partial class MainForm
             catch { }
         }
         return list;
+    }
+
+    private void ChangeCopyMode()
+    {
+        if (_copyMode is null || _copyMode.SelectedIndex < 0) return;
+        _settings.MultiThreadCopy = _copyMode.SelectedIndex == 1;
+        _store.Save(_settings);
+        var parallelism = _settings.MultiThreadCopy ? _settings.Parallelism : 1;
+        if (_engine.IsRunning)
+        {
+            _engine.SetParallelism(parallelism);
+            SetStatus(_settings.MultiThreadCopy
+                ? $"Modo multihilo activado ({parallelism} transferencias simultáneas)."
+                : "Modo secuencial activado; los archivos en curso terminarán uno por uno.");
+        }
+        else
+        {
+            SetStatus(_settings.MultiThreadCopy ? "Modo multihilo seleccionado." : "Modo secuencial seleccionado.");
+        }
+        UpdateFooter();
+    }
+
+    private void ToggleSelectedFilePause()
+    {
+        if (!_engine.IsRunning) { SetStatus("No hay una transferencia en curso."); return; }
+        var files = SelectedItems()
+            .SelectMany(item => item.Kind == ItemKind.Folder ? Descendants(item) : new[] { item })
+            .Where(item => item.Kind == ItemKind.File)
+            .DistinctBy(item => item.Id)
+            .ToList();
+        if (files.Count == 0) { SetStatus("Selecciona uno o varios archivos en la lista."); return; }
+
+        var pause = files.Any(item => !_engine.IsItemPaused(item) && item.State is not (ItemState.Completed or ItemState.Failed or ItemState.Skipped or ItemState.Cancelled));
+        foreach (var item in files)
+        {
+            if (pause) _engine.PauseItem(item);
+            else _engine.ResumeItem(item);
+        }
+        SetStatus(pause ? $"Pausando {files.Count} archivo(s) seleccionado(s)…" : $"Reanudando {files.Count} archivo(s)…");
+        SyncRows();
+        UpdateFooter();
+    }
+
+    private void UpdateListMenuState()
+    {
+        if (_listMenu is null) return;
+        var pauseItem = _listMenu.Items.Find("pause-single-file", false).FirstOrDefault();
+        if (pauseItem is null) return;
+        var files = SelectedItems().SelectMany(item => item.Kind == ItemKind.Folder ? Descendants(item) : new[] { item })
+            .Where(item => item.Kind == ItemKind.File).DistinctBy(item => item.Id).ToList();
+        var canPause = _engine.IsRunning && files.Any(item => item.State is not (ItemState.Completed or ItemState.Failed or ItemState.Skipped or ItemState.Cancelled));
+        pauseItem.Enabled = canPause;
+        pauseItem.Text = files.Count > 0 && files.All(_engine.IsItemPaused)
+            ? "Reanudar archivo(s) seleccionado(s)"
+            : "Pausar archivo(s) seleccionado(s)";
+    }
+
+    private void ListItemDrag(object? sender, ItemDragEventArgs e)
+    {
+        if (_engine.IsRunning || e.Item is not ListViewItem row || row.Tag is not TransferItem item) return;
+        var payload = new DataObject();
+        payload.SetData("XoPy.QueueItem", item.Id.ToString("D"));
+        _list.DoDragDrop(payload, DragDropEffects.Move);
+    }
+
+    private void ListDragEnter(object? sender, DragEventArgs e)
+    {
+        if (e.Data?.GetDataPresent("XoPy.QueueItem") == true && !_engine.IsRunning)
+            e.Effect = DragDropEffects.Move;
+        else if (e.Data?.GetDataPresent(DataFormats.FileDrop) == true)
+            e.Effect = DragDropEffects.Copy;
+        else
+            e.Effect = DragDropEffects.None;
+    }
+
+    private void ListDragDrop(object? sender, DragEventArgs e)
+    {
+        if (e.Data?.GetDataPresent("XoPy.QueueItem") == true)
+        {
+            if (e.Data.GetData("XoPy.QueueItem") is string idText && Guid.TryParse(idText, out var id))
+            {
+                var point = _list.PointToClient(new Point(e.X, e.Y));
+                ReorderByDrop(id, point);
+            }
+            return;
+        }
+        if (e.Data?.GetDataPresent(DataFormats.FileDrop) == true) DropPaths(e);
+    }
+
+    private void ReorderByDrop(Guid draggedId, Point point)
+    {
+        if (_engine.IsRunning) return;
+        var source = _items.FirstOrDefault(item => item.Id == draggedId);
+        var targetRow = _list.HitTest(point).Item;
+        var target = targetRow?.Tag as TransferItem;
+        if (source is null || target is null || ReferenceEquals(source, target) || source.ParentId != target.ParentId)
+        {
+            SetStatus("Suelta el elemento sobre otro del mismo nivel para reordenarlo.");
+            return;
+        }
+
+        var siblings = source.ParentId is null ? RootItems() : Children(_items.First(item => item.Id == source.ParentId.Value));
+        var oldIndex = siblings.IndexOf(source);
+        var targetIndex = siblings.IndexOf(target);
+        if (oldIndex < 0 || targetIndex < 0) return;
+        var after = point.Y >= targetRow!.Bounds.Top + targetRow.Bounds.Height / 2;
+        var desired = targetIndex + (after ? 1 : 0);
+        if (oldIndex < desired) desired--;
+        while (oldIndex != desired)
+        {
+            var delta = desired < oldIndex ? -1 : 1;
+            if (!MoveBlock(source, delta)) break;
+            siblings = source.ParentId is null ? RootItems() : Children(_items.First(item => item.Id == source.ParentId.Value));
+            oldIndex = siblings.IndexOf(source);
+        }
+        RebuildRows();
+        if (_rows.TryGetValue(source.Id, out var row)) row.Selected = true;
+        SetStatus("Elemento reordenado en la cola.");
     }
 
     private void TogglePause()
@@ -1561,11 +1684,12 @@ public sealed partial class MainForm
     private void ShowExplorerIntegration()
     {
         var legacy = ShellIntegration.HasLegacyEntries();
-        var message = "XoPy ya NO añade entradas con su nombre al menú contextual ni a «Enviar a».\n\n" +
-                      "Al pegar con Ctrl+V en el Explorador o el escritorio (discos internos, externos\n" +
-                      "o de red), el hook de XoPy abre la ventana con el progreso. Si venías de «Cortar»,\n" +
-                      "se mueve y se borra el origen. El clic en la opción nativa «Pegar» del menú\n" +
-                      "contextual de Windows todavía no se redirige a XoPy.\n\n" +
+        var message = "XoPy ya NO añade acciones con su nombre ni accesos «Enviar a».\n\n" +
+                      "La extensión de Windows añade una opción llamada «Pegar» que abre XoPy; además,\n" +
+                      "Ctrl+V se intercepta cuando el portapapeles contiene archivos. Si venías de «Cortar»,\n" +
+                      "se mueve y se borra el origen. En Windows 11 la opción de la extensión puede estar\n" +
+                      "en «Mostrar más opciones». La opción de pegado incorporada por Windows no se\n" +
+                      "modifica ni se elimina.\n\n" +
                       "Las entradas antiguas («Copiar con XoPy», «Mover con XoPy», «Pegar con XoPy»,\n" +
                       "«Verificar con XoPy», etc.) se borran automáticamente al abrir XoPy.\n\n" +
                       (legacy
