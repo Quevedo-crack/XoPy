@@ -102,7 +102,7 @@ begin
   if MsgBox('¿Desea realizar una desinstalación total de XoPy?'+#13#10+
       'Sí: elimina también el historial, los registros y los datos temporales (no se podrán recuperar).'+#13#10+
       'No: se conserva el historial; solo se elimina la aplicación y sus entradas de menú.',
-      mbConfirmation, MB_YESNO) = IDYES then
+      mbYesNo + mbIconQuestion) = IDYES then
   begin
     DelTree(ExpandConstant('{localappdata}\\XoPy'));
   end;
