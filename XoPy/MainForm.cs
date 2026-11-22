@@ -1334,7 +1334,6 @@ public sealed partial class MainForm : Form
 
         _ = HandleExternalAsync(_startupRequest, true);
     }
-    }
 
     public void HandleExternalRequest(StartupRequest request) => _ = HandleExternalAsync(request, false);
 
