@@ -1317,11 +1317,12 @@ public sealed partial class MainForm : Form
     {
         base.OnShown(e);
         // La ventana debe verse siempre al abrir XoPy (salvo si se pidió arrancar minimizado).
+        // No llamar Show() aqui: el formulario ya esta siendo mostrado por el evento Shown;
+        // llamarlo de nuevo causa reentrancy de Windows Forms y puede desbordar la pila.
         if (!_settings.StartMinimized && !_startupRequest.StartMinimized)
         {
             try
             {
-                Show();
                 if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
                 Activate();
                 BringToFront();
@@ -1329,10 +1330,13 @@ public sealed partial class MainForm : Form
             catch { }
         }
 
-        // Instalar el hook de pegado ahora que la ventana está lista, no durante el constructor.
-        InstallShellHookIfNeeded();
-
-        _ = HandleExternalAsync(_startupRequest, true);
+        // Instalar el hook de pegado y procesar la solicitud de arranque despues de que
+        // el formulario este completamente inicializado, para evitar reentrancy durante el arranque.
+        BeginInvoke(new Action(() =>
+        {
+            try { InstallShellHookIfNeeded(); } catch { }
+            try { _ = HandleExternalAsync(_startupRequest, true); } catch { }
+        }));
     }
 
     public void HandleExternalRequest(StartupRequest request) => _ = HandleExternalAsync(request, false);
