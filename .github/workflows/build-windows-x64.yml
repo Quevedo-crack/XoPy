@@ -139,7 +139,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force docs | Out-Null
           if (Test-Path 'C:\install-test.txt') { Copy-Item 'C:\install-test.txt' 'docs\install-test.txt'; git add docs/install-test.txt }
-          if (Test-Path 'shell-extension-build.log') { Copy-Item 'shell-extension-build.log' 'docs\shell-extension-build.log'; git add docs/shell-extension-build.log }
+          if (Test-Path 'shell-extension-build.log') { Copy-Item 'shell-extension-build.log' 'docs\shell-extension-build.txt'; git add docs/shell-extension-build.txt }
           git config user.name "XoPy Bot"
           git config user.email "xopy-bot@users.noreply.github.com"
           git diff --cached --quiet
