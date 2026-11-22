@@ -8,91 +8,123 @@ namespace XoPy;
 
 internal static class Program
 {
+    private static string? _diagnosticFile;
+
     [STAThread]
     private static void Main(string[] args)
     {
-        ApplicationConfiguration.Initialize();
-        Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
-        Application.ThreadException += (_, e) => ShowFatal(e.Exception);
-        AppDomain.CurrentDomain.UnhandledException += (_, e) => ShowFatal(e.ExceptionObject as Exception);
-
-        var request = StartupRequest.Parse(args);
-
-        var screenshotPath = FindOption(args, "--screenshot");
-        if (screenshotPath is not null)
+        try
         {
-            RunScreenshot(request, screenshotPath);
-            return;
-        }
+            _diagnosticFile = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "XoPy", "startup-error.txt");
 
-        var tabsShot = FindOption(args, "--screenshot-tabs");
-        if (tabsShot is not null)
-        {
-            RunTabScreenshots(request, tabsShot);
-            return;
-        }
+            ApplicationConfiguration.Initialize();
+            Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+            Application.ThreadException += (_, e) => ShowFatal(e.Exception);
+            AppDomain.CurrentDomain.UnhandledException += (_, e) => ShowFatal(e.ExceptionObject as Exception);
 
-        var menusShot = FindOption(args, "--screenshot-menus");
-        if (menusShot is not null)
-        {
-            RunMenuScreenshots(menusShot);
-            return;
-        }
+            var request = StartupRequest.Parse(args);
 
-        var optionsShot = FindOption(args, "--screenshot-options");
-        if (optionsShot is not null)
-        {
-            RunDialogScreenshot(optionsShot, DialogShot.Options);
-            return;
-        }
-
-        var conflictShot = FindOption(args, "--screenshot-conflict");
-        if (conflictShot is not null)
-        {
-            RunDialogScreenshot(conflictShot, DialogShot.Conflict);
-            return;
-        }
-
-        var historyShot = FindOption(args, "--screenshot-history");
-        if (historyShot is not null)
-        {
-            RunHistoryScreenshot(historyShot);
-            return;
-        }
-
-        var queueTest = FindOption(args, "--self-test-queue");
-        if (queueTest is not null)
-        {
-            using var testForm = new MainForm(new StartupRequest());
-            var report = testForm.QueueSelfTest();
-            File.WriteAllText(queueTest, report);
-            Environment.Exit(report.StartsWith("OK", StringComparison.Ordinal) ? 0 : 1);
-        }
-
-        var multi = args.Any(arg => string.Equals(arg, "--multi", StringComparison.OrdinalIgnoreCase));
-        if (multi)
-        {
-            using var separate = new MainForm(request);
-            Application.Run(separate);
-            return;
-        }
-
-        var mutex = new Mutex(true, Ipc.MutexName, out var isFirstInstance);
-        if (!isFirstInstance)
-        {
-            if (IpcClient.Send(request))
+            var screenshotPath = FindOption(args, "--screenshot");
+            if (screenshotPath is not null)
             {
-                mutex.Dispose();
+                RunScreenshot(request, screenshotPath);
                 return;
             }
 
-            try { mutex.Dispose(); } catch { }
-        }
+            var tabsShot = FindOption(args, "--screenshot-tabs");
+            if (tabsShot is not null)
+            {
+                RunTabScreenshots(request, tabsShot);
+                return;
+            }
 
-        using var form = new MainForm(request);
-        IpcServer.Start(form);
-        Application.Run(form);
-        GC.KeepAlive(mutex);
+            var menusShot = FindOption(args, "--screenshot-menus");
+            if (menusShot is not null)
+            {
+                RunMenuScreenshots(menusShot);
+                return;
+            }
+
+            var optionsShot = FindOption(args, "--screenshot-options");
+            if (optionsShot is not null)
+            {
+                RunDialogScreenshot(optionsShot, DialogShot.Options);
+                return;
+            }
+
+            var conflictShot = FindOption(args, "--screenshot-conflict");
+            if (conflictShot is not null)
+            {
+                RunDialogScreenshot(conflictShot, DialogShot.Conflict);
+                return;
+            }
+
+            var historyShot = FindOption(args, "--screenshot-history");
+            if (historyShot is not null)
+            {
+                RunHistoryScreenshot(historyShot);
+                return;
+            }
+
+            var queueTest = FindOption(args, "--self-test-queue");
+            if (queueTest is not null)
+            {
+                using var testForm = new MainForm(new StartupRequest());
+                var report = testForm.QueueSelfTest();
+                File.WriteAllText(queueTest, report);
+                Environment.Exit(report.StartsWith("OK", StringComparison.Ordinal) ? 0 : 1);
+            }
+
+            var multi = args.Any(arg => string.Equals(arg, "--multi", StringComparison.OrdinalIgnoreCase));
+            if (multi)
+            {
+                using var separate = new MainForm(request);
+                Application.Run(separate);
+                return;
+            }
+
+            var mutex = new Mutex(true, Ipc.MutexName, out var isFirstInstance);
+            if (!isFirstInstance)
+            {
+                if (IpcClient.Send(request))
+                {
+                    mutex.Dispose();
+                    return;
+                }
+
+                try { mutex.Dispose(); } catch { }
+            }
+
+            using var form = new MainForm(request);
+            IpcServer.Start(form);
+            Application.Run(form);
+            GC.KeepAlive(mutex);
+        }
+        catch (Exception ex)
+        {
+            // Si algo falla antes de que se muestre la ventana, escribir el error
+            // a un archivo para diagnóstico en lugar de cerrar silenciosamente.
+            try
+            {
+                var dir = Path.GetDirectoryName(_diagnosticFile ?? string.Empty);
+                if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+                File.WriteAllText(_diagnosticFile ?? string.Empty,
+                    $"{DateTime.Now:yyyy-MM-dd HH:mm:ss}  ERROR AL INICIAR XoPy{Environment.NewLine}" +
+                    $"Excepción: {ex.GetType().FullName}{Environment.NewLine}" +
+                    $"Mensaje: {ex.Message}{Environment.NewLine}" +
+                    $"StackTrace: {ex.StackTrace}{Environment.NewLine}");
+            }
+            catch { }
+
+            try
+            {
+                MessageBox.Show("XoPy no pudo iniciar: " + ex.Message,
+                    "XoPy", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            catch { }
+        }
     }
 
     private static string? FindOption(string[] args, string option)
@@ -286,8 +318,6 @@ internal static class Program
         if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
         bitmap.Save(path, ImageFormat.Png);
     }
-
-    private static string? _diagnosticFile;
 
     private static void ShowFatal(Exception? exception)
     {
