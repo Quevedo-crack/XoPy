@@ -45,8 +45,7 @@ Name: "desktopicon"; Description: "Crear un acceso directo en el escritorio"; Gr
 Name: "autostart"; Description: "Iniciar XoPy al encender el equipo"; GroupDescription: "Integración con Windows:"; Flags: unchecked
 
 [Files]
-Source: "..\publish\XoPy.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
+{ Archivos temporalmente desactivados para diagnostico }
 
 [InstallDelete]
 Type: files; Name: "{sendto}\*XoPy*.lnk"
