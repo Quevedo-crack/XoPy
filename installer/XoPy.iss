@@ -13,13 +13,13 @@ AppPublisher={#AppPublisher}
 AppPublisherURL=https://github.com/Quevedo-crack/XoPy
 AppSupportURL=https://github.com/Quevedo-crack/XoPy/issues
 AppUpdatesURL=https://github.com/Quevedo-crack/XoPy/releases
-DefaultDirName={autopf}\XoPy
+DefaultDirName={autopf}\\XoPy
 DefaultGroupName=XoPy
 DisableProgramGroupPage=yes
-OutputDir=..\installer-output
+OutputDir=..\\installer-output
 OutputBaseFilename=XoPy-Setup-win-x64
-SetupIconFile=..\XoPy\Assets\xopy.ico
-UninstallDisplayIcon={app}\XoPy.exe
+SetupIconFile=..\\XoPy\\Assets\\xopy.ico
+UninstallDisplayIcon={app}\\XoPy.exe
 UninstallDisplayName={#AppName} {#AppVersion}
 Compression=lzma2/max
 SolidCompression=yes
@@ -37,7 +37,7 @@ VersionInfoDescription=Instalador de XoPy
 VersionInfoCompany={#AppPublisher}
 
 [Languages]
-Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
+Name: "spanish"; MessagesFile: "compiler:Languages\\Spanish.isl"
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
@@ -45,21 +45,22 @@ Name: "desktopicon"; Description: "Crear un acceso directo en el escritorio"; Gr
 Name: "autostart"; Description: "Iniciar XoPy al encender el equipo"; GroupDescription: "Integración con Windows:"; Flags: unchecked
 
 [Files]
-Source: "..\publish\XoPy.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\\publish\\XoPy.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\\README.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [InstallDelete]
-Type: files; Name: "{sendto}\*XoPy*.lnk"
+Type: files; Name: "{sendto}\\*XoPy*.lnk"
 
 [Icons]
-Name: "{autoprograms}\XoPy"; Filename: "{app}\{#AppExe}"; Comment: "Gestor de copias XoPy"
-Name: "{autodesktop}\XoPy"; Filename: "{app}\{#AppExe}"; Comment: "Gestor de copias XoPy"; Tasks: desktopicon
+Name: "{autoprograms}\\XoPy"; Filename: "{app}\\{#AppExe}"; Comment: "Gestor de copias XoPy"
+Name: "{autodesktop}\\XoPy"; Filename: "{app}\\{#AppExe}"; Comment: "Gestor de copias XoPy"; Tasks: desktopicon
 
 [Registry]
 ; Solo se registra el inicio automático opcional. XoPy no crea verbos de menú contextual.
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\XoPy.exe"; ValueType: string; ValueName: ""; ValueData: "{app}\{#AppExe}"; Flags: uninsdeletekey
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\XoPy.exe"; ValueType: string; ValueName: "Path"; ValueData: "{app}"; Flags: uninsdeletekey
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "XoPy"; ValueData: """{app}\{#AppExe}"" --tray"; Flags: uninsdeletevalue; Tasks: autostart
+Root: HKCU; Subkey: "Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\XoPy.exe"; ValueType: string; ValueName: ""; ValueData: "{app}\\{#AppExe}"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\XoPy.exe"; ValueType: string; ValueName: "Path"; ValueData: "{app}"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\\Microsoft\\Windows\\CurrentVersion\\Run"; ValueType: string; ValueName: "XoPy"; ValueData: """{app}\\{#AppExe}"" --tray"; Flags: uninsdeletevalue; Tasks: autostart
+
 [Code]
 procedure CurStepChanged(CurStep: TSetupStep);
 var
@@ -70,42 +71,43 @@ begin
   begin
     { Retira entradas de menú contextual creadas por versiones 2.4.0 y anteriores. }
     SetArrayLength(Keys, 12);
-    Keys[0] := 'Software\Classes\*\shell\XoPyCopy';
-    Keys[1] := 'Software\Classes\*\shell\XoPyCopyTo';
-    Keys[2] := 'Software\Classes\*\shell\XoPyMove';
-    Keys[3] := 'Software\Classes\*\shell\XoPyMoveTo';
-    Keys[4] := 'Software\Classes\*\shell\XoPyVerify';
-    Keys[5] := 'Software\Classes\Directory\shell\XoPyCopy';
-    Keys[6] := 'Software\Classes\Directory\shell\XoPyCopyTo';
-    Keys[7] := 'Software\Classes\Directory\shell\XoPyMove';
-    Keys[8] := 'Software\Classes\Directory\shell\XoPyMoveTo';
-    Keys[9] := 'Software\Classes\Directory\shell\XoPyVerify';
-    Keys[10] := 'Software\Classes\Directory\Background\shell\XoPyPaste';
-    Keys[11] := 'Software\Classes\Directory\Background\shell\XoPyOpen';
+    Keys[0] := 'Software\\Classes\\*\\shell\\XoPyCopy';
+    Keys[1] := 'Software\\Classes\\*\\shell\\XoPyCopyTo';
+    Keys[2] := 'Software\\Classes\\*\\shell\\XoPyMove';
+    Keys[3] := 'Software\\Classes\\*\\shell\\XoPyMoveTo';
+    Keys[4] := 'Software\\Classes\\*\\shell\\XoPyVerify';
+    Keys[5] := 'Software\\Classes\\Directory\\shell\\XoPyCopy';
+    Keys[6] := 'Software\\Classes\\Directory\\shell\\XoPyCopyTo';
+    Keys[7] := 'Software\\Classes\\Directory\\shell\\XoPyMove';
+    Keys[8] := 'Software\\Classes\\Directory\\shell\\XoPyMoveTo';
+    Keys[9] := 'Software\\Classes\\Directory\\shell\\XoPyVerify';
+    Keys[10] := 'Software\\Classes\\Directory\\Background\\shell\\XoPyPaste';
+    Keys[11] := 'Software\\Classes\\Directory\\Background\\shell\\XoPyOpen';
     for I := 0 to GetArrayLength(Keys) - 1 do
       RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, Keys[I]);
   end;
+end;
 
-  if CurStep = ssUninstall then
+function UninstallInitialize: Boolean;
+begin
+  { Siempre: quitar toda la integración que XoPy creó (menús, Enviar a, inicio automático, rutas de la aplicación). }
+  RegDeleteValue(HKEY_CURRENT_USER, 'Software\\Microsoft\\Windows\\CurrentVersion\\Run', 'XoPy');
+  RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, 'Software\\Classes\\CLSID\\{3B1E92A7-7AD6-4E71-A218-75449CE13061}');
+  RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, 'Software\\Classes\\Directory\\Background\\shellex\\ContextMenuHandlers\\XoPyPaste');
+  RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, 'Software\\Classes\\Directory\\shellex\\ContextMenuHandlers\\XoPyPaste');
+  RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, 'Software\\Classes\\*\\shellex\\ContextMenuHandlers\\XoPyPaste');
+  DeleteFile(ExpandConstant('{sendto}\\XoPy.lnk'));
+
+  { Elección entre desinstalación total o conservar el historial. }
+  if MsgBox('¿Desea realizar una desinstalación total de XoPy?'+#13#10+
+      'Sí: elimina también el historial, los registros y los datos temporales (no se podrán recuperar).'+#13#10+
+      'No: se conserva el historial; solo se elimina la aplicación y sus entradas de menú.',
+      mbConfirmation, MB_YESNO) = IDYES then
   begin
-    { Siempre: quitar toda la integración que XoPy creó (menús, Enviar a, inicio automático, rutas de la aplicación). }
-    RegDeleteValue(HKEY_CURRENT_USER, 'Software\Microsoft\Windows\CurrentVersion\Run', 'XoPy');
-    RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, 'Software\Classes\CLSID\{3B1E92A7-7AD6-4E71-A218-75449CE13061}');
-    RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, 'Software\Classes\Directory\Background\shellex\ContextMenuHandlers\XoPyPaste');
-    RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, 'Software\Classes\Directory\shellex\ContextMenuHandlers\XoPyPaste');
-    RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, 'Software\Classes\*\shellex\ContextMenuHandlers\XoPyPaste');
-    DeleteFile(ExpandConstant('{sendto}\XoPy.lnk'));
-
-    { Elección entre desinstalación total o conservar el historial. }
-    if CustomMessageBox(
-        '¿Desea realizar una desinstalación total de XoPy?'+#13#10+
-        'Sí: elimina también el historial, los registros y los datos temporales (no se podrán recuperar).'+#13#10+
-        'No: se conserva el historial; solo se elimina la aplicación y sus entradas de menú.',
-        'Desinstalar XoPy', mbYesNo, IDYES, 'Sí, desinstalación total', 'No, conservar historial') = IDYES then
-    begin
-      DeleteDirectoryTree(ExpandConstant('{localappdata}\XoPy'));
-    end;
+    DeleteDirectoryTree(ExpandConstant('{localappdata}\\XoPy'));
   end;
+
+  Result := True;
 end;
 
 { Borra un directorio y todo su contenido (usado para la desinstalación total de datos). }
@@ -115,16 +117,16 @@ var
   Name: String;
 begin
   if not DirExists(Dir) then Exit;
-  if FindFirst(Dir + '\*', 0, FindRec) = 0 then
+  if FindFirst(Dir + '\\*', 0, FindRec) = 0 then
   begin
     repeat
       Name := FindRec.Name;
       if (Name <> '.') and (Name <> '..') then
       begin
         if (FindRec.Attributes and faDirectory) <> 0 then
-          DeleteDirectoryTree(Dir + '\' + Name)
+          DeleteDirectoryTree(Dir + '\\' + Name)
         else
-          DeleteFile(Dir + '\' + Name);
+          DeleteFile(Dir + '\\' + Name);
       end;
     until FindNext(FindRec) <> 0;
     FindClose(FindRec);
@@ -133,7 +135,7 @@ begin
 end;
 
 [Run]
-Filename: "{app}\{#AppExe}"; Description: "Iniciar XoPy"; Flags: postinstall nowait skipifsilent
+Filename: "{app}\\{#AppExe}"; Description: "Iniciar XoPy"; Flags: postinstall nowait skipifsilent
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"
