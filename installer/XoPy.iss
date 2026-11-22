@@ -10,9 +10,9 @@ AppName={#AppName}
 AppVersion={#AppVersion}
 AppVerName={#AppName} {#AppVersion}
 AppPublisher={#AppPublisher}
-AppPublisherURL=https://github.com/Quevedo-crack/XoPy
-AppSupportURL=https://github.com/Quevedo-crack/XoPy/issues
-AppUpdatesURL=https://github.com/Quevedo-crack/XoPy/releases
+AppPublisherURL=https://github.com
+AppSupportURL=https://github.com/issues
+AppUpdatesURL=https://github.com/releases
 DefaultDirName={autopf}\XoPy
 DefaultGroupName=XoPy
 DisableProgramGroupPage=yes
@@ -63,29 +63,6 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\XoPy.ex
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "XoPy"; ValueData: """{app}\{#AppExe}"""; Flags: uninsdeletevalue; Tasks: autostart
 
 [Code]
-{ Borra un directorio y todo su contenido recursivamente. }
-procedure DeleteDirectoryTree(const Dir: String);
-var
-  FindRec: TFindRec;
-  Name: String;
-begin
-  if not DirExists(Dir) then Exit;
-  if FindFirst(Dir + '\*', FindRec) then
-  begin
-    repeat
-      if (FindRec.Name <> '.') and (FindRec.Name <> '..') then
-      begin
-        if (FindRec.Attributes and faDirectory) <> 0 then
-          DeleteDirectoryTree(Dir + '\' + FindRec.Name)
-        else
-          DeleteFile(Dir + '\' + FindRec.Name);
-      end;
-    until not FindNext(FindRec);
-    FindClose(FindRec);
-  end;
-  RemoveDirectory(Dir);
-end;
-
 { Limpia toda la integración que XoPy creó: registros, menús, Enviar a, etc. }
 procedure CleanupXoPyIntegration();
 begin
@@ -152,7 +129,7 @@ begin
             mbConfirmation, MB_YESNO) = IDYES then
   begin
     { Desinstalación total: borrar %LOCALAPPDATA%\XoPy (historial, registros, temporales, ajustes). }
-    DeleteDirectoryTree(ExpandConstant('{localappdata}\XoPy'));
+    DelTree(ExpandConstant('{localappdata}\XoPy'), True, True, True);
   end;
 
   Result := True;
