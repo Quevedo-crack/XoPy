@@ -30,8 +30,6 @@ public sealed partial class MainForm : Form
     private readonly OpenFileDialog _loadQueue = new() { Title = "Abrir cola", Filter = "Cola de XoPy (*.xopyq)|*.xopyq|JSON (*.json)|*.json" };
 
     private TextBox _destination = null!;
-    private Button _favoritesButton = null!;
-    private readonly ContextMenuStrip _favoritesMenu = new();
     private CheckBox _verifyCheck = null!;
     private ToolStripButton _addFilesButton = null!;
     private ToolStripButton _addFolderButton = null!;
@@ -45,7 +43,6 @@ public sealed partial class MainForm : Form
     private ToolStripButton _optionsButton = null!;
     private ToolStripButton _menuButton = null!;
     private ToolStripComboBox _copyMode = null!;
-    private Button _browseButton = null!;
     private Button _removeButton = null!;
     private Button _clearButton = null!;
     private Button _upButton = null!;
@@ -57,6 +54,12 @@ public sealed partial class MainForm : Form
     private Label _hdrTargetState = null!, _hdrTargetPath = null!, _hdrTargetInfo = null!, _hdrTargetPercent = null!;
     private ProgressStrip _hdrCopyBar = null!, _hdrTargetBar = null!;
     private SpeedGraph _footerGraph = null!;
+    private TableLayoutPanel _rootLayout = null!;
+    private TableLayoutPanel _transferHeader = null!;
+    private ToolStripButton _compactButton = null!;
+    private bool _compactView;
+    private Rectangle _expandedBounds;
+    private bool _expandedWasMaximized;
     private Label[,] _categoryValues = new Label[4, 3];
     private ListBox _extraDestinations = null!;
     private CheckBox _optLocked = null!, _optResume = null!, _optChecksums = null!;
@@ -135,6 +138,7 @@ public sealed partial class MainForm : Form
 
         BuildUi();
         LoadSettingsIntoUi();
+        ApplyCompactView(_settings.CompactView, persist: false);
         ApplyCopierReplacement();
         ApplyJobsCollapsed(_settings.CollapseJobs);
         WireEngine();
@@ -176,25 +180,25 @@ public sealed partial class MainForm : Form
             Dock = DockStyle.Fill,
             ColumnCount = 1,
             BackColor = _palette.Canvas,
-            RowCount = 7,
+            RowCount = 6,
             Padding = new Padding(0)
         };
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 58));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 52));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 68));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 112));
+        _rootLayout = root;
 
+        InitializeDestinationState();
         _menu = BuildMenu();
         root.Controls.Add(_menu, 0, 0);
         root.Controls.Add(BuildToolbar(), 0, 1);
-        root.Controls.Add(BuildDestinationBar(), 0, 2);
-        root.Controls.Add(BuildTransferHeader(), 0, 3);
-        root.Controls.Add(BuildTabBar(), 0, 4);
-        root.Controls.Add(BuildContent(), 0, 5);
-        root.Controls.Add(BuildFooter(), 0, 6);
+        root.Controls.Add(BuildTransferHeader(), 0, 2);
+        root.Controls.Add(BuildTabBar(), 0, 3);
+        root.Controls.Add(BuildContent(), 0, 4);
+        root.Controls.Add(BuildFooter(), 0, 5);
 
         Controls.Add(root);
         MainMenuStrip = _menu;
@@ -208,6 +212,54 @@ public sealed partial class MainForm : Form
             SelectTab(0);
             ApplyDarkScrollbars();
         };
+    }
+
+    private void ToggleCompactView() => ApplyCompactView(!_compactView, persist: true);
+
+    private void ApplyCompactView(bool compact, bool persist)
+    {
+        _compactView = compact;
+        if (_rootLayout is not null)
+        {
+            _rootLayout.SuspendLayout();
+            _rootLayout.RowStyles[2].Height = compact ? 36 : 68;
+            _rootLayout.RowStyles[3].Height = compact ? 0 : 38;
+            _rootLayout.RowStyles[4].SizeType = compact ? SizeType.Absolute : SizeType.Percent;
+            _rootLayout.RowStyles[4].Height = compact ? 0 : 100;
+            if (_transferHeader is not null && _transferHeader.RowStyles.Count > 1)
+                _transferHeader.RowStyles[1].Height = compact ? 0 : 30;
+            if (_compactButton is not null)
+            {
+                _compactButton.Image = Icons.Glyph(compact ? Icons.ChevronDown : Icons.ChevronRight, _palette.Text, 18);
+                _compactButton.ToolTipText = compact
+                    ? "Mostrar la lista de copia"
+                    : "Ocultar la lista y dejar visibles los controles y el progreso";
+                _compactButton.AccessibleName = _compactButton.ToolTipText;
+            }
+            _rootLayout.ResumeLayout(true);
+        }
+
+        MinimumSize = compact ? new Size(1024, 270) : new Size(1024, 640);
+        if (persist)
+        {
+            if (compact)
+            {
+                _expandedWasMaximized = WindowState == FormWindowState.Maximized;
+                _expandedBounds = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
+                WindowState = FormWindowState.Normal;
+                Height = 270;
+            }
+            else if (_expandedBounds.Width > 0)
+            {
+                Bounds = new Rectangle(_expandedBounds.X, _expandedBounds.Y,
+                    Math.Max(MinimumSize.Width, _expandedBounds.Width), Math.Max(MinimumSize.Height, _expandedBounds.Height));
+                if (_expandedWasMaximized) WindowState = FormWindowState.Maximized;
+                _expandedBounds = Rectangle.Empty;
+                _expandedWasMaximized = false;
+            }
+            _settings.CompactView = compact;
+            _store.Save(_settings);
+        }
     }
 
     private MenuStrip BuildMenu()
@@ -262,6 +314,7 @@ public sealed partial class MainForm : Form
         queue.DropDownItems.Add(MenuItem("Quitar seleccionados", (_, _) => RemoveSelected()));
         queue.DropDownItems.Add(MenuItem("Limpiar la lista", (_, _) => ClearList()));
         queue.DropDownItems.Add(new ToolStripSeparator());
+        queue.DropDownItems.Add(MenuItem("Ocultar o mostrar la lista de copia", (_, _) => ToggleCompactView()));
         queue.DropDownItems.Add(MenuItem("Mostrar u ocultar la columna de trabajos", (_, _) => ToggleJobsPanel()));
 
         var tools = new ToolStripMenuItem("Herramientas");
@@ -320,6 +373,9 @@ public sealed partial class MainForm : Form
         _copyMode.Items.AddRange(new object[] { "Secuencial", "Multihilo" });
         _copyMode.SelectedIndex = _settings.MultiThreadCopy ? 1 : 0;
         _copyMode.SelectedIndexChanged += (_, _) => ChangeCopyMode();
+        _compactButton = BarButton("Cola", Icons.ChevronRight, (_, _) => ToggleCompactView(), false, true);
+        _compactButton.Margin = new Padding(2, 0, 4, 0);
+        _compactButton.ToolTipText = "Ocultar la lista y dejar visibles los controles y el progreso";
         _optionsButton = BarButton("Opciones", Icons.Settings, (_, _) => ShowOptions(), false, true);
         _optionsButton.Margin = new Padding(6, 0, 4, 0);
         _menuButton = BarButton("Menú", Icons.More, (_, _) => ShowMainMenu(), false, true);
@@ -355,7 +411,12 @@ public sealed partial class MainForm : Form
             Renderer = new DarkMenuRenderer(_palette),
             Padding = new Padding(0)
         };
-        right.Items.AddRange(new ToolStripItem[] { new ToolStripLabel("Modo:"), _copyMode, _optionsButton, _menuButton });
+        right.Items.AddRange(new ToolStripItem[]
+        {
+            new ToolStripLabel("Modo:"), _copyMode,
+            new ToolStripControlHost(_verifyCheck) { Margin = new Padding(2, 2, 4, 0), AutoSize = true },
+            _compactButton, _optionsButton, _menuButton
+        });
 
         bar.Controls.Add(left, 0, 0);
         bar.Controls.Add(right, 1, 0);
@@ -405,64 +466,16 @@ public sealed partial class MainForm : Form
         _ => text
     };
 
-    private Control BuildDestinationBar()
+    private void InitializeDestinationState()
     {
-        var bar = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            ColumnCount = 5,
-            BackColor = _palette.Canvas,
-            Padding = new Padding(10, 9, 10, 7),
-            RowCount = 1
-        };
-        bar.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
-        bar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        bar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        bar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        bar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        bar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-
-        var label = Ui.Label("Destino:", _palette, 9f, true, _palette.Muted);
-        label.Anchor = AnchorStyles.Left;
-        label.Margin = new Padding(0, 8, 8, 0);
-
-        _destination = new TextBox
-        {
-            Dock = DockStyle.Fill,
-            BorderStyle = BorderStyle.FixedSingle,
-            BackColor = _palette.Surface,
-            ForeColor = _palette.Text,
-            Font = new Font("Segoe UI", 9.5f),
-            Margin = new Padding(0, 5, 6, 4),
-            Anchor = AnchorStyles.Left | AnchorStyles.Right
-        };
+        // Destination is an internal target selected from the active Explorer window
+        // or the Destino tab; keep it out of the always-visible toolbar.
+        _destination = new TextBox { Text = _settings.Destination };
         _destination.TextChanged += (_, _) =>
         {
             UpdateFooter();
             UpdateTargetTab();
         };
-        _destination.KeyDown += (_, e) =>
-        {
-            if (e.KeyCode != Keys.Enter) return;
-            e.SuppressKeyPress = true;
-            e.Handled = true;
-            if (_items.Count > 0) StartTransfer(OperationType.Copy);
-        };
-
-        _browseButton = Ui.ToolButton("Examinar", Icons.Folder, _palette);
-        _browseButton.Size = new Size(106, 30);
-        _browseButton.Margin = new Padding(0, 2, 6, 0);
-        _browseButton.Anchor = AnchorStyles.Left;
-        _browseButton.Click += (_, _) => BrowseDestination();
-
-        _favoritesButton = Ui.ToolButton("Favoritos", Icons.Star, _palette);
-        _favoritesButton.Size = new Size(112, 30);
-        _favoritesButton.Margin = new Padding(0, 2, 6, 0);
-        _favoritesButton.Anchor = AnchorStyles.Left;
-        _favoritesButton.Click += (_, _) => ShowFavoritesMenu();
-
-        Ui.StyleMenu(_favoritesMenu, _palette);
-        _favoritesMenu.ShowImageMargin = true;
 
         _verifyCheck = new CheckBox
         {
@@ -470,7 +483,7 @@ public sealed partial class MainForm : Form
             AutoSize = true,
             ForeColor = _palette.Text,
             BackColor = Color.Transparent,
-            Margin = new Padding(0, 8, 0, 0),
+            Margin = new Padding(4, 2, 4, 0),
             Anchor = AnchorStyles.Left
         };
         new ToolTip().SetToolTip(_verifyCheck, "Compara cada archivo copiado con el original");
@@ -483,13 +496,6 @@ public sealed partial class MainForm : Form
             _store.Save(_settings);
             UpdateHashColumns();
         };
-
-        bar.Controls.Add(label, 0, 0);
-        bar.Controls.Add(_destination, 1, 0);
-        bar.Controls.Add(_browseButton, 2, 0);
-        bar.Controls.Add(_favoritesButton, 3, 0);
-        bar.Controls.Add(_verifyCheck, 4, 0);
-        return bar;
     }
 
     private Control BuildTabBar()
@@ -646,6 +652,7 @@ public sealed partial class MainForm : Form
             Padding = new Padding(12, 4, 12, 2),
             Margin = new Padding(0)
         };
+        _transferHeader = host;
         host.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
         host.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
 
@@ -1074,7 +1081,7 @@ public sealed partial class MainForm : Form
     {
         var workingArea = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1920, 1080);
         var width = _settings.WindowWidth >= MinimumSize.Width ? _settings.WindowWidth : 1200;
-        var height = _settings.WindowHeight >= MinimumSize.Height ? _settings.WindowHeight : 740;
+        var height = _compactView ? MinimumSize.Height : _settings.WindowHeight >= MinimumSize.Height ? _settings.WindowHeight : 740;
         if (!_startupRequest.Screenshot)
         {
             width = Math.Min(width, workingArea.Width - 20);
@@ -1117,32 +1124,6 @@ public sealed partial class MainForm : Form
             ? $"Verificar ({Format.Algorithm(_settings.Verify)})"
             : "Verificar";
         SyncQuickOptions();
-    }
-
-    private void ShowFavoritesMenu()
-    {
-        _favoritesMenu.Items.Clear();
-        var favorites = _settings.Favorites.Where(Directory.Exists).ToList();
-        if (favorites.Count == 0)
-        {
-            _favoritesMenu.Items.Add(new ToolStripMenuItem("Sin favoritos todavía") { Enabled = false });
-        }
-        foreach (var favorite in favorites)
-        {
-            var path = favorite;
-            var item = new ToolStripMenuItem(path);
-            item.Click += (_, _) =>
-            {
-                _destination.Text = path;
-                SetStatus("Destino: " + path);
-            };
-            _favoritesMenu.Items.Add(item);
-        }
-        _favoritesMenu.Items.Add(new ToolStripSeparator());
-        var add = new ToolStripMenuItem("Guardar la carpeta de destino en favoritos");
-        add.Click += (_, _) => AddFavorite();
-        _favoritesMenu.Items.Add(add);
-        _favoritesMenu.Show(_favoritesButton, new Point(0, _favoritesButton.Height));
     }
 
     private void AddFavorite()
@@ -1279,7 +1260,7 @@ public sealed partial class MainForm : Form
         if (request.Paths.Count > 0) await AddPathsAsync(request.Paths);
         if (!string.IsNullOrWhiteSpace(request.Destination))
             _destination.Text = request.Destination!;
-        if (request.PasteFromClipboard) PasteFromClipboard(request.Destination ?? _destination.Text);
+        if (request.PasteFromClipboard) PasteFromClipboard(request.Destination);
 
         if (request.Conflict is not null) _settings.Conflict = request.Conflict.Value;
         if (request.VerifyAlgorithm is not null) _settings.Verify = request.VerifyAlgorithm.Value;
@@ -1371,50 +1352,20 @@ public sealed partial class MainForm : Form
         if (files.Length == 0) { SetStatus("El portapapeles no contiene archivos."); return; }
         if (string.IsNullOrWhiteSpace(destination) || !Directory.Exists(destination))
         {
-            var choice = PromptDialog.Ask(this, _palette,
-                "Carpeta de destino no válida",
-                "No se pudo determinar la carpeta donde pegar los archivos. ¿Qué quieres hacer?",
-                null,
-                new[] { "Elegir carpeta…", "Usar carpeta predeterminada", "Cancelar" });
-            if (choice == 2) return;
-            if (choice == 1)
+            // Never guess Downloads here: that can be the source folder and cause
+            // a paste to target the same place. Ask only when no valid target exists.
+            try
             {
-                destination = AppSettings.DefaultDestination();
+                if (Directory.Exists(_destination.Text.Trim())) _pickDestination.SelectedPath = _destination.Text.Trim();
             }
-            else
-            {
-                try
-                {
-                    if (Directory.Exists(_destination.Text.Trim())) _pickDestination.SelectedPath = _destination.Text.Trim();
-                }
-                catch { }
-                _pickDestination.Description = "Elige la carpeta donde quieres pegar los archivos";
-                if (_pickDestination.ShowDialog(this) != DialogResult.OK) return;
-                destination = _pickDestination.SelectedPath;
-            }
+            catch { }
+            _pickDestination.Description = "No se pudo determinar el destino del pegado. Elige la carpeta correcta.";
+            if (_pickDestination.ShowDialog(this) != DialogResult.OK) return;
+            destination = _pickDestination.SelectedPath;
             if (!Directory.Exists(destination))
             {
-                var create = PromptDialog.Ask(this, _palette,
-                    "Crear carpeta de destino",
-                    "La carpeta elegida no existe. ¿Quieres crearla?",
-                    destination,
-                    new[] { "Crear carpeta", "Elegir otra…", "Cancelar" });
-                if (create == 0)
-                {
-                    try { Directory.CreateDirectory(destination); }
-                    catch (Exception ex)
-                    {
-                        ShowError("No se pudo crear la carpeta: " + CopyEngine.Describe(ex));
-                        return;
-                    }
-                }
-                else if (create == 1)
-                {
-                    _pickDestination.Description = "Elige otra carpeta donde pegar los archivos";
-                    if (_pickDestination.ShowDialog(this) != DialogResult.OK) return;
-                    destination = _pickDestination.SelectedPath;
-                }
-                else return;
+                SetStatus("La carpeta de destino elegida ya no existe.");
+                return;
             }
         }
         _destination.Text = destination;

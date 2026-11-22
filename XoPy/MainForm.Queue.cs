@@ -1621,8 +1621,6 @@ public sealed partial class MainForm
         _pauseButton.Enabled = running;
         _skipButton.Enabled = running;
         _stopButton.Enabled = running;
-        _browseButton.Enabled = !running;
-        _favoritesButton.Enabled = !running;
         _verifyCheck.Enabled = !running;
         _removeButton.Enabled = !running && _items.Count > 0;
         _clearButton.Enabled = !running && _items.Count > 0;
@@ -2325,11 +2323,11 @@ public sealed partial class MainForm
             _tray.Dispose();
             _trayMenu.Dispose();
             if (_listMenu is not null) _listMenu.Dispose();
-            _favoritesMenu.Dispose();
             _percentIcon?.Dispose();
             _baseIcon?.Dispose();
             _pasteHook?.Dispose();
             _pasteHook = null;
+            _destination?.Dispose();
         }
         base.Dispose(disposing);
     }

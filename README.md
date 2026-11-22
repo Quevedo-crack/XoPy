@@ -153,7 +153,7 @@ no modifica ni elimina componentes de Windows.
 
 ## Compilar
 
-Requisitos: Windows 10/11 y .NET 8 SDK.
+Requisitos para compilar desde el código fuente: Windows 10/11 y .NET 10 SDK. El instalador publicado incluye el runtime y no requiere instalar .NET por separado.
 
 ```powershell
 dotnet publish .\XoPy\XoPy.csproj -c Release -r win-x64 --self-contained true `

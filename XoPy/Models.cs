@@ -175,6 +175,7 @@ public sealed class AppSettings
     public int WindowY { get; set; } = int.MinValue;
     public bool WindowMaximized { get; set; }
     public bool CollapseJobs { get; set; } = true;
+    public bool CompactView { get; set; }
     public bool ReplaceWindowsCopier { get; set; } = true;
     public bool AskWhenBusy { get; set; } = true;
     public List<string> Favorites { get; set; } = new();
