@@ -1,8 +1,0 @@
-inicio 2026-11-22T11:21:03.5589121+00:00
-instalador_exit=0
-exe_instalado=True
-entradas_antiguas=0
-extensio_pegar={3B1E92A7-7AD6-4E71-A218-75449CE13061}}
-dll_extension=True
-com_activation=0x80040154
-ERROR: No se pudo cargar la extensión COM (HRESULT -2147221164)
