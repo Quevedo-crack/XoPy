@@ -833,6 +833,34 @@ public sealed partial class MainForm
         }
     }
 
+    private void RestartElevated()
+    {
+        try
+        {
+            var info = new ProcessStartInfo(Application.ExecutablePath)
+            {
+                UseShellExecute = true,
+                Verb = "runas"
+            };
+            if (_items.Count > 0)
+            {
+                var arguments = new StringBuilder("--multi --copy ");
+                var destination = _destination.Text.Trim();
+                if (destination.Length > 0) arguments.Append("--to \"").Append(destination).Append("\" ");
+                foreach (var path in RootItems().Select(item => item.SourcePath))
+                    arguments.Append('"').Append(path).Append("\" ");
+                info.Arguments = arguments.ToString();
+            }
+
+            Process.Start(info);
+            ExitApplication();
+        }
+        catch (Exception ex)
+        {
+            ShowError("No se pudo reiniciar como administrador: " + CopyEngine.Describe(ex));
+        }
+    }
+
     private async Task StartTransferAsync(OperationType operation, bool onlyPending = false)
     {
         if (_engine.IsRunning)
@@ -1582,6 +1610,18 @@ public sealed partial class MainForm
         var roots = RootItems();
         if (!roots.SequenceEqual(new[] { b, folder, a }))
             report.AppendLine("FALLO: ordenar por tamaño no dejó b, carpeta, a.");
+
+        SortQueue(QueueSortField.Name);
+        if (RootItems()[0] != folder)
+            report.AppendLine("FALLO: el orden por nombre no dejó la carpeta primero.");
+
+        SortQueue(QueueSortField.Source);
+        if (RootItems().Count != 3)
+            report.AppendLine("FALLO: ordenar por carpeta de origen perdió elementos.");
+
+        SortQueue(QueueSortField.Destination);
+        if (RootItems().Count != 3)
+            report.AppendLine("FALLO: ordenar por carpeta de destino perdió elementos.");
 
         var before = _items.Count;
         RemoveItems(new[] { child1 });

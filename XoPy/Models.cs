@@ -213,6 +213,7 @@ public sealed class StartupRequest
     public int? SecureDeletePasses { get; set; }
     public string? CompletionScript { get; set; }
     public List<string> ExtraDestinations { get; set; } = new();
+    public CopyEngineKind? Engine { get; set; }
 
     public static StartupRequest Parse(string[] args)
     {
@@ -245,6 +246,10 @@ public sealed class StartupRequest
                 case "--skip": request.Conflict = ConflictPolicy.Skip; break;
                 case "--rename": request.Conflict = ConflictPolicy.Rename; break;
                 case "--verify": request.VerifyAfterCopy = true; break;
+                case "--engine":
+                    if (i + 1 < args.Length && Enum.TryParse<CopyEngineKind>(args[++i], true, out var engine))
+                        request.Engine = engine;
+                    break;
                 case "--algo":
                     if (i + 1 < args.Length && Enum.TryParse<VerifyAlgorithm>(args[++i], true, out var algorithm))
                         request.VerifyAlgorithm = algorithm;

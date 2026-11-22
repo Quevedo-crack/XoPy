@@ -271,6 +271,7 @@ public sealed partial class MainForm : Form
         tools.DropDownItems.Add(MenuItem("Preferencias…", (_, _) => ShowOptions()));
         tools.DropDownItems.Add(MenuItem("Integración con el Explorador…", (_, _) => ShowExplorerIntegration()));
         tools.DropDownItems.Add(MenuItem("Abrir el registro de transferencias", (_, _) => OpenLogFile()));
+        tools.DropDownItems.Add(MenuItem("Reiniciar XoPy como administrador", (_, _) => RestartElevated()));
         tools.DropDownItems.Add(new ToolStripSeparator());
         tools.DropDownItems.Add(MenuItem("Historial de transferencias…", (_, _) => ShowHistory()));
 
@@ -1255,6 +1256,7 @@ public sealed partial class MainForm : Form
         if (request.VerifyAfterCopy) _settings.VerifyAfterCopy = true;
         if (request.CopyLockedFiles) _settings.CopyLockedFiles = true;
         if (!request.ResumePartials) _settings.ResumePartials = false;
+        if (request.Engine is not null) _settings.Engine = request.Engine.Value;
         if (request.WriteChecksumFile)
         {
             _settings.WriteChecksumFile = true;
