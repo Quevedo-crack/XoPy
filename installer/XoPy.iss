@@ -1,4 +1,5 @@
 ; Instalador de XoPy para Windows 10/11 x64
+; Build v2.5.0 — compilación con dotnet publish en GitHub Actions
 
 [Setup]
 AppName=XoPy
