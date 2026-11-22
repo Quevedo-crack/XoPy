@@ -185,7 +185,7 @@ public sealed partial class MainForm : Form
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 68));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 100));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 112));
 
         _menu = BuildMenu();
         root.Controls.Add(_menu, 0, 0);
@@ -758,9 +758,9 @@ public sealed partial class MainForm : Form
             RowCount = 4
         };
         footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 17));
-        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 25));
-        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 11));
-        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
+        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 35));
+        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 10));
+        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
 
         _currentLabel = new Label
         {
@@ -774,7 +774,7 @@ public sealed partial class MainForm : Form
             Margin = new Padding(0)
         };
 
-        _footerGraph = new SpeedGraph(_palette) { Dock = DockStyle.Fill, Height = 23, Margin = new Padding(0, 1, 0, 2) };
+        _footerGraph = new SpeedGraph(_palette) { Dock = DockStyle.Fill, Height = 32, Margin = new Padding(0, 1, 0, 2) };
         _progress = new ProgressStrip(_palette) { Dock = DockStyle.Fill, Height = 10, Margin = new Padding(0, 0, 0, 1) };
 
         _statusLabel = new Label
@@ -956,8 +956,8 @@ public sealed partial class MainForm : Form
 
     private static ImageList BuildRowImageList()
     {
-        var images = new ImageList { ImageSize = new Size(1, 24) };
-        var bitmap = new Bitmap(1, 24);
+        var images = new ImageList { ImageSize = new Size(1, 20) };
+        var bitmap = new Bitmap(1, 20);
         using (var graphics = Graphics.FromImage(bitmap)) graphics.Clear(Color.Transparent);
         images.Images.Add(bitmap);
         return images;

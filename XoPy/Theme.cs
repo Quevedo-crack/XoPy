@@ -582,12 +582,14 @@ internal sealed class SpeedGraph : Control
                 graphics.DrawLine(grid, 0, y, width, y);
             }
         }
+        using (var border = new Pen(_palette.Border, 1))
+            graphics.DrawRectangle(border, 0, 0, width, height);
 
         if (_samples.Count < 2)
         {
             using var idle = new SolidBrush(_palette.Muted);
-            using var idleFont = new Font("Segoe UI", 9f);
-            graphics.DrawString("Sin actividad", idleFont, idle, new PointF(12, 10));
+            using var idleFont = new Font("Segoe UI", 8.25f);
+            graphics.DrawString("Velocidad  ·  Sin actividad", idleFont, idle, new PointF(10, 8));
             return;
         }
 
