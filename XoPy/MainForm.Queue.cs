@@ -1612,8 +1612,8 @@ public sealed partial class MainForm
             report.AppendLine("FALLO: ordenar por tamaño no dejó b, carpeta, a.");
 
         SortQueue(QueueSortField.Name);
-        if (RootItems()[0] != folder)
-            report.AppendLine("FALLO: el orden por nombre no dejó la carpeta primero.");
+        if (!RootItems().SequenceEqual(new[] { a, b, folder }))
+            report.AppendLine("FALLO: el orden por nombre no dejó a, b, carpeta.");
 
         SortQueue(QueueSortField.Source);
         if (RootItems().Count != 3)
