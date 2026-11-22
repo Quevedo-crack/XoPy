@@ -149,16 +149,13 @@ public sealed partial class MainForm : Form
         BuildUi();
         LoadSettingsIntoUi();
         ApplyCompactView(_settings.CompactView, persist: false);
-        // No instalar el hook de pegado ni el copiador de Windows durante el arranque:
-        // SetWindowsHookEx (WH_KEYBOARD_LL) y WScript.Shell (COM) pueden causar
-        // desbordamiento de pila (0xc00000fd) al iniciar la aplicación.
-        // El usuario puede activarlos desde Opciones > Integración con el Explorador.
-        // ApplyCopierReplacement();
+        // ShellPasteHook y ShellIntegration se activan tras OnShown para evitar
+        // desbordamiento de pila (0xc00000fd) durante el arranque por SetWindowsHookEx/WScript.Shell.
+        try { ApplyCopierReplacement(); } catch { }
         ApplyJobsCollapsed(_settings.CollapseJobs);
         WireEngine();
         EnsureDefaultList();
-        // BuildTray() se ejecuta tras OnShown para evitar crash en el arranque.
-        // BuildTray();
+        try { BuildTray(); } catch { }
         ApplyWindowGeometry();
 
         if (_settings.ExplorerIntegration)
@@ -1334,10 +1331,6 @@ public sealed partial class MainForm : Form
             }
             catch { }
         }
-
-        // Instalar el área de notificación (tray) tras mostrar el formulario,
-        // protegido para no causar stack overflow si falla.
-        try { BuildTray(); } catch (Exception ex) { FileLog.Write("No se pudo crear el área de notificación: " + ex.Message); }
 
         // Instalar el hook de pegado y procesar la solicitud de arranque despues de que
         // el formulario este completamente inicializado, para evitar reentrancy durante el arranque.
