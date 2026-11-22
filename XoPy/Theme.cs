@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Text;
@@ -511,12 +512,16 @@ internal sealed class ProgressStrip : Control
         Height = 12;
     }
 
+    [Browsable(false)]
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public Color FillColor
     {
         get => _fill;
         set { _fill = value; Invalidate(); }
     }
 
+    [Browsable(false)]
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public double Value
     {
         get => _value;
@@ -659,6 +664,8 @@ internal sealed class ChoiceButton : Button
 
     public event EventHandler? SelectedIndexChanged;
 
+    [Browsable(false)]
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public int SelectedIndex
     {
         get => _selectedIndex;
