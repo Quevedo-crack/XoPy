@@ -57,6 +57,12 @@ jobs:
       - name: Instalar Inno Setup
         run: choco install innosetup --yes --no-progress
 
+      - name: Verificar contenido de publish antes del instalador
+        shell: pwsh
+        run: |
+          Get-ChildItem publish | Select-Object Name, Length | Format-Table -AutoSize | Out-String | Write-Host
+          if (-not (Test-Path 'publish/XoPy.exe')) { throw 'No se encontró publish/XoPy.exe tras el publish' }
+
       - name: Crear instalador
         shell: pwsh
         run: |
@@ -158,7 +164,7 @@ jobs:
           retention-days: 30
 
       - name: Guardar el resultado de la prueba si falla
-        if: failure() && github.event_name == 'workflow_dispatch' && github.ref_name != 'main'
+        if: failure()
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force docs | Out-Null
