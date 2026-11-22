@@ -5,7 +5,7 @@
 #define AppExe "XoPy.exe"
 
 [Setup]
-AppId={A5C3DF30-ED8D-4C8D-9F3F-4FA49A1001CD}
+AppId={{A5C3DF30-ED8D-4C8D-9F3F-4FA49A1001CD}}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppVerName={#AppName} {#AppVersion}
