@@ -1,26 +1,18 @@
-; Instalador de XoPy para Windows 10/11 x64
-#define AppName "XoPy"
-#define AppVersion "2.4.6"
-#define AppPublisher "Quevedo-crack"
-#define AppExe "XoPy.exe"
-
 [Setup]
-AppId="{A5C3DF30-ED8D-4C8D-9F3F-4FA49A1001CD}"
-AppName={#AppName}
-AppVersion={#AppVersion}
-AppVerName={#AppName} {#AppVersion}
-AppPublisher={#AppPublisher}
+AppId={{A5C3DF30-ED8D-4C8D-9F3F-4FA49A1001CD}}
+AppName=XoPy
+AppVersion=2.4.6
+AppVerName=XoPy 2.4.6
+AppPublisher=Quevedo-crack
 AppPublisherURL=https://github.com/Quevedo-crack/XoPy
-AppSupportURL=https://github.com/Quevedo-crack/XoPy/issues
-AppUpdatesURL=https://github.com/Quevedo-crack/XoPy/releases
-DefaultDirName={autopf}\XoPy
+DefaultDirName={pf}\XoPy
 DefaultGroupName=XoPy
 DisableProgramGroupPage=yes
-OutputDir=..\installer-output
-OutputBaseFilename=XoPy-Setup-win-x64
-SetupIconFile=..\XoPy\Assets\xopy.ico
+OutputDir=installer-output
+OutputBaseFilename=XoPy-Setup
+SetupIconFile=XoPy\Assets\xopy.ico
 UninstallDisplayIcon={app}\XoPy.exe
-UninstallDisplayName={#AppName} {#AppVersion}
+UninstallDisplayName=XoPy 2.4.6
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
@@ -32,9 +24,9 @@ CloseApplications=no
 RestartApplications=no
 AllowNoIcons=yes
 VersionInfoVersion=2.4.6.0
-VersionInfoProductName={#AppName}
+VersionInfoProductName=XoPy
 VersionInfoDescription=Gestor de copias XoPy
-VersionInfoCompany={#AppPublisher}
+VersionInfoCompany=Quevedo-crack
 
 [Languages]
 Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
@@ -42,23 +34,12 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "Crear un acceso directo en el escritorio"; GroupDescription: "Accesos directos:"
-Name: "autostart"; Description: "Iniciar XoPy al encender el equipo"; GroupDescription: "Integración con Windows:"; Flags: unchecked
 
 [Files]
-{ Archivos temporalmente desactivados para diagnostico }
-
-[InstallDelete]
-Type: files; Name: "{sendto}\*XoPy*.lnk"
+Source: "..\publish\XoPy.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-{ Iconos temporalmente desactivados para diagnostico }
-
-[Code]
-{ Codigo de limpieza desactivado temporalmente para diagnostico }
+Name: "{autoprograms}\XoPy"; Filename: "{app}\XoPy.exe"; Comment: "Gestor de copias XoPy"
 
 [Run]
-{ Ejecutar despues de instalar temporalmente desactivado }
-
-[UninstallDelete]
-{ Desinstalacion temporalmente desactivada para diagnostico }
-
+Filename: "{app}\XoPy.exe"; Description: "Iniciar XoPy"; Flags: postinstall nowait skipifsilent
