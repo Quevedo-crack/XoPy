@@ -2,6 +2,3 @@ XoPyShell.cpp
 ShellExtension\XoPyShell.def : warning LNK4104: export of symbol 'DllGetClassObject' should be PRIVATE
 ShellExtension\XoPyShell.def : warning LNK4104: export of symbol 'DllCanUnloadNow' should be PRIVATE
    Creating library XoPyShell.lib and object XoPyShell.exp
-XoPyShell.obj : error LNK2019: unresolved external symbol __imp_IsClipboardFormatAvailable referenced in function "public: virtual long __cdecl XoPyPasteHandler::QueryContextMenu(struct HMENU__ *,unsigned int,unsigned int,unsigned int,unsigned int)" (?QueryContextMenu@XoPyPasteHandler@@UEAAJPEAUHMENU__@@IIII@Z)
-XoPyShell.obj : error LNK2019: unresolved external symbol __imp_InsertMenuW referenced in function "public: virtual long __cdecl XoPyPasteHandler::QueryContextMenu(struct HMENU__ *,unsigned int,unsigned int,unsigned int,unsigned int)" (?QueryContextMenu@XoPyPasteHandler@@UEAAJPEAUHMENU__@@IIII@Z)
-publish\XoPyShell.dll : fatal error LNK1120: 2 unresolved externals
