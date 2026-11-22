@@ -56,7 +56,7 @@ public sealed partial class MainForm : Form
     private Label _hdrCopyState = null!, _hdrCopyPath = null!, _hdrCopyInfo = null!, _hdrCopyPercent = null!;
     private Label _hdrTargetState = null!, _hdrTargetPath = null!, _hdrTargetInfo = null!, _hdrTargetPercent = null!;
     private ProgressStrip _hdrCopyBar = null!, _hdrTargetBar = null!;
-    private SpeedGraph _graph = null!;
+    private SpeedGraph _footerGraph = null!;
     private Label[,] _categoryValues = new Label[4, 3];
     private ListBox _extraDestinations = null!;
     private CheckBox _optLocked = null!, _optResume = null!, _optChecksums = null!;
@@ -185,7 +185,7 @@ public sealed partial class MainForm : Form
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 68));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 86));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 100));
 
         _menu = BuildMenu();
         root.Controls.Add(_menu, 0, 0);
@@ -755,11 +755,12 @@ public sealed partial class MainForm : Form
             ColumnCount = 1,
             BackColor = _palette.Surface,
             Padding = new Padding(12, 8, 12, 8),
-            RowCount = 3
+            RowCount = 4
         };
-        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 19));
-        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 13));
-        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
+        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 17));
+        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 25));
+        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 11));
+        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
 
         _currentLabel = new Label
         {
@@ -773,7 +774,8 @@ public sealed partial class MainForm : Form
             Margin = new Padding(0)
         };
 
-        _progress = new ProgressStrip(_palette) { Dock = DockStyle.Fill, Height = 12, Margin = new Padding(0, 1, 0, 1) };
+        _footerGraph = new SpeedGraph(_palette) { Dock = DockStyle.Fill, Height = 23, Margin = new Padding(0, 1, 0, 2) };
+        _progress = new ProgressStrip(_palette) { Dock = DockStyle.Fill, Height = 10, Margin = new Padding(0, 0, 0, 1) };
 
         _statusLabel = new Label
         {
@@ -824,8 +826,9 @@ public sealed partial class MainForm : Form
         statusRow.Controls.Add(_speedLabel, 2, 0);
 
         footer.Controls.Add(_currentLabel, 0, 0);
-        footer.Controls.Add(_progress, 0, 1);
-        footer.Controls.Add(statusRow, 0, 2);
+        footer.Controls.Add(_footerGraph, 0, 1);
+        footer.Controls.Add(_progress, 0, 2);
+        footer.Controls.Add(statusRow, 0, 3);
         return footer;
     }
 
@@ -907,7 +910,7 @@ public sealed partial class MainForm : Form
             SmallImageList = BuildRowImageList(),
             AllowDrop = true,
             ShowItemToolTips = true,
-            Font = new Font("Segoe UI", 9f),
+            Font = new Font("Segoe UI", 8.5f),
             Margin = new Padding(0),
             LabelEdit = false,
             GridLines = false
@@ -953,8 +956,8 @@ public sealed partial class MainForm : Form
 
     private static ImageList BuildRowImageList()
     {
-        var images = new ImageList { ImageSize = new Size(1, 30) };
-        var bitmap = new Bitmap(1, 30);
+        var images = new ImageList { ImageSize = new Size(1, 24) };
+        var bitmap = new Bitmap(1, 24);
         using (var graphics = Graphics.FromImage(bitmap)) graphics.Clear(Color.Transparent);
         images.Images.Add(bitmap);
         return images;

@@ -571,6 +571,20 @@ public sealed partial class MainForm
 
     private bool MoveBlock(TransferItem item, int delta)
     {
+        // Files are presentation rows: move them through the global file sequence,
+        // while ParentId, RelativePath and Depth remain untouched for the transfer.
+        if (item.Kind == ItemKind.File)
+        {
+            var files = _items.Where(candidate => candidate.Kind == ItemKind.File).ToList();
+            var index = files.IndexOf(item);
+            var target = index + delta;
+            if (index < 0 || target < 0 || target >= files.Count) return false;
+            var first = _items.IndexOf(files[index]);
+            var second = _items.IndexOf(files[target]);
+            (_items[first], _items[second]) = (_items[second], _items[first]);
+            return true;
+        }
+
         var parent = item.ParentId is null ? null : _items.FirstOrDefault(candidate => candidate.Id == item.ParentId.Value);
         var siblings = parent is null ? RootItems() : Children(parent);
         var index = siblings.IndexOf(item);
@@ -1050,7 +1064,7 @@ public sealed partial class MainForm
         _lastOperation = operation;
         _lastDestination = destination;
         SaveQueueFile(_store.LastQueueFile, silent: true);
-        _graph.Reset();
+        _footerGraph.Reset();
         _completedAt = DateTime.MinValue;
         _trayPercent = -1;
         _trayError = false;
@@ -1193,13 +1207,17 @@ public sealed partial class MainForm
         var source = _items.FirstOrDefault(item => item.Id == draggedId);
         var targetRow = _list.HitTest(point).Item;
         var target = targetRow?.Tag as TransferItem;
-        if (source is null || target is null || ReferenceEquals(source, target) || source.ParentId != target.ParentId)
+        var canCrossGroups = source?.Kind == ItemKind.File && target?.Kind == ItemKind.File;
+        if (source is null || target is null || ReferenceEquals(source, target) ||
+            (!canCrossGroups && source.ParentId != target.ParentId))
         {
-            SetStatus("Suelta el elemento sobre otro del mismo nivel para reordenarlo.");
+            SetStatus("Los archivos se pueden intercalar entre carpetas; las carpetas se reordenan dentro de su nivel.");
             return;
         }
 
-        var siblings = source.ParentId is null ? RootItems() : Children(_items.First(item => item.Id == source.ParentId.Value));
+        var siblings = canCrossGroups
+            ? _items.Where(item => item.Kind == ItemKind.File).ToList()
+            : source.ParentId is null ? RootItems() : Children(_items.First(item => item.Id == source.ParentId.Value));
         var oldIndex = siblings.IndexOf(source);
         var targetIndex = siblings.IndexOf(target);
         if (oldIndex < 0 || targetIndex < 0) return;
@@ -1210,7 +1228,9 @@ public sealed partial class MainForm
         {
             var delta = desired < oldIndex ? -1 : 1;
             if (!MoveBlock(source, delta)) break;
-            siblings = source.ParentId is null ? RootItems() : Children(_items.First(item => item.Id == source.ParentId.Value));
+            siblings = canCrossGroups
+                ? _items.Where(item => item.Kind == ItemKind.File).ToList()
+                : source.ParentId is null ? RootItems() : Children(_items.First(item => item.Id == source.ParentId.Value));
             oldIndex = siblings.IndexOf(source);
         }
         RebuildRows();
@@ -1627,7 +1647,7 @@ public sealed partial class MainForm
             _statusLabel.Text = _currentStatus;
 
         UpdateTransferHeader(leaves, runningLeaf, done, total, percent);
-        if (_engine.IsRunning) _graph?.Add(_engine.SpeedBytesPerSecond);
+        if (_engine.IsRunning) _footerGraph?.Add(_engine.SpeedBytesPerSecond);
         UpdateStatusTab(percent, done, total, runningLeaf?.RelativePath ?? string.Empty);
     }
 
@@ -1747,43 +1767,53 @@ public sealed partial class MainForm
         child1.RelativePath = Path.Combine("Carpeta", "foto1.jpg");
         var child2 = Make("foto2.jpg", 80, folder.Id, 1);
         child2.RelativePath = Path.Combine("Carpeta", "foto2.jpg");
+        var otherFolder = new TransferItem
+        {
+            Kind = ItemKind.Folder,
+            SourcePath = @"X:\inexistente\Otra",
+            RelativePath = "Otra",
+            SizeBytes = 40,
+            SizeKnown = true,
+            State = ItemState.Pending
+        };
+        var otherChild = Make("documento.txt", 40, otherFolder.Id, 1);
+        otherChild.RelativePath = Path.Combine("Otra", "documento.txt");
         var a = Make("a.txt", 300);
         var b = Make("b.txt", 100);
 
-        _items.AddRange(new[] { folder, child1, child2, a, b });
+        _items.AddRange(new[] { folder, child1, child2, otherFolder, otherChild, a, b });
         RebuildRows();
 
-        if (!MoveBlock(a, -1) || !ReferenceEquals(RootItems()[0], a))
-            report.AppendLine("FALLO: subir un archivo de la raíz no cambió el orden.");
-        if (!MoveBlock(b, -1) || RootItems().IndexOf(b) != 1)
-            report.AppendLine("FALLO: bajar un archivo de la raíz no cambió el orden.");
-        if (!MoveBlock(child2, -1) || Children(folder)[0] != child2)
-            report.AppendLine("FALLO: no se pudo reordenar dentro de la carpeta.");
-        if (Children(folder)[0].Depth != 1 || Children(folder)[0].ParentId != folder.Id)
-            report.AppendLine("FALLO: el archivo se separó de su carpeta al reordenar.");
+        if (!MoveBlock(a, -1) || _items.Where(item => item.Kind == ItemKind.File).ToList()[2] != a)
+            report.AppendLine("FALLO: no se pudo intercalar un archivo entre grupos de carpetas distintos.");
+        if (a.ParentId is not null || a.RelativePath != "a.txt")
+            report.AppendLine("FALLO: el reordenamiento visual alteró el archivo de raíz.");
+        if (child2.Depth != 1 || child2.ParentId != folder.Id || child2.RelativePath != Path.Combine("Carpeta", "foto2.jpg") ||
+            otherChild.Depth != 1 || otherChild.ParentId != otherFolder.Id || otherChild.RelativePath != Path.Combine("Otra", "documento.txt"))
+            report.AppendLine("FALLO: el orden visual cambió la jerarquía o rutas de transferencia.");
 
         SortQueue(QueueSortField.Size);
         var roots = RootItems();
-        if (!roots.SequenceEqual(new[] { b, folder, a }))
-            report.AppendLine("FALLO: ordenar por tamaño no dejó b, carpeta, a.");
+        if (!roots.SequenceEqual(new[] { otherFolder, b, folder, a }))
+            report.AppendLine("FALLO: ordenar por tamaño no conservó los grupos raíz.");
 
         SortQueue(QueueSortField.Name);
-        if (!RootItems().SequenceEqual(new[] { a, b, folder }))
-            report.AppendLine("FALLO: el orden por nombre no dejó a, b, carpeta.");
+        if (!RootItems().SequenceEqual(new[] { a, b, folder, otherFolder }))
+            report.AppendLine("FALLO: el orden por nombre no conservó los grupos raíz.");
 
         SortQueue(QueueSortField.Source);
-        if (RootItems().Count != 3)
+        if (RootItems().Count != 4)
             report.AppendLine("FALLO: ordenar por carpeta de origen perdió elementos.");
 
         SortQueue(QueueSortField.Destination);
-        if (RootItems().Count != 3)
+        if (RootItems().Count != 4)
             report.AppendLine("FALLO: ordenar por carpeta de destino perdió elementos.");
 
         var before = _items.Count;
         RemoveItems(new[] { child1 });
         if (_items.Any(item => item.Id == child1.Id) || _items.Count != before - 1)
             report.AppendLine("FALLO: quitar de la lista no eliminó solo el elemento seleccionado.");
-        if (_items.Count(item => item.Kind == ItemKind.File) != 3)
+        if (_items.Count(item => item.Kind == ItemKind.File) != 4)
             report.AppendLine("FALLO: el recuento de archivos tras quitar es incorrecto.");
         if (_items.Any(item => File.Exists(item.SourcePath)))
             report.AppendLine("FALLO: la prueba tocó archivos reales.");
