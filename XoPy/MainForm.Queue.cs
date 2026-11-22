@@ -586,17 +586,25 @@ public sealed partial class MainForm
             var children = ReferenceEquals(node, parent) ? siblings : Children(node);
             foreach (var child in children) AddNode(child);
         }
-        foreach (var root in RootItems()) AddNode(root);
+        if (parent is null)
+        {
+            foreach (var root in siblings) AddNode(root);
+        }
+        else
+        {
+            foreach (var root in RootItems()) AddNode(root);
+        }
 
         _items.Clear();
         _items.AddRange(rebuilt);
         return true;
     }
 
-    private void RemoveSelected()
+    private void RemoveSelected() => RemoveItems(SelectedItems());
+
+    private void RemoveItems(IReadOnlyCollection<TransferItem> selected)
     {
         if (_engine.IsRunning) { SetStatus("Detén la transferencia antes de modificar la lista."); return; }
-        var selected = SelectedItems();
         if (selected.Count == 0) { SetStatus("Selecciona uno o varios elementos."); return; }
 
         var remove = new HashSet<Guid>();
@@ -793,10 +801,10 @@ public sealed partial class MainForm
             if (_settings.ConfirmDelete)
             {
                 var totalDelete = deleteTargets.Sum(item => Math.Max(0, item.SizeBytes));
-                var message = $"¿Eliminar {deleteTargets.Count} elemento(s) ({Format.Bytes(totalDelete)})?\n\n" +
+                var message = $"¿Eliminar {deleteTargets.Count} elemento(s) del disco ({Format.Bytes(totalDelete)})?\n\n" +
                               (_settings.UseRecycleBin
-                                  ? "Se enviarán a la Papelera de reciclaje."
-                                  : "Se eliminarán de forma permanente.");
+                                  ? "Se enviarán a la Papelera de reciclaje.\n\nSi solo quieres quitarlos de la lista, pulsa Supr o el botón — de la barra de la lista."
+                                  : "Se eliminarán de forma permanente.\n\nSi solo quieres quitarlos de la lista, pulsa Supr o el botón — de la barra de la lista.");
                 if (MessageBox.Show(this, message, "XoPy", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
             }
         }
@@ -898,6 +906,7 @@ public sealed partial class MainForm
             PreserveTimestamps = _settings.PreserveTimestamps,
             UseRecycleBin = _settings.UseRecycleBin,
             CopyLockedFiles = _settings.CopyLockedFiles,
+            NativeCopy = _settings.NativeCopy,
             ResumePartials = _settings.ResumePartials,
             SecureDeletePasses = _settings.SecureDeletePasses,
             Destinations = ExtraDestinations(operation)
@@ -1135,7 +1144,7 @@ public sealed partial class MainForm
             try { Process.Start(new ProcessStartInfo("shutdown", "/s /t 30") { CreateNoWindow = true, UseShellExecute = false }); } catch { }
         }
 
-        if (failed == 0 && cancelled == 0 && _settings.CloseWhenDone)
+        if (failed == 0 && cancelled == 0 && _settings.CloseWhenDone && _lastOperation is OperationType.Copy or OperationType.Move)
         {
             _exitRequested = true;
             BeginInvoke(new Action(Close));
@@ -1195,8 +1204,7 @@ public sealed partial class MainForm
 
     private void UpdateTitle()
     {
-        var total = _engine.TotalBytes;
-        var percent = total > 0 ? _engine.DoneBytes * 100d / total : 0;
+        var percent = _lastPercent;
         var speed = Format.Speed(_engine.SpeedBytesPerSecond);
         Text = _engine.IsPaused
             ? $"XoPy — en pausa · {percent:0.0} %"
@@ -1205,8 +1213,7 @@ public sealed partial class MainForm
 
     private void UpdateTrayState()
     {
-        var total = _engine.TotalBytes;
-        var percent = total > 0 ? (int)Math.Clamp(_engine.DoneBytes * 100 / total, 0, 100) : 0;
+        var percent = (int)Math.Clamp(Math.Round(_lastPercent), 0, 100);
         var paused = _engine.IsPaused;
         var error = _items.Any(item => item.State == ItemState.Failed);
         if (percent == _trayPercent && paused == _trayPaused && error == _trayError) return;
@@ -1289,6 +1296,7 @@ public sealed partial class MainForm
             if (leaves.Count > 0 && leaves.All(item => item.State is ItemState.Completed or ItemState.Skipped)) percent = 100;
         }
 
+        _lastPercent = percent;
         UpdateCountLabel(leaves.Count, total);
         _progress.Value = percent;
         _progress.FillColor = _items.Any(item => item.State == ItemState.Failed) && !_engine.IsRunning
@@ -1413,11 +1421,87 @@ public sealed partial class MainForm
         }
     }
 
+    /// <summary>Prueba automática de reordenar, ordenar y quitar de la lista sin tocar el disco.</summary>
+    public string QueueSelfTest()
+    {
+        var report = new StringBuilder();
+        _items.Clear();
+        _rows.Clear();
+        _list.Items.Clear();
+
+        TransferItem Make(string name, long size, Guid? parent = null, int depth = 0) => new()
+        {
+            Kind = ItemKind.File,
+            SourcePath = @"X:\inexistente\" + name,
+            RelativePath = name,
+            SizeBytes = size,
+            SizeKnown = true,
+            ParentId = parent,
+            Depth = depth,
+            State = ItemState.Pending
+        };
+
+        var folder = new TransferItem
+        {
+            Kind = ItemKind.Folder,
+            SourcePath = @"X:\inexistente\Carpeta",
+            RelativePath = "Carpeta",
+            SizeBytes = 200,
+            SizeKnown = true,
+            State = ItemState.Pending
+        };
+        var child1 = Make("foto1.jpg", 120, folder.Id, 1);
+        child1.RelativePath = Path.Combine("Carpeta", "foto1.jpg");
+        var child2 = Make("foto2.jpg", 80, folder.Id, 1);
+        child2.RelativePath = Path.Combine("Carpeta", "foto2.jpg");
+        var a = Make("a.txt", 300);
+        var b = Make("b.txt", 100);
+
+        _items.AddRange(new[] { folder, child1, child2, a, b });
+        RebuildRows();
+
+        if (!MoveBlock(a, -1) || !ReferenceEquals(RootItems()[0], a))
+            report.AppendLine("FALLO: subir un archivo de la raíz no cambió el orden.");
+        if (!MoveBlock(b, -1) || RootItems().IndexOf(b) != 1)
+            report.AppendLine("FALLO: bajar un archivo de la raíz no cambió el orden.");
+        if (!MoveBlock(child2, -1) || Children(folder)[0] != child2)
+            report.AppendLine("FALLO: no se pudo reordenar dentro de la carpeta.");
+        if (Children(folder)[0].Depth != 1 || Children(folder)[0].ParentId != folder.Id)
+            report.AppendLine("FALLO: el archivo se separó de su carpeta al reordenar.");
+
+        SortQueue(QueueSortField.Size);
+        var roots = RootItems();
+        if (!roots.SequenceEqual(new[] { b, folder, a }))
+            report.AppendLine("FALLO: ordenar por tamaño no dejó b, carpeta, a.");
+
+        var before = _items.Count;
+        RemoveItems(new[] { child1 });
+        if (_items.Any(item => item.Id == child1.Id) || _items.Count != before - 1)
+            report.AppendLine("FALLO: quitar de la lista no eliminó solo el elemento seleccionado.");
+        if (_items.Count(item => item.Kind == ItemKind.File) != 3)
+            report.AppendLine("FALLO: el recuento de archivos tras quitar es incorrecto.");
+        if (_items.Any(item => File.Exists(item.SourcePath)))
+            report.AppendLine("FALLO: la prueba tocó archivos reales.");
+
+        _items.Clear();
+        _rows.Clear();
+        _list.Items.Clear();
+        return report.Length == 0
+            ? "OK: reordenar, ordenar y quitar de la lista funcionan y no borran archivos."
+            : report.ToString();
+    }
+
     private void ShowHistory()
     {
         _history = _store.LoadHistory();
         using var dialog = new HistoryDialog(_history, _palette);
         dialog.ShowDialog(this);
+        if (dialog.Modified)
+        {
+            _store.SaveHistory(dialog.Entries);
+            _history = _store.LoadHistory();
+            SetStatus($"Historial actualizado: {_history.Count} entrada(s).");
+        }
         UpdateJobs();
         UpdateTargetTab();
     }

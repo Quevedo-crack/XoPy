@@ -269,13 +269,14 @@ public sealed partial class MainForm
         _optShowHashes = OptionCheck("Mostrar los hashes en la lista", _settings.ShowHashes);
         _optLocked = OptionCheck("Copiar archivos bloqueados o en uso (permisos de copia de seguridad)", _settings.CopyLockedFiles);
         _optResume = OptionCheck("Reanudar copias parciales al reintentar", _settings.ResumePartials);
+        _optNative = OptionCheck("Usar el motor nativo de Windows (CopyFileEx, más rápido)", _settings.NativeCopy);
         _optChecksums = OptionCheck("Crear un archivo de checksums al terminar", _settings.WriteChecksumFile);
         toggles.Controls.AddRange(new Control[]
         {
             _optVerifyAfterCopy, _optPreserveTimestamps, _optRecycleBin, _optShowHashes,
-            _optLocked, _optResume, _optChecksums
+            _optLocked, _optNative, _optResume, _optChecksums
         });
-        AddWideRow(grid, toggles, 170);
+        AddWideRow(grid, toggles, 194);
 
         _optSecurePasses = new NumericUpDown
         {
@@ -388,6 +389,7 @@ public sealed partial class MainForm
         _optPreserveTimestamps.CheckedChanged += (_, _) => SaveQuickOptions();
         _optRecycleBin.CheckedChanged += (_, _) => SaveQuickOptions();
         _optLocked.CheckedChanged += (_, _) => SaveQuickOptions();
+        _optNative.CheckedChanged += (_, _) => SaveQuickOptions();
         _optResume.CheckedChanged += (_, _) => SaveQuickOptions();
         _optChecksums.CheckedChanged += (_, _) => SaveQuickOptions();
         _optSecurePasses.ValueChanged += (_, _) => SaveQuickOptions();
@@ -533,6 +535,7 @@ public sealed partial class MainForm
         _settings.UseRecycleBin = _optRecycleBin.Checked;
         _settings.ShowHashes = _optShowHashes.Checked;
         _settings.CopyLockedFiles = _optLocked.Checked;
+        _settings.NativeCopy = _optNative.Checked;
         _settings.ResumePartials = _optResume.Checked;
         _settings.WriteChecksumFile = _optChecksums.Checked;
         _settings.SecureDeletePasses = (int)_optSecurePasses.Value;
@@ -982,6 +985,18 @@ public sealed partial class MainForm
     // ---------------------------------------------------------------- hashes y columnas
 
     private bool _updatingColumns;
+    private bool _columnUpdatePending;
+
+    private void ScheduleColumnUpdate()
+    {
+        if (!IsHandleCreated || _columnUpdatePending) return;
+        _columnUpdatePending = true;
+        BeginInvoke(new Action(() =>
+        {
+            _columnUpdatePending = false;
+            if (!IsDisposed) UpdateHashColumns();
+        }));
+    }
 
     private void UpdateHashColumns()
     {
@@ -995,6 +1010,12 @@ public sealed partial class MainForm
         {
             _updatingColumns = false;
         }
+        ResizeColumns();
+    }
+
+    private static void SetWidth(ColumnHeader column, int width)
+    {
+        if (column.Width != width) column.Width = width;
     }
 
     private void UpdateHashColumnsCore()
@@ -1002,12 +1023,11 @@ public sealed partial class MainForm
         if (_list.Columns.Count < 6) return;
         var wideEnough = _list.ClientSize.Width >= 840;
         var show = wideEnough && _settings.ShowHashes && (_settings.VerifyAfterCopy || _lastOperation == OperationType.Test);
-        _list.Columns[1].Width = show ? 88 : 96;
-        _list.Columns[2].Width = show ? 110 : 132;
-        _list.Columns[3].Width = show ? 132 : 210;
-        _list.Columns[4].Width = show ? 138 : 0;
-        _list.Columns[5].Width = show ? 138 : 0;
-        ResizeColumns();
+        SetWidth(_list.Columns[1], show ? 88 : 96);
+        SetWidth(_list.Columns[2], show ? 110 : 132);
+        SetWidth(_list.Columns[3], show ? 132 : 210);
+        SetWidth(_list.Columns[4], show ? 138 : 0);
+        SetWidth(_list.Columns[5], show ? 138 : 0);
     }
 
     private void ToggleHashes()
@@ -1214,10 +1234,28 @@ public sealed partial class MainForm
 
     private void ResizeColumns()
     {
-        if (_list is null || _list.Columns.Count < 6) return;
-        var used = _list.Columns[1].Width + _list.Columns[2].Width + _list.Columns[3].Width
-                   + _list.Columns[4].Width + _list.Columns[5].Width;
-        var available = _list.ClientSize.Width - used - 4;
-        _list.Columns[0].Width = Math.Max(200, available);
+        if (_list is null || _list.Columns.Count < 6 || _updatingColumns) return;
+        _updatingColumns = true;
+        try
+        {
+            var used = _list.Columns[1].Width + _list.Columns[2].Width + _list.Columns[3].Width
+                       + _list.Columns[4].Width + _list.Columns[5].Width;
+            var available = _list.ClientSize.Width - used - 4;
+            if (available < 380)
+            {
+                // En ventanas pequeñas se reducen Tamaño y Progreso para que quepa el nombre.
+                SetWidth(_list.Columns[1], 76);
+                SetWidth(_list.Columns[2], 116);
+                SetWidth(_list.Columns[3], 130);
+                used = _list.Columns[1].Width + _list.Columns[2].Width + _list.Columns[3].Width
+                       + _list.Columns[4].Width + _list.Columns[5].Width;
+                available = _list.ClientSize.Width - used - 4;
+            }
+            SetWidth(_list.Columns[0], Math.Max(160, available));
+        }
+        finally
+        {
+            _updatingColumns = false;
+        }
     }
 }

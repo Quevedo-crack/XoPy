@@ -80,6 +80,19 @@ public sealed class SettingsStore
         }
     }
 
+    public void SaveHistory(IEnumerable<HistoryEntry> entries)
+    {
+        try
+        {
+            Directory.CreateDirectory(DataFolder);
+            File.WriteAllText(HistoryFile, JsonSerializer.Serialize(entries.Take(500).ToList(), JsonOptions));
+        }
+        catch
+        {
+            // El historial es opcional.
+        }
+    }
+
     public void AppendHistory(HistoryEntry entry)
     {
         try

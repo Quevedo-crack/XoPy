@@ -24,6 +24,10 @@ Así se ve una verificación correcta (SHA-256 comparado con el original):
 
 ![Verificación en XoPy](docs/xopy-verify.png)
 
+Y el historial, que se puede editar sin tocar los archivos:
+
+![Historial de XoPy](docs/xopy-history.png)
+
 ## Automatización y línea de comandos
 
 XoPy acepta órdenes para usarlo desde scripts o desde el Explorador:
@@ -47,6 +51,9 @@ XoPy.exe --paste --to "D:\Copias"
 ## Funciones
 
 - **Copia, mueve, elimina y verifica** archivos o carpetas completas (con subcarpetas).
+- **Motor nativo de Windows** (`CopyFileExW` + `CopyProgressRoutine`): la copia la hace el propio
+  sistema, con pausa, saltar archivo y límite de velocidad, y sin dobles lecturas. Si algo falla,
+  XoPy reintenta con la copia administrada y con permisos de copia de seguridad.
 - **Cola jerárquica**: al añadir una carpeta se ve la carpeta y dentro cada archivo, con sus
   subcarpetas. Puedes expandirla o contraerla, **reordenar** (botones ↑/↓ o Alt+↑/Alt+↓) sin separar
   un archivo de su carpeta, **ordenar** por nombre, tamaño, tipo o carpeta de destino (menú Cola o el
@@ -74,7 +81,11 @@ XoPy.exe --paste --to "D:\Copias"
   es más antiguo o si es más pequeño.
 - **Gestión de errores**: reintentos automáticos, omitir el archivo o detener la transferencia.
 - **Conservar fechas** y atributos, y opción de enviar a la **Papelera de reciclaje**.
-- **Favoritos**, historial de transferencias con exportación a CSV y sonido al terminar.
+- **Favoritos**, historial de transferencias con exportación a CSV/HTML y sonido al terminar.
+- **Historial editable**: borra una entrada o todo el historial desde el propio diálogo; solo se
+  quita el registro, nunca el archivo copiado.
+- **Quitar de la lista ≠ borrar**: `Supr` o el botón de la papelera quitan el elemento de la cola
+  y no tocan el archivo original. Para borrar de verdad está «Eliminar» y el menú «Eliminar del disco…».
 - **Pestañas Lista de archivos / Destino / Opciones / Estado / Registro**, encabezado «Copiando /
   Destino» con porcentaje por archivo, gráfica de velocidad y tabla de categorías (Correctos,
   Verificados, Fallidos, Total). Sin parpadeo: doble búfer y actualizaciones incrementales.
@@ -83,6 +94,16 @@ XoPy.exe --paste --to "D:\Copias"
 - **Acciones al terminar**: apagar el equipo, cerrar XoPy o abrir la carpeta de destino.
 - Icono de progreso en el **área de notificación** y modo minimizado.
 - Temas **oscuro** y **claro**.
+
+## Novedades de la versión 2.3.0
+
+- Corregido el bloqueo de la ventana al abrirse (bucle de redimensionado de columnas).
+- Motor de copia nativo de Windows activado por defecto, con reintentos y mensajes de error claros.
+- Reordenar con ↑/↓ y Alt+↑/Alt+↓ ya funciona también con los elementos de primer nivel.
+- El porcentaje de la barra, del título y del icono de bandeja sale del total real de bytes.
+- Diálogo de historial rediseñado: borrar entrada, vaciar historial, exportar CSV/HTML.
+- Nuevas pruebas automáticas de la interfaz: reordenar, ordenar, quitar de la lista, copiar
+  jerarquías, varios destinos, checksums y reanudación.
 
 ## Integración con el Explorador de Windows
 

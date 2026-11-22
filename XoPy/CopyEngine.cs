@@ -25,6 +25,7 @@ public sealed class EngineOptions
     public VerifyAlgorithm Verify { get; set; } = VerifyAlgorithm.None;
     public bool VerifyAfterCopy { get; set; }
     public bool ComputeHashes { get; set; }
+    public bool NativeCopy { get; set; } = true;
     public int RetryCount { get; set; } = 3;
     public int Parallelism { get; set; } = 2;
     public int BufferSize { get; set; } = 1024 * 1024;
@@ -261,6 +262,7 @@ public sealed class CopyEngine
             if (resolved is null)
             {
                 skipped++;
+                Interlocked.Add(ref _doneBytes, Math.Max(0, item.SizeBytes));
                 continue;
             }
 
@@ -320,7 +322,20 @@ public sealed class CopyEngine
             catch (Exception ex)
             {
                 attempt++;
+                if (item.TransferredBytes > 0)
+                {
+                    Interlocked.Add(ref _doneBytes, -item.TransferredBytes);
+                    item.TransferredBytes = 0;
+                }
                 FileLog.Write($"Intento {attempt} fallido para {source} -> {target}: {ex.Message}");
+                // Windows Defender, el Explorador o un reproductor pueden bloquear el archivo unos segundos.
+                var win32 = ex.HResult & 0xFFFF;
+                var transient = ex is UnauthorizedAccessException || win32 is 5 or 32 or 33;
+                if (transient && attempt <= 2)
+                {
+                    await Task.Delay(350 * attempt, token).ConfigureAwait(false);
+                    continue;
+                }
                 var choice = DecideError(source, ex, attempt, options);
                 if (choice == ErrorChoice.Retry)
                 {
@@ -368,11 +383,41 @@ public sealed class CopyEngine
         {
             item.TransferredBytes = sourceLength;
             await FinishFileAsync(source, temp, item, options, token).ConfigureAwait(false);
-            if (File.Exists(target)) ClearReadOnly(target);
-            File.Move(temp, target, true);
+            MoveWithRetry(temp, target);
             ApplyMetadata(source, target, options);
             FileLog.Write($"Reanudada (completa) la copia parcial de {target}");
             return;
+        }
+
+        // Motor nativo de Windows (CopyFileEx): mucho más rápido y conserva atributos y fechas.
+        if (options.NativeCopy && existing == 0 && !options.VerifyAfterCopy && !options.ComputeHashes)
+        {
+            try
+            {
+                await NativeCopyAsync(source, target, item, options, token).ConfigureAwait(false);
+                item.TransferredBytes = item.SizeBytes;
+                FileLog.Write($"Copia nativa: {source} -> {target}");
+                return;
+            }
+            catch (OperationCanceledException)
+            {
+                TryDeleteFile(target);
+                throw;
+            }
+            catch (SkipRequestedException)
+            {
+                TryDeleteFile(target);
+                throw;
+            }
+            catch (Exception ex)
+            {
+                if (item.TransferredBytes > 0)
+                {
+                    Interlocked.Add(ref _doneBytes, -item.TransferredBytes);
+                    item.TransferredBytes = 0;
+                }
+                FileLog.Write($"El motor nativo falló para {source} ({ex.Message}); se usa la copia administrada.");
+            }
         }
 
         var keepTemp = false;
@@ -415,8 +460,7 @@ public sealed class CopyEngine
         try
         {
             await FinishFileAsync(source, temp, item, options, token).ConfigureAwait(false);
-            if (File.Exists(target)) ClearReadOnly(target);
-            File.Move(temp, target, true);
+            MoveWithRetry(temp, target);
             ApplyMetadata(source, target, options);
         }
         catch
@@ -509,24 +553,105 @@ public sealed class CopyEngine
     }
 
     /// <summary>Abre el origen permitiendo que otro programa lo tenga abierto; si está bloqueado, usa la API de copia de seguridad.</summary>
+    private async Task NativeCopyAsync(string source, string target, TransferItem item, EngineOptions options, CancellationToken token)
+    {
+        await Task.Run(() =>
+        {
+            ClearReadOnly(target);
+            var transferred = 0L;
+            var clock = Stopwatch.StartNew();
+            var routine = new NativeMethods.CopyProgressRoutine((_, totalTransferred, _, _, _, _, _, _, _) =>
+            {
+                token.ThrowIfCancellationRequested();
+                while (_paused)
+                {
+                    Thread.Sleep(60);
+                    token.ThrowIfCancellationRequested();
+                }
+                if (_skipCurrent)
+                {
+                    _skipCurrent = false;
+                    return NativeMethods.CopyProgressResult.Cancel;
+                }
+
+                var delta = totalTransferred - transferred;
+                if (delta > 0)
+                {
+                    transferred = totalTransferred;
+                    Interlocked.Add(ref _doneBytes, delta);
+                    item.TransferredBytes = transferred;
+                }
+
+                if (options.SpeedLimitBytesPerSecond > 0)
+                {
+                    var expected = transferred * 1000d / options.SpeedLimitBytesPerSecond;
+                    var actual = clock.Elapsed.TotalMilliseconds;
+                    if (expected > actual) Thread.Sleep((int)Math.Min(200, expected - actual));
+                }
+                return NativeMethods.CopyProgressResult.Continue;
+            });
+
+            if (!NativeMethods.CopyFileExW(source, target, routine, IntPtr.Zero, IntPtr.Zero, 0))
+            {
+                var error = Marshal.GetLastWin32Error();
+                if (error == 1235) throw new SkipRequestedException();
+                throw new IOException("CopyFileEx falló: " + new System.ComponentModel.Win32Exception(error).Message,
+                    unchecked((int)0x80070000) | error);
+            }
+        }, token).ConfigureAwait(false);
+    }
+
+    /// <summary>Windows puede bloquear el archivo recién escrito mientras lo analiza el antivirus.</summary>
+    private static void MoveWithRetry(string temp, string target)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                if (File.Exists(target)) ClearReadOnly(target);
+                File.Move(temp, target, true);
+                return;
+            }
+            catch (Exception ex) when (attempt < 6 && ex is IOException or UnauthorizedAccessException)
+            {
+                FileLog.Write($"Reintento {attempt + 1} al mover {temp}: {ex.Message}");
+                Thread.Sleep(150 * (attempt + 1));
+            }
+        }
+    }
+
     private static Stream OpenSourceRead(string path, EngineOptions options, int bufferSize)
     {
-        try
+        Exception? last = null;
+        for (var attempt = 0; attempt < 3; attempt++)
         {
-            return new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete,
-                bufferSize, FileOptions.Asynchronous | FileOptions.SequentialScan);
+            try
+            {
+                return new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete,
+                    bufferSize, FileOptions.Asynchronous | FileOptions.SequentialScan);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                last = ex;
+                if (options.CopyLockedFiles)
+                {
+                    var backup = TryOpenWithBackupSemantics(path, bufferSize);
+                    if (backup is not null) return backup;
+                }
+                Thread.Sleep(120 * (attempt + 1));
+            }
         }
-        catch (Exception ex) when (options.CopyLockedFiles && ex is IOException or UnauthorizedAccessException)
-        {
-            var handle = NativeMethods.CreateFileW(path, NativeMethods.GenericRead, NativeMethods.FileShareAll,
-                IntPtr.Zero, NativeMethods.OpenExisting, NativeMethods.FileFlagBackupSemantics | NativeMethods.FileFlagSequentialScan,
-                IntPtr.Zero);
-            if (handle.IsInvalid)
-                throw new IOException("El archivo está bloqueado y no se pudo abrir con permisos de copia de seguridad: " + path,
-                    new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error()));
-            FileLog.Write("Abierto con permisos de copia de seguridad (archivo bloqueado): " + path);
-            return new FileStream(handle, FileAccess.Read, bufferSize);
-        }
+        throw last ?? new IOException("No se pudo abrir el archivo: " + path);
+    }
+
+    private static Stream? TryOpenWithBackupSemantics(string path, int bufferSize)
+    {
+        var handle = NativeMethods.CreateFileW(path, NativeMethods.GenericRead, NativeMethods.FileShareAll,
+            IntPtr.Zero, NativeMethods.OpenExisting, NativeMethods.FileFlagBackupSemantics | NativeMethods.FileFlagSequentialScan,
+            IntPtr.Zero);
+        if (handle.IsInvalid) return null;
+        FileLog.Write("Abierto con permisos de copia de seguridad: " + path);
+        return new FileStream(handle, FileAccess.Read, bufferSize);
     }
 
     private async Task TestAsync(TransferItem item, EngineOptions options, CancellationToken token)
@@ -788,15 +913,25 @@ public sealed class CopyEngine
 
     public static string Describe(Exception ex)
     {
-        if (ex is UnauthorizedAccessException)
-            return "Acceso denegado: comprueba los permisos del origen y del destino, que el archivo no esté abierto en otro programa y que el destino no sea una carpeta protegida (Windows, Program Files) ni la raíz de un disco.";
+        var code = ex.HResult & 0xFFFF;
         if (ex is PathTooLongException)
             return "La ruta es demasiado larga (más de 260 caracteres). Acorta los nombres de carpeta.";
         if (ex is DirectoryNotFoundException)
-            return "No se encontró la carpeta de destino.";
-        if (ex is IOException io && (io.HResult & 0xFFFF) == 32)
-            return "El archivo está siendo usado por otro programa.";
-        return ex.Message;
+            return "No se encontró la carpeta de origen o de destino.";
+        if (ex is UnauthorizedAccessException || code == 5)
+            return "Acceso denegado (error 5). Se ha reintentado automáticamente: cierra el archivo en otros programas, " +
+                   "comprueba que el destino no sea una carpeta protegida (Windows, Program Files) y que la unidad no esté llena ni en solo lectura. " +
+                   "Si el archivo está bloqueado, activa «Copiar archivos bloqueados» en Opciones.";
+        if (code is 32 or 33)
+            return "El archivo está siendo usado por otro programa (error " + code + ") y no se ha podido abrir. " +
+                   "Ciérralo y vuelve a intentarlo: XoPy reintenta automáticamente varias veces.";
+        if (code == 112)
+            return "No hay espacio suficiente en el disco de destino (error 112).";
+        if (code == 1235)
+            return "La copia se canceló.";
+        if (code == 87 || code == 123)
+            return "La ruta de destino no es válida. Revisa si el destino es la raíz de un disco o una unidad desconectada.";
+        return ex.Message + (code != 0 ? $" (error {code})" : string.Empty);
     }
 
     private static void TryDeleteFile(string path)
@@ -864,6 +999,23 @@ internal static class NativeMethods
     [DllImport("advapi32.dll", SetLastError = true)]
     public static extern bool AdjustTokenPrivileges(IntPtr tokenHandle, bool disableAllPrivileges,
         ref TokenPrivileges newState, uint bufferLength, IntPtr previousState, IntPtr returnLength);
+
+    public enum CopyProgressResult : uint
+    {
+        Continue = 0,
+        Cancel = 1,
+        Stop = 2,
+        Quiet = 3
+    }
+
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    public delegate CopyProgressResult CopyProgressRoutine(long totalFileSize, long totalBytesTransferred,
+        long streamSize, long streamBytesTransferred, uint streamNumber, CopyProgressResult callbackReason,
+        IntPtr sourceFile, IntPtr destinationFile, IntPtr data);
+
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    public static extern bool CopyFileExW(string existingFileName, string newFileName, CopyProgressRoutine progressRoutine,
+        IntPtr data, IntPtr cancel, uint flags);
 
     [StructLayout(LayoutKind.Sequential)]
     public struct Luid

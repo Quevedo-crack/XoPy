@@ -1,4 +1,5 @@
 using System.Drawing;
+using System.Globalization;
 using System.Linq;
 using System.Text;
 using System.Windows.Forms;
@@ -167,6 +168,7 @@ internal sealed class OptionsDialog : Form
     private readonly CheckBox _shutdown;
     private readonly ListBox _favorites;
     private readonly CheckBox _copyLocked;
+    private readonly CheckBox _nativeCopy;
     private readonly CheckBox _resumePartials;
     private readonly CheckBox _writeChecksums;
     private readonly NumericUpDown _securePasses;
@@ -191,13 +193,14 @@ internal sealed class OptionsDialog : Form
         ShowInTaskbar = false;
         MinimizeBox = false;
         MaximizeBox = false;
-        ClientSize = new Size(760, 560);
+        var workArea = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1280, 720);
+        ClientSize = new Size(760, Math.Min(660, Math.Max(520, workArea.Height - 70)));
 
         _tabs = new TabControl
         {
             Dock = DockStyle.Fill,
             SizeMode = TabSizeMode.Fixed,
-            ItemSize = new Size(100, 28),
+            ItemSize = new Size(92, 28),
             Padding = new Point(12, 6),
             DrawMode = TabDrawMode.OwnerDrawFixed,
             Font = new Font("Segoe UI", 9f)
@@ -217,6 +220,7 @@ internal sealed class OptionsDialog : Form
         _preserveTimestamps = Check("Conservar las fechas de modificación", settings.PreserveTimestamps);
         _recycleBin = Check("Enviar a la Papelera de reciclaje al eliminar", settings.UseRecycleBin);
         _copyLocked = Check("Copiar archivos bloqueados o en uso", settings.CopyLockedFiles);
+        _nativeCopy = Check("Usar el motor nativo de Windows (CopyFileEx), más rápido", settings.NativeCopy);
         _resumePartials = Check("Reanudar copias parciales al reintentar", settings.ResumePartials);
         _writeChecksums = Check("Crear un archivo de checksums al terminar", settings.WriteChecksumFile);
         _securePasses = Numeric(settings.SecureDeletePasses, 0, 7, 1);
@@ -340,27 +344,30 @@ internal sealed class OptionsDialog : Form
         extraPanel.Controls.Add(_extraDestinations, 0, 0);
         extraPanel.Controls.Add(extraButtons, 0, 1);
 
-        _tabs.TabPages.Add(Page("Transferencia", 12,
-            ("Transferencias simultáneas", _parallel, 48),
-            ("Búfer por archivo (KiB)", _buffer, 48),
-            ("Límite de velocidad (MiB/s, 0 = sin límite)", _speed, 48),
-            ("", _preserveTimestamps, 40),
-            ("", _recycleBin, 40),
-            ("", _copyLocked, 36),
-            ("", _resumePartials, 36),
-            ("", _writeChecksums, 36),
-            ("Pasadas de borrado seguro (0 = normal)", _securePasses, 44),
-            ("Script al finalizar", _completionScript, 44),
-            ("Destinos adicionales", extraPanel, 120),
+        _tabs.TabPages.Add(Page("Transferencia", 11,
+            ("Transferencias simultáneas", _parallel, 44),
+            ("Búfer por archivo (KiB)", _buffer, 44),
+            ("Límite de velocidad (MiB/s, 0 = sin límite)", _speed, 44),
+            ("", _preserveTimestamps, 36),
+            ("", _recycleBin, 36),
+            ("", _copyLocked, 32),
+            ("", _nativeCopy, 32),
+            ("", _resumePartials, 32),
+            ("", _writeChecksums, 32),
+            ("Pasadas de borrado seguro (0 = normal)", _securePasses, 40),
+            ("Script al finalizar", _completionScript, 40)));
+
+        _tabs.TabPages.Add(Page("Destinos", 3,
+            ("Carpetas que reciben una copia de todo", extraPanel, 260),
             ("", new Label
             {
-                Text = "Los destinos adicionales reciben una copia completa de lo que se copie o mueva.\n" +
-                       "El script recibe como argumentos la carpeta de destino, los errores y la operación.",
+                Text = "Cada destino adicional recibe una copia completa de lo que se copie o mueva.\n" +
+                       "El script final recibe la carpeta de destino, los errores y la operación.",
                 AutoSize = true,
                 ForeColor = _palette.Muted,
                 Font = new Font("Segoe UI", 8.5f),
                 BackColor = Color.Transparent
-            }, 52)));
+            }, 44)));
 
         var verifyPage = Page("Verificación", 3,
             ("Algoritmo", _verifyAlgorithm, 48),
@@ -559,6 +566,7 @@ internal sealed class OptionsDialog : Form
         Result.PreserveTimestamps = _preserveTimestamps.Checked;
         Result.UseRecycleBin = _recycleBin.Checked;
         Result.CopyLockedFiles = _copyLocked.Checked;
+        Result.NativeCopy = _nativeCopy.Checked;
         Result.ResumePartials = _resumePartials.Checked;
         Result.WriteChecksumFile = _writeChecksums.Checked;
         Result.SecureDeletePasses = (int)_securePasses.Value;
@@ -596,6 +604,7 @@ internal sealed class OptionsDialog : Form
         target.PreserveTimestamps = Result.PreserveTimestamps;
         target.UseRecycleBin = Result.UseRecycleBin;
         target.CopyLockedFiles = Result.CopyLockedFiles;
+        target.NativeCopy = Result.NativeCopy;
         target.ResumePartials = Result.ResumePartials;
         target.WriteChecksumFile = Result.WriteChecksumFile;
         target.SecureDeletePasses = Result.SecureDeletePasses;
@@ -628,6 +637,7 @@ internal sealed class OptionsDialog : Form
         PreserveTimestamps = source.PreserveTimestamps,
         UseRecycleBin = source.UseRecycleBin,
         CopyLockedFiles = source.CopyLockedFiles,
+        NativeCopy = source.NativeCopy,
         ResumePartials = source.ResumePartials,
         WriteChecksumFile = source.WriteChecksumFile,
         SecureDeletePasses = source.SecureDeletePasses,
@@ -649,49 +659,62 @@ internal sealed class OptionsDialog : Form
 
 internal sealed class HistoryDialog : Form
 {
+    private readonly List<HistoryEntry> _entries;
+    private readonly ListView _list;
+    private readonly Font _headerFont = new("Segoe UI", 9f, FontStyle.Bold);
+
+    public bool Modified { get; private set; }
+    public IReadOnlyList<HistoryEntry> Entries => _entries;
+
     public HistoryDialog(List<HistoryEntry> entries, Palette palette)
     {
+        _entries = entries.ToList();
+
         Text = "Historial de transferencias";
         BackColor = palette.Canvas;
         ForeColor = palette.Text;
         Font = new Font("Segoe UI", 9f);
         StartPosition = FormStartPosition.CenterParent;
-        ClientSize = new Size(840, 480);
-        MinimumSize = new Size(680, 380);
+        ClientSize = new Size(880, 520);
+        MinimumSize = new Size(700, 420);
         ShowInTaskbar = false;
+        KeyPreview = true;
 
-        var list = new ListView
+        _list = new ListView
         {
             Dock = DockStyle.Fill,
             View = View.Details,
             FullRowSelect = true,
+            MultiSelect = true,
+            HideSelection = false,
             BorderStyle = BorderStyle.None,
             BackColor = palette.Surface,
             ForeColor = palette.Text,
             Font = new Font("Segoe UI", 9f),
             HeaderStyle = ColumnHeaderStyle.Nonclickable
         };
-        list.Columns.Add("Fecha", 130);
-        list.Columns.Add("Operación", 90);
-        list.Columns.Add("Destino", 250);
-        list.Columns.Add("Archivos", 80, HorizontalAlignment.Right);
-        list.Columns.Add("Tamaño", 90, HorizontalAlignment.Right);
-        list.Columns.Add("Velocidad", 100, HorizontalAlignment.Right);
-        list.Columns.Add("Resultado", 110);
-
-        foreach (var entry in entries)
+        _list.OwnerDraw = true;
+        _list.Columns.Add("Fecha", 122);
+        _list.Columns.Add("Operación", 88);
+        _list.Columns.Add("Destino", 300); // se ajusta al ancho para no dejar hueco en la cabecera
+        _list.Columns.Add("Archivos", 88, HorizontalAlignment.Right);
+        _list.Columns.Add("Tamaño", 84, HorizontalAlignment.Right);
+        _list.Columns.Add("Velocidad", 92, HorizontalAlignment.Right);
+        _list.Columns.Add("Resultado", 100);
+        _list.DrawColumnHeader += (_, e) =>
         {
-            list.Items.Add(new ListViewItem(new[]
-            {
-                entry.FinishedAt.ToString("g"),
-                entry.OperationText,
-                entry.Destination,
-                entry.FileCount.ToString(),
-                Format.Bytes(entry.Bytes),
-                Format.Speed(entry.BytesPerSecond),
-                entry.ResultText
-            }));
-        }
+            using var background = new SolidBrush(palette.SurfaceAlt);
+            e.Graphics.FillRectangle(background, e.Bounds);
+            using var line = new Pen(palette.Border);
+            e.Graphics.DrawLine(line, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Right, e.Bounds.Bottom - 1);
+            var alignment = e.Header.TextAlign == HorizontalAlignment.Right ? TextFormatFlags.Right : TextFormatFlags.Left;
+            TextRenderer.DrawText(e.Graphics, e.Header.Text, _headerFont,
+                Rectangle.Inflate(e.Bounds, -10, 0), palette.Muted,
+                alignment | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+        };
+        _list.DrawItem += (_, e) => e.DrawDefault = true;
+        _list.Resize += (_, _) => FitDestinationColumn();
+        FillList();
 
         var buttons = new FlowLayoutPanel
         {
@@ -706,66 +729,30 @@ internal sealed class HistoryDialog : Form
         close.DialogResult = DialogResult.OK;
 
         var export = Ui.DialogButton("Exportar CSV", palette);
-        export.Click += (_, _) =>
-        {
-            using var dialog = new SaveFileDialog
-            {
-                Title = "Exportar historial",
-                Filter = "CSV (*.csv)|*.csv",
-                FileName = "xopy-historial.csv"
-            };
-            if (dialog.ShowDialog(this) != DialogResult.OK) return;
-            try
-            {
-                var builder = new StringBuilder();
-                builder.AppendLine("Fecha;Operacion;Destino;Archivos;Bytes;Segundos;Errores");
-                foreach (var entry in entries)
-                    builder.AppendLine($"{entry.FinishedAt:yyyy-MM-dd HH:mm:ss};{entry.OperationText};{entry.Destination};{entry.FileCount};{entry.Bytes};{entry.Seconds:0.0};{entry.Errors}");
-                File.WriteAllText(dialog.FileName, builder.ToString(), Encoding.UTF8);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(this, "No se pudo exportar: " + ex.Message, "XoPy", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-        };
+        export.Click += (_, _) => ExportCsv(palette);
 
         var exportHtml = Ui.DialogButton("Exportar HTML", palette);
-        exportHtml.Click += (_, _) =>
+        exportHtml.Click += (_, _) => ExportHtml();
+
+        var clear = Ui.DialogButton("Vaciar historial", palette);
+        clear.Click += (_, _) =>
         {
-            using var dialog = new SaveFileDialog
-            {
-                Title = "Exportar historial",
-                Filter = "Página HTML (*.html)|*.html",
-                FileName = $"xopy-historial-{DateTime.Now:yyyyMMdd-HHmm}.html"
-            };
-            if (dialog.ShowDialog(this) != DialogResult.OK) return;
-            try
-            {
-                var html = new StringBuilder();
-                html.AppendLine("<!DOCTYPE html><html lang=\"es\"><head><meta charset=\"utf-8\"><title>Historial de XoPy</title><style>")
-                    .AppendLine("body{font-family:'Segoe UI',sans-serif;background:#16181d;color:#e6e8ee;margin:28px}")
-                    .AppendLine("h1{font-size:20px}table{border-collapse:collapse;width:100%;font-size:13px}")
-                    .AppendLine("th,td{border-bottom:1px solid #2b2f38;padding:6px 8px;text-align:left}")
-                    .AppendLine("th{color:#9aa3b2}.bad{color:#ff7a7a}.ok{color:#57d38c}")
-                    .AppendLine("</style></head><body><h1>Historial de transferencias</h1><table>")
-                    .AppendLine("<tr><th>Fecha</th><th>Operación</th><th>Destino</th><th>Archivos</th><th>Tamaño</th><th>Velocidad</th><th>Resultado</th></tr>");
-                foreach (var entry in entries)
-                {
-                    var css = entry.Errors > 0 ? "bad" : "ok";
-                    html.AppendLine($"<tr><td>{entry.FinishedAt:yyyy-MM-dd HH:mm}</td><td>{entry.OperationText}</td><td>{System.Net.WebUtility.HtmlEncode(entry.Destination)}</td><td>{entry.FileCount}</td><td>{Format.Bytes(entry.Bytes)}</td><td>{Format.Speed(entry.BytesPerSecond)}</td><td class=\"{css}\">{entry.ResultText}</td></tr>");
-                }
-                html.AppendLine("</table></body></html>");
-                File.WriteAllText(dialog.FileName, html.ToString(), new UTF8Encoding(false));
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(this, "No se pudo exportar: " + ex.Message, "XoPy", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
+            if (_entries.Count == 0) return;
+            if (MessageBox.Show(this, $"¿Borrar las {_entries.Count} entradas del historial?\n\nNo se toca ningún archivo: solo el registro.",
+                    "XoPy", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+            _entries.Clear();
+            Modified = true;
+            FillList();
         };
+
+        var remove = Ui.DialogButton("Borrar entrada", palette);
+        remove.Click += (_, _) => RemoveSelected();
 
         buttons.Controls.Add(close);
         buttons.Controls.Add(exportHtml);
         buttons.Controls.Add(export);
+        buttons.Controls.Add(clear);
+        buttons.Controls.Add(remove);
 
         var root = new TableLayoutPanel
         {
@@ -777,10 +764,131 @@ internal sealed class HistoryDialog : Form
         };
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 58));
-        root.Controls.Add(list, 0, 0);
+        root.Controls.Add(_list, 0, 0);
         root.Controls.Add(buttons, 0, 1);
         Controls.Add(root);
         AcceptButton = close;
         CancelButton = close;
+        Shown += (_, _) => FitDestinationColumn();
+
+        KeyDown += (_, e) =>
+        {
+            if (e.KeyCode != Keys.Delete) return;
+            RemoveSelected();
+            e.Handled = true;
+        };
+    }
+
+    private void FitDestinationColumn()
+    {
+        const int fixedWidth = 122 + 88 + 88 + 84 + 92 + 100;
+        var width = Math.Max(140, _list.ClientSize.Width - fixedWidth - 4);
+        if (_list.Columns[2].Width != width) _list.Columns[2].Width = width;
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing) _headerFont.Dispose();
+        base.Dispose(disposing);
+    }
+
+    private void FillList()
+    {
+        _list.BeginUpdate();
+        _list.Items.Clear();
+        foreach (var entry in _entries)
+        {
+            var row = new ListViewItem(new[]
+            {
+                entry.FinishedAt.ToString("dd/MM/yyyy HH:mm", CultureInfo.InvariantCulture),
+                entry.OperationText,
+                entry.Destination,
+                entry.FileCount.ToString(),
+                Format.Bytes(entry.Bytes),
+                Format.Speed(entry.BytesPerSecond),
+                entry.ResultText
+            });
+            row.Tag = entry;
+            _list.Items.Add(row);
+        }
+        _list.EndUpdate();
+    }
+
+    private void RemoveSelected()
+    {
+        var selected = _list.SelectedItems.Cast<ListViewItem>()
+            .Select(row => row.Tag as HistoryEntry)
+            .Where(entry => entry is not null)
+            .Cast<HistoryEntry>()
+            .ToList();
+        if (selected.Count == 0)
+        {
+            MessageBox.Show(this, "Selecciona una o varias entradas del historial para borrarlas.",
+                "XoPy", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        if (MessageBox.Show(this, $"¿Borrar {selected.Count} entrada(s) del historial?\n\nNo se toca ningún archivo: solo el registro.",
+                "XoPy", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+
+        foreach (var entry in selected) _entries.Remove(entry);
+        Modified = true;
+        FillList();
+    }
+
+    private void ExportCsv(Palette palette)
+    {
+        using var dialog = new SaveFileDialog
+        {
+            Title = "Exportar historial",
+            Filter = "CSV (*.csv)|*.csv",
+            FileName = "xopy-historial.csv"
+        };
+        if (dialog.ShowDialog(this) != DialogResult.OK) return;
+        try
+        {
+            var builder = new StringBuilder();
+            builder.AppendLine("Fecha;Operacion;Destino;Archivos;Bytes;Segundos;Errores");
+            foreach (var entry in _entries)
+                builder.AppendLine($"{entry.FinishedAt:yyyy-MM-dd HH:mm:ss};{entry.OperationText};{entry.Destination};{entry.FileCount};{entry.Bytes};{entry.Seconds:0.0};{entry.Errors}");
+            File.WriteAllText(dialog.FileName, builder.ToString(), Encoding.UTF8);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, "No se pudo exportar: " + ex.Message, "XoPy", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    private void ExportHtml()
+    {
+        using var dialog = new SaveFileDialog
+        {
+            Title = "Exportar historial",
+            Filter = "Página HTML (*.html)|*.html",
+            FileName = $"xopy-historial-{DateTime.Now:yyyyMMdd-HHmm}.html"
+        };
+        if (dialog.ShowDialog(this) != DialogResult.OK) return;
+        try
+        {
+            var html = new StringBuilder();
+            html.AppendLine("<!DOCTYPE html><html lang=\"es\"><head><meta charset=\"utf-8\"><title>Historial de XoPy</title><style>")
+                .AppendLine("body{font-family:'Segoe UI',sans-serif;background:#16181d;color:#e6e8ee;margin:28px}")
+                .AppendLine("h1{font-size:20px}table{border-collapse:collapse;width:100%;font-size:13px}")
+                .AppendLine("th,td{border-bottom:1px solid #2b2f38;padding:6px 8px;text-align:left}")
+                .AppendLine("th{color:#9aa3b2}.bad{color:#ff7a7a}.ok{color:#57d38c}")
+                .AppendLine("</style></head><body><h1>Historial de transferencias</h1><table>")
+                .AppendLine("<tr><th>Fecha</th><th>Operación</th><th>Destino</th><th>Archivos</th><th>Tamaño</th><th>Velocidad</th><th>Resultado</th></tr>");
+            foreach (var entry in _entries)
+            {
+                var css = entry.Errors > 0 ? "bad" : "ok";
+                html.AppendLine($"<tr><td>{entry.FinishedAt:yyyy-MM-dd HH:mm}</td><td>{entry.OperationText}</td><td>{System.Net.WebUtility.HtmlEncode(entry.Destination)}</td><td>{entry.FileCount}</td><td>{Format.Bytes(entry.Bytes)}</td><td>{Format.Speed(entry.BytesPerSecond)}</td><td class=\"{css}\">{entry.ResultText}</td></tr>");
+            }
+            html.AppendLine("</table></body></html>");
+            File.WriteAllText(dialog.FileName, html.ToString(), new UTF8Encoding(false));
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, "No se pudo exportar: " + ex.Message, "XoPy", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
     }
 }
