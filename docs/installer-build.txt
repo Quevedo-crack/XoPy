@@ -1,7 +1,6 @@
 
 
-Error on line 64 in D:\a\XoPy\XoPy\installer\XoPy.iss: Unknown constant "3B1E92A7-7AD6-4E71-A218-75449CE13061".
-
-Use two consecutive "{" characters if you are trying to embed a single "{" and not a constant.
+Error on line 98 in D:\a\XoPy\XoPy\installer\XoPy.iss: Column 11:
+Duplicate identifier 'CURSTEPCHANGED'
 Compile aborted.
 Preprocessing
