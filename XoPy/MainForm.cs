@@ -147,27 +147,50 @@ public sealed partial class MainForm : Form
         _history = _store.LoadHistory();
         _palette = Palette.For(_settings.DarkTheme);
 
-        BuildUi();
-        LoadSettingsIntoUi();
-        ApplyCompactView(_settings.CompactView, persist: false);
-        ApplyJobsCollapsed(_settings.CollapseJobs);
-        WireEngine();
-        EnsureDefaultList();
-        ApplyWindowGeometry();
-
-        if (_settings.ExplorerIntegration)
+        try
         {
-            _settings.ExplorerIntegration = false;
-            _store.Save(_settings);
+            BuildUi();
+            LoadSettingsIntoUi();
+            ApplyCompactView(_settings.CompactView, persist: false);
+            ApplyJobsCollapsed(_settings.CollapseJobs);
+            WireEngine();
+            EnsureDefaultList();
+            ApplyWindowGeometry();
+
+            if (_settings.ExplorerIntegration)
+            {
+                _settings.ExplorerIntegration = false;
+                _store.Save(_settings);
+            }
+
+            _timer.Tick += (_, _) => TimerTick();
+            _timer.Start();
+
+            UpdateButtons();
+            UpdateFooter();
+            UpdateHashColumns();
+            UpdateJobs();
         }
+        catch (Exception ex)
+        {
+            // Si algo falla durante la construcción de la interfaz, escribir el error
+            // a un archivo de diagnóstico y relanzar para que Program.Main() lo capture.
+            try
+            {
+                var dir = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "XoPy");
+                Directory.CreateDirectory(dir);
+                File.WriteAllText(Path.Combine(dir, "startup-error.txt"),
+                    $"{DateTime.Now:yyyy-MM-dd HH:mm:ss}  ERROR construyendo MainForm{Environment.NewLine}" +
+                    $"Excepción: {ex.GetType().FullName}{Environment.NewLine}" +
+                    $"Mensaje: {ex.Message}{Environment.NewLine}" +
+                    $"StackTrace: {ex.StackTrace}{Environment.NewLine}");
+            }
+            catch { }
 
-        _timer.Tick += (_, _) => TimerTick();
-        _timer.Start();
-
-        UpdateButtons();
-        UpdateFooter();
-        UpdateHashColumns();
-        UpdateJobs();
+            throw;
+        }
     }
 
     // ---------------------------------------------------------------- interfaz
