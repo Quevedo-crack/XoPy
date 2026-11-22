@@ -162,13 +162,15 @@ internal sealed class OptionsDialog : Form
     private readonly ChoiceButton _onError;
     private readonly NumericUpDown _retries;
     private readonly CheckBox _explorer;
+    private readonly CheckBox _replaceCopier;
+    private readonly CheckBox _askWhenBusy;
     private readonly CheckBox _sound;
     private readonly CheckBox _openDestination;
     private readonly CheckBox _closeWhenDone;
     private readonly CheckBox _shutdown;
     private readonly ListBox _favorites;
     private readonly CheckBox _copyLocked;
-    private readonly CheckBox _nativeCopy;
+    private readonly ChoiceButton _engine;
     private readonly CheckBox _resumePartials;
     private readonly CheckBox _writeChecksums;
     private readonly NumericUpDown _securePasses;
@@ -220,7 +222,8 @@ internal sealed class OptionsDialog : Form
         _preserveTimestamps = Check("Conservar las fechas de modificación", settings.PreserveTimestamps);
         _recycleBin = Check("Enviar a la Papelera de reciclaje al eliminar", settings.UseRecycleBin);
         _copyLocked = Check("Copiar archivos bloqueados o en uso", settings.CopyLockedFiles);
-        _nativeCopy = Check("Usar el motor nativo de Windows (CopyFileEx), más rápido", settings.NativeCopy);
+        _engine = new ChoiceButton(palette, new[] { "Nativo (CopyFileEx, recomendado)", "Robocopy (muchos archivos y redes)", "Administrado (máxima compatibilidad)" }, (int)settings.Engine);
+        _engine.SelectedIndexChanged += (_, _) => { };
         _resumePartials = Check("Reanudar copias parciales al reintentar", settings.ResumePartials);
         _writeChecksums = Check("Crear un archivo de checksums al terminar", settings.WriteChecksumFile);
         _securePasses = Numeric(settings.SecureDeletePasses, 0, 7, 1);
@@ -244,6 +247,8 @@ internal sealed class OptionsDialog : Form
         _retries = Numeric(settings.RetryCount, 0, 20, 1);
 
         _explorer = Check("Añadir XoPy al menú contextual del Explorador", settings.ExplorerIntegration);
+        _replaceCopier = Check("Sustituir al copiador de Windows: Ctrl+C, Ctrl+X y Ctrl+V usan XoPy", settings.ReplaceWindowsCopier);
+        _askWhenBusy = Check("Preguntar qué hacer si ya hay una transferencia en curso", settings.AskWhenBusy);
 
         _sound = Check("Reproducir un sonido al terminar", settings.PlaySoundWhenDone);
         _openDestination = Check("Abrir la carpeta de destino al terminar", settings.OpenDestinationWhenDone);
@@ -351,7 +356,7 @@ internal sealed class OptionsDialog : Form
             ("", _preserveTimestamps, 36),
             ("", _recycleBin, 36),
             ("", _copyLocked, 32),
-            ("", _nativeCopy, 32),
+            ("Motor de copia", _engine, 40),
             ("", _resumePartials, 32),
             ("", _writeChecksums, 32),
             ("Pasadas de borrado seguro (0 = normal)", _securePasses, 40),
@@ -389,25 +394,27 @@ internal sealed class OptionsDialog : Form
             ("Si aparece un error", _onError, 48),
             ("Reintentos por archivo", _retries, 48)));
 
-        _tabs.TabPages.Add(Page("Integración", 2,
+        _tabs.TabPages.Add(Page("Integración", 3,
+            ("", _replaceCopier, 60),
             ("", _explorer, 40),
             ("", new Label
             {
-                Text = "El Explorador de Windows no permite interceptar Ctrl+C / Ctrl+V desde\n" +
-                       "un programa normal. XoPy se integra con estas acciones del menú\n" +
-                       "contextual: Copiar con XoPy, Mover con XoPy, Verificar con XoPy y\n" +
-                       "Pegar con XoPy en el fondo de una carpeta.",
+                Text = "Con el copiador sustituido, al pegar en el escritorio o en cualquier carpeta\n" +
+                       "(discos internos, externos, unidades de red) se abre XoPy con su ventana y su\n" +
+                       "progreso. Si venías de «Cortar», se mueve y se borra el origen.\n" +
+                       "Desactívalo para volver a usar el copiador de Windows cuando quieras.",
                 AutoSize = true,
                 ForeColor = _palette.Muted,
                 Font = new Font("Segoe UI", 8.5f),
                 BackColor = Color.Transparent
             }, 120)));
 
-        _tabs.TabPages.Add(Page("Al terminar", 4,
+        _tabs.TabPages.Add(Page("Al terminar", 5,
             ("", _sound, 42),
             ("", _openDestination, 42),
             ("", _closeWhenDone, 42),
-            ("", _shutdown, 42)));
+            ("", _shutdown, 42),
+            ("", _askWhenBusy, 42)));
 
         _tabs.TabPages.Add(BuildFavoritesPage());
     }
@@ -566,7 +573,7 @@ internal sealed class OptionsDialog : Form
         Result.PreserveTimestamps = _preserveTimestamps.Checked;
         Result.UseRecycleBin = _recycleBin.Checked;
         Result.CopyLockedFiles = _copyLocked.Checked;
-        Result.NativeCopy = _nativeCopy.Checked;
+        Result.Engine = (CopyEngineKind)Math.Clamp(_engine.SelectedIndex, 0, 2);
         Result.ResumePartials = _resumePartials.Checked;
         Result.WriteChecksumFile = _writeChecksums.Checked;
         Result.SecureDeletePasses = (int)_securePasses.Value;
@@ -582,6 +589,8 @@ internal sealed class OptionsDialog : Form
         Result.OnError = (ErrorPolicy)_onError.SelectedIndex;
         Result.RetryCount = (int)_retries.Value;
         Result.ExplorerIntegration = _explorer.Checked;
+        Result.ReplaceWindowsCopier = _replaceCopier.Checked;
+        Result.AskWhenBusy = _askWhenBusy.Checked;
         Result.PlaySoundWhenDone = _sound.Checked;
         Result.OpenDestinationWhenDone = _openDestination.Checked;
         Result.CloseWhenDone = _closeWhenDone.Checked;
@@ -604,7 +613,7 @@ internal sealed class OptionsDialog : Form
         target.PreserveTimestamps = Result.PreserveTimestamps;
         target.UseRecycleBin = Result.UseRecycleBin;
         target.CopyLockedFiles = Result.CopyLockedFiles;
-        target.NativeCopy = Result.NativeCopy;
+        target.Engine = Result.Engine;
         target.ResumePartials = Result.ResumePartials;
         target.WriteChecksumFile = Result.WriteChecksumFile;
         target.SecureDeletePasses = Result.SecureDeletePasses;
@@ -616,6 +625,8 @@ internal sealed class OptionsDialog : Form
         target.OnError = Result.OnError;
         target.RetryCount = Result.RetryCount;
         target.ExplorerIntegration = Result.ExplorerIntegration;
+        target.ReplaceWindowsCopier = Result.ReplaceWindowsCopier;
+        target.AskWhenBusy = Result.AskWhenBusy;
         target.PlaySoundWhenDone = Result.PlaySoundWhenDone;
         target.OpenDestinationWhenDone = Result.OpenDestinationWhenDone;
         target.CloseWhenDone = Result.CloseWhenDone;
@@ -637,7 +648,7 @@ internal sealed class OptionsDialog : Form
         PreserveTimestamps = source.PreserveTimestamps,
         UseRecycleBin = source.UseRecycleBin,
         CopyLockedFiles = source.CopyLockedFiles,
-        NativeCopy = source.NativeCopy,
+        Engine = source.Engine,
         ResumePartials = source.ResumePartials,
         WriteChecksumFile = source.WriteChecksumFile,
         SecureDeletePasses = source.SecureDeletePasses,
@@ -649,6 +660,8 @@ internal sealed class OptionsDialog : Form
         OnError = source.OnError,
         RetryCount = source.RetryCount,
         ExplorerIntegration = source.ExplorerIntegration,
+        ReplaceWindowsCopier = source.ReplaceWindowsCopier,
+        AskWhenBusy = source.AskWhenBusy,
         PlaySoundWhenDone = source.PlaySoundWhenDone,
         OpenDestinationWhenDone = source.OpenDestinationWhenDone,
         CloseWhenDone = source.CloseWhenDone,

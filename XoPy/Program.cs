@@ -69,6 +69,14 @@ internal static class Program
             Environment.Exit(report.StartsWith("OK", StringComparison.Ordinal) ? 0 : 1);
         }
 
+        var multi = args.Any(arg => string.Equals(arg, "--multi", StringComparison.OrdinalIgnoreCase));
+        if (multi)
+        {
+            using var separate = new MainForm(request);
+            Application.Run(separate);
+            return;
+        }
+
         var mutex = new Mutex(true, Ipc.MutexName, out var isFirstInstance);
         if (!isFirstInstance)
         {

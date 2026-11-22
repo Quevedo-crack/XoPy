@@ -42,6 +42,7 @@ public static class ShellIntegration
     {
         var exe = Application.ExecutablePath;
         try { RegisterAppPath(exe); } catch { }
+        try { RemoveSendToShortcuts(); } catch { }
         try
         {
             if (enabled) Register(exe);
@@ -51,6 +52,23 @@ public static class ShellIntegration
         {
             // Si una política del sistema bloquea el registro, la aplicación sigue funcionando.
         }
+    }
+
+    /// <summary>XoPy ya no usa «Enviar a»: se sustituye al copiador de Windows con Ctrl+V.</summary>
+    public static void RemoveSendToShortcuts()
+    {
+        try
+        {
+            var folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "Microsoft", "Windows", "SendTo");
+            if (!Directory.Exists(folder)) return;
+            foreach (var file in Directory.EnumerateFiles(folder, "*.lnk"))
+            {
+                var name = Path.GetFileNameWithoutExtension(file);
+                if (name.Contains("XoPy", StringComparison.OrdinalIgnoreCase)) File.Delete(file);
+            }
+        }
+        catch { }
     }
 
     public static void Register(string exe)

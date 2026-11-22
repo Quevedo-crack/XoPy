@@ -25,7 +25,7 @@ public sealed class EngineOptions
     public VerifyAlgorithm Verify { get; set; } = VerifyAlgorithm.None;
     public bool VerifyAfterCopy { get; set; }
     public bool ComputeHashes { get; set; }
-    public bool NativeCopy { get; set; } = true;
+    public CopyEngineKind Engine { get; set; } = CopyEngineKind.Native;
     public int RetryCount { get; set; } = 3;
     public int Parallelism { get; set; } = 2;
     public int BufferSize { get; set; } = 1024 * 1024;
@@ -70,6 +70,8 @@ public sealed class CopyEngine
     private int _running;
     private long _doneBytes;
     private long _totalBytes;
+    private long _pausedTicks;
+    private long _pauseStarted;
     private long _errors;
     private readonly Stopwatch _clock = new();
     private ConflictChoice? _stickyConflict;
@@ -84,14 +86,40 @@ public sealed class CopyEngine
     public long TotalBytes => Interlocked.Read(ref _totalBytes);
     public long DoneBytes => Interlocked.Read(ref _doneBytes);
     public long Errors => Interlocked.Read(ref _errors);
-    public TimeSpan Elapsed => _clock.Elapsed;
+    public TimeSpan Elapsed
+    {
+        get
+        {
+            var paused = Interlocked.Read(ref _pausedTicks);
+            if (_paused)
+            {
+                var started = Interlocked.Read(ref _pauseStarted);
+                if (started > 0) paused += _clock.Elapsed.Ticks - started;
+            }
+            var elapsed = _clock.Elapsed.Ticks - paused;
+            return elapsed > 0 ? TimeSpan.FromTicks(elapsed) : TimeSpan.Zero;
+        }
+    }
 
     public double SpeedBytesPerSecond
     {
         get
         {
-            var seconds = _clock.Elapsed.TotalSeconds;
+            if (_paused) return 0;
+            var seconds = Elapsed.TotalSeconds;
             return seconds > 0.4 ? Math.Max(0, DoneBytes) / seconds : 0;
+        }
+    }
+
+    /// <summary>Tiempo estimado que queda según la velocidad actual (TimeSpan.Zero si no se puede calcular).</summary>
+    public TimeSpan Remaining
+    {
+        get
+        {
+            var speed = SpeedBytesPerSecond;
+            var left = TotalBytes - DoneBytes;
+            if (speed <= 1 || left <= 0) return TimeSpan.Zero;
+            return TimeSpan.FromSeconds(left / speed);
         }
     }
 
@@ -108,6 +136,8 @@ public sealed class CopyEngine
         _cts?.Dispose();
         _cts = new CancellationTokenSource();
         _paused = false;
+        Interlocked.Exchange(ref _pausedTicks, 0);
+        Interlocked.Exchange(ref _pauseStarted, 0);
         _skipCurrent = false;
         _stickyConflict = null;
         _stickyError = null;
@@ -126,7 +156,20 @@ public sealed class CopyEngine
         return true;
     }
 
-    public void SetPaused(bool paused) => _paused = paused;
+    public void SetPaused(bool paused)
+    {
+        if (paused == _paused) return;
+        if (paused)
+        {
+            Interlocked.Exchange(ref _pauseStarted, _clock.Elapsed.Ticks);
+        }
+        else
+        {
+            var started = Interlocked.Exchange(ref _pauseStarted, 0);
+            if (started > 0) Interlocked.Add(ref _pausedTicks, _clock.Elapsed.Ticks - started);
+        }
+        _paused = paused;
+    }
 
     /// <summary>Omite el archivo que se está copiando en este momento.</summary>
     public void SkipCurrent() => _skipCurrent = true;
@@ -189,8 +232,44 @@ public sealed class CopyEngine
         {
             _clock.Stop();
             Volatile.Write(ref _running, 0);
+            if (items.Any(item => item.Operation == OperationType.Move) && Errors == 0)
+                CleanupMovedFolders(items);
             FileLog.Write($"Fin: {DoneBytes} bytes en {Elapsed.TotalSeconds:0.0}s, errores={Errors}");
             try { Finished?.Invoke(this, EventArgs.Empty); } catch { }
+        }
+    }
+
+    /// <summary>Tras mover, borra las carpetas de origen que quedaron vacías (incluidas las raíz).</summary>
+    private static void CleanupMovedFolders(IEnumerable<TransferItem> items)
+    {
+        foreach (var root in items
+                     .Where(item => item.Kind == ItemKind.Folder && item.Operation == OperationType.Move)
+                     .Select(item => item.SourcePath)
+                     .Where(path => !string.IsNullOrWhiteSpace(path))
+                     .Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            try
+            {
+                if (!Directory.Exists(root)) continue;
+                foreach (var directory in Directory.EnumerateDirectories(root, "*", SearchOption.AllDirectories)
+                             .OrderByDescending(path => path.Length))
+                {
+                    try
+                    {
+                        if (!Directory.EnumerateFileSystemEntries(directory).Any()) Directory.Delete(directory, false);
+                    }
+                    catch { }
+                }
+                if (!Directory.EnumerateFileSystemEntries(root).Any())
+                {
+                    Directory.Delete(root, false);
+                    FileLog.Write("Carpeta de origen eliminada tras mover: " + root);
+                }
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"No se pudo limpiar la carpeta de origen {root}: {ex.Message}");
+            }
         }
     }
 
@@ -389,8 +468,39 @@ public sealed class CopyEngine
             return;
         }
 
+        // Robocopy: el motor más rápido con muchos archivos, redes y rutas largas.
+        if (options.Engine == CopyEngineKind.Robocopy && existing == 0)
+        {
+            try
+            {
+                await RobocopyAsync(source, target, item, options, token).ConfigureAwait(false);
+                item.TransferredBytes = item.SizeBytes;
+                FileLog.Write($"Copia con Robocopy: {source} -> {target}");
+                return;
+            }
+            catch (OperationCanceledException)
+            {
+                TryDeleteFile(target);
+                throw;
+            }
+            catch (SkipRequestedException)
+            {
+                TryDeleteFile(target);
+                throw;
+            }
+            catch (Exception ex)
+            {
+                if (item.TransferredBytes > 0)
+                {
+                    Interlocked.Add(ref _doneBytes, -item.TransferredBytes);
+                    item.TransferredBytes = 0;
+                }
+                FileLog.Write($"Robocopy falló para {source} ({ex.Message}); se usa el motor nativo.");
+            }
+        }
+
         // Motor nativo de Windows (CopyFileEx): mucho más rápido y conserva atributos y fechas.
-        if (options.NativeCopy && existing == 0 && !options.VerifyAfterCopy && !options.ComputeHashes)
+        if (options.Engine == CopyEngineKind.Native && existing == 0 && !options.VerifyAfterCopy && !options.ComputeHashes)
         {
             try
             {
@@ -553,6 +663,78 @@ public sealed class CopyEngine
     }
 
     /// <summary>Abre el origen permitiendo que otro programa lo tenga abierto; si está bloqueado, usa la API de copia de seguridad.</summary>
+    /// <summary>Copia un archivo con Robocopy (rápido con muchos archivos, redes y rutas largas).</summary>
+    private async Task RobocopyAsync(string source, string target, TransferItem item, EngineOptions options, CancellationToken token)
+    {
+        var sourceDirectory = Path.GetDirectoryName(source);
+        var targetDirectory = Path.GetDirectoryName(target);
+        if (string.IsNullOrEmpty(sourceDirectory) || string.IsNullOrEmpty(targetDirectory))
+            throw new IOException("Ruta no válida para Robocopy.");
+        var sourceName = Path.GetFileName(source);
+        if (!string.Equals(sourceName, Path.GetFileName(target), StringComparison.OrdinalIgnoreCase))
+            throw new IOException("Robocopy no puede cambiar el nombre del archivo; se usa otro motor.");
+
+        Directory.CreateDirectory(targetDirectory);
+        ClearReadOnly(target);
+        var length = new FileInfo(source).Length;
+
+        var arguments = new StringBuilder()
+            .Append('"').Append(sourceDirectory).Append("\" \"").Append(targetDirectory).Append("\" \"")
+            .Append(sourceName).Append('"')
+            .Append(" /COPY:DAT /DCOPY:T /IS /IT /R:").Append(Math.Max(0, options.RetryCount))
+            .Append(" /W:1 /NJH /NJS /NP /NDL /NFL /NS /NC /XJ")
+            .ToString();
+
+        using var process = new Process
+        {
+            StartInfo = new ProcessStartInfo("robocopy", arguments)
+            {
+                CreateNoWindow = true,
+                UseShellExecute = false,
+                WindowStyle = ProcessWindowStyle.Hidden
+            }
+        };
+        if (!process.Start()) throw new IOException("No se pudo iniciar Robocopy.");
+
+        var reported = 0L;
+        while (!process.HasExited)
+        {
+            token.ThrowIfCancellationRequested();
+            if (_paused) await Task.Delay(150, token).ConfigureAwait(false);
+            if (_skipCurrent)
+            {
+                _skipCurrent = false;
+                try { process.Kill(true); } catch { }
+                throw new SkipRequestedException();
+            }
+
+            long copied = 0;
+            try
+            {
+                var info = new FileInfo(target);
+                if (info.Exists) copied = Math.Min(info.Length, length);
+            }
+            catch { }
+
+            if (copied > reported)
+            {
+                Interlocked.Add(ref _doneBytes, copied - reported);
+                reported = copied;
+                item.TransferredBytes = copied;
+            }
+            await Task.Delay(120, CancellationToken.None).ConfigureAwait(false);
+        }
+
+        var code = process.ExitCode;
+        if (code >= 8) throw new IOException($"Robocopy terminó con el código {code}.");
+
+        if (reported < length)
+        {
+            Interlocked.Add(ref _doneBytes, length - reported);
+            item.TransferredBytes = length;
+        }
+    }
+
     private async Task NativeCopyAsync(string source, string target, TransferItem item, EngineOptions options, CancellationToken token)
     {
         await Task.Run(() =>

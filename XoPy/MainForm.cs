@@ -58,7 +58,8 @@ public sealed partial class MainForm : Form
     private SpeedGraph _graph = null!;
     private Label[,] _categoryValues = new Label[4, 3];
     private ListBox _extraDestinations = null!;
-    private CheckBox _optLocked = null!, _optResume = null!, _optChecksums = null!, _optNative = null!;
+    private CheckBox _optLocked = null!, _optResume = null!, _optChecksums = null!;
+    private ChoiceButton _optEngine = null!;
     private NumericUpDown _optSecurePasses = null!;
     private TextBox _optScript = null!;
     private Label _statusLabel = null!;
@@ -108,6 +109,12 @@ public sealed partial class MainForm : Form
     private bool _wasRunning;
     private bool _exitRequested;
     private int _trayPercent = -1;
+    private TableLayoutPanel _contentGrid = null!;
+    private Control _jobsPanel = null!;
+    private Button _collapseButton = null!;
+    private bool _jobsCollapsed;
+    private OperationType? _followUpOperation;
+    private ShellPasteHook? _pasteHook;
     private bool _trayPaused;
     private bool _trayError;
     private DateTime _completedAt = DateTime.MinValue;
@@ -126,6 +133,8 @@ public sealed partial class MainForm : Form
 
         BuildUi();
         LoadSettingsIntoUi();
+        ApplyCopierReplacement();
+        ApplyJobsCollapsed(_settings.CollapseJobs);
         WireEngine();
         BuildTray();
         ApplyWindowGeometry();
@@ -246,6 +255,8 @@ public sealed partial class MainForm : Form
         queue.DropDownItems.Add(MenuItem("Ordenar por tamaño", (_, _) => SortQueue(QueueSortField.Size)));
         queue.DropDownItems.Add(MenuItem("Ordenar por tipo", (_, _) => SortQueue(QueueSortField.Type)));
         queue.DropDownItems.Add(MenuItem("Ordenar por carpeta de destino", (_, _) => SortQueue(QueueSortField.Destination)));
+        queue.DropDownItems.Add(MenuItem("Ordenar por carpeta de origen", (_, _) => SortQueue(QueueSortField.Source)));
+        queue.DropDownItems.Add(MenuItem("Ordenar por estado", (_, _) => SortQueue(QueueSortField.State)));
         queue.DropDownItems.Add(MenuItem("Invertir el orden", (_, _) => SortQueue(QueueSortField.Name, invert: true)));
         queue.DropDownItems.Add(new ToolStripSeparator());
         queue.DropDownItems.Add(MenuItem("Expandir todo", (_, _) => ExpandAll(true)));
@@ -253,6 +264,8 @@ public sealed partial class MainForm : Form
         queue.DropDownItems.Add(new ToolStripSeparator());
         queue.DropDownItems.Add(MenuItem("Quitar seleccionados", (_, _) => RemoveSelected()));
         queue.DropDownItems.Add(MenuItem("Limpiar la lista", (_, _) => ClearList()));
+        queue.DropDownItems.Add(new ToolStripSeparator());
+        queue.DropDownItems.Add(MenuItem("Mostrar u ocultar la columna de trabajos", (_, _) => ToggleJobsPanel()));
 
         var tools = new ToolStripMenuItem("Herramientas");
         tools.DropDownItems.Add(MenuItem("Preferencias…", (_, _) => ShowOptions()));
@@ -555,7 +568,9 @@ public sealed partial class MainForm : Form
             _tabsHost.Controls.Add(page);
         }
 
-        content.Controls.Add(BuildJobsPanel(), 0, 0);
+        _contentGrid = content;
+        _jobsPanel = BuildJobsPanel();
+        content.Controls.Add(_jobsPanel, 0, 0);
         content.Controls.Add(_tabsHost, 1, 0);
         return content;
     }
@@ -716,6 +731,10 @@ public sealed partial class MainForm : Form
         Add("Tamaño (mayor → menor)", () => SortQueue(QueueSortField.Size, invert: true));
         Add("Tipo de archivo (A → Z)", () => SortQueue(QueueSortField.Type));
         Add("Carpeta de destino (A → Z)", () => SortQueue(QueueSortField.Destination));
+        Add("Carpeta de destino (Z → A)", () => SortQueue(QueueSortField.Destination, invert: true));
+        Add("Carpeta de origen (A → Z)", () => SortQueue(QueueSortField.Source));
+        Add("Carpeta de origen (Z → A)", () => SortQueue(QueueSortField.Source, invert: true));
+        Add("Estado de la copia", () => SortQueue(QueueSortField.State));
         menu.Show(anchor, new Point(0, anchor.Height));
     }
 
@@ -851,6 +870,9 @@ public sealed partial class MainForm : Form
         _sortButton = Ui.IconButton("\u21C5", _palette, "Ordenar la cola por nombre, tamaño, tipo o carpeta de destino");
         _sortButton.Click += (_, _) => ShowSortMenu(_sortButton);
 
+        _collapseButton = Ui.IconButton("\u00AB", _palette, "Mostrar u ocultar la columna de trabajos");
+        _collapseButton.Click += (_, _) => ToggleJobsPanel();
+        tools.Controls.Add(_collapseButton);
         tools.Controls.Add(_clearButton);
         tools.Controls.Add(_removeButton);
         tools.Controls.Add(_downButton);
@@ -1130,6 +1152,59 @@ public sealed partial class MainForm : Form
         };
     }
 
+    private void ApplyCopierReplacement()
+    {
+        try
+        {
+            if (_settings.ReplaceWindowsCopier)
+            {
+                if (_pasteHook is not null) return;
+                _pasteHook = new ShellPasteHook { Enabled = true };
+                _pasteHook.PasteRequested += (files, destination, move) =>
+                {
+                    try
+                    {
+                        if (IsHandleCreated && !IsDisposed)
+                            BeginInvoke(new Action(() => HandleExplorerPaste(files, destination, move)));
+                    }
+                    catch { }
+                };
+                _pasteHook.Install();
+            }
+            else if (_pasteHook is not null)
+            {
+                _pasteHook.Dispose();
+                _pasteHook = null;
+            }
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write("No se pudo activar el copiador de Windows: " + ex.Message);
+        }
+    }
+
+    private async void HandleExplorerPaste(IReadOnlyList<string> files, string destination, bool move)
+    {
+        try
+        {
+            if (IsDisposed) return;
+            RestoreWindow();
+            if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
+            Activate();
+
+            _destination.Text = destination;
+            _settings.Destination = destination;
+            _store.Save(_settings);
+            UpdateTargetTab();
+            await AddPathsAsync(files);
+            StartTransfer(move ? OperationType.Move : OperationType.Copy);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write("Error al pegar con XoPy: " + ex);
+        }
+    }
+
     private void BuildTray()
     {
         _baseIcon = Icons.AppIcon();
@@ -1137,6 +1212,10 @@ public sealed partial class MainForm : Form
         _tray.Text = "XoPy";
         _tray.Visible = true;
         _tray.DoubleClick += (_, _) => RestoreWindow();
+        _tray.MouseClick += (_, e) =>
+        {
+            if (e.Button == MouseButtons.Left) RestoreWindow();
+        };
         Ui.StyleMenu(_trayMenu, _palette);
         _trayPauseItem = new ToolStripMenuItem("Pausar");
         _trayPauseItem.Click += (_, _) => TogglePause();

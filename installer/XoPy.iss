@@ -43,18 +43,19 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Tasks]
 Name: "desktopicon"; Description: "Crear un acceso directo en el escritorio"; GroupDescription: "Accesos directos:"
 Name: "explorer"; Description: "Añadir XoPy al menú contextual del Explorador (Copiar, Copiar a…, Mover, Verificar, Pegar)"; GroupDescription: "Integración con Windows:"; Flags: checkedonce
-Name: "sendto"; Description: "Añadir XoPy al menú ""Enviar a"""; GroupDescription: "Integración con Windows:"; Flags: checkedonce
 Name: "autostart"; Description: "Iniciar XoPy al encender el equipo"; GroupDescription: "Integración con Windows:"; Flags: unchecked
 
 [Files]
 Source: "..\publish\XoPy.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 
+[InstallDelete]
+Type: files; Name: "{sendto}\Copiar con XoPy.lnk"
+Type: files; Name: "{sendto}\Mover con XoPy.lnk"
+
 [Icons]
 Name: "{autoprograms}\XoPy"; Filename: "{app}\{#AppExe}"; Comment: "Gestor de copias XoPy"
 Name: "{autodesktop}\XoPy"; Filename: "{app}\{#AppExe}"; Comment: "Gestor de copias XoPy"; Tasks: desktopicon
-Name: "{sendto}\Copiar con XoPy"; Filename: "{app}\{#AppExe}"; Parameters: "--copy"; Tasks: sendto
-Name: "{sendto}\Mover con XoPy"; Filename: "{app}\{#AppExe}"; Parameters: "--move"; Tasks: sendto
 
 [Registry]
 ; --- Menú contextual: archivos ---
