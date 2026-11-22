@@ -17,7 +17,7 @@ CSC : warning WFO0003: Remove high DPI settings from D:\a\XoPy\XoPy\XoPy\app.man
     5 Warning(s)
     0 Error(s)
 
-Time Elapsed 00:00:01.66
+Time Elapsed 00:00:01.57
 FILE: carpeta (1 bytes)
 FILE: exitcode.txt (34 bytes)
 FILE: informe.pdf (10242 bytes)
@@ -26,4 +26,4 @@ FILE: video.mp4 (20482 bytes)
 --- C:\xopytest\exitcode.txt
 exitcode=-1073741571 exited=True
 --- C:\xopytest\shot.png.log
-inicio 2026-11-22T16:48:26.4458226+00:00
+inicio 2026-11-22T16:52:54.2095847+00:00
