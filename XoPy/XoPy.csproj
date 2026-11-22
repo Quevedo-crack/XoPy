@@ -32,7 +32,6 @@
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
 
-    <!-- Globalización invariante: elimina ICU y ensamblados satélite de idioma -->
-    <InvariantGlobalization>true</InvariantGlobalization>
+
   </PropertyGroup>
 </Project>
