@@ -51,11 +51,7 @@ Name: "autostart"; Description: "Iniciar XoPy al encender el equipo"; GroupDescr
 Type: files; Name: "{sendto}\*XoPy*.lnk"
 
 [Icons]
-Name: "{autoprograms}\XoPy"; Filename: "{app}\{#AppExe}"; Comment: "Gestor de copias XoPy"
-Name: "{autodesktop}\XoPy"; Filename: "{app}\{#AppExe}"; Comment: "Gestor de copias XoPy"; Tasks: desktopicon
-
-[Registry]
-{ Registros temporalmente desactivados para diagnostico }
+{ Iconos temporalmente desactivados para diagnostico }
 
 [Code]
 { Codigo de limpieza desactivado temporalmente para diagnostico }
