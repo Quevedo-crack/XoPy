@@ -112,6 +112,7 @@ public sealed partial class MainForm : Form
     private Icon? _percentIcon;
     private bool _wasRunning;
     private bool _exitRequested;
+    private bool _shown;
     private int _trayPercent = -1;
     private TableLayoutPanel _contentGrid = null!;
     private Control _jobsPanel = null!;
@@ -149,11 +150,9 @@ public sealed partial class MainForm : Form
         BuildUi();
         LoadSettingsIntoUi();
         ApplyCompactView(_settings.CompactView, persist: false);
-        ApplyCopierReplacement();
         ApplyJobsCollapsed(_settings.CollapseJobs);
         WireEngine();
         EnsureDefaultList();
-        BuildTray();
         ApplyWindowGeometry();
 
         if (_settings.ExplorerIntegration)
@@ -1315,25 +1314,51 @@ public sealed partial class MainForm : Form
 
     protected override void OnShown(EventArgs e)
     {
-        base.OnShown(e);
-        // La ventana debe verse siempre al abrir XoPy (salvo si se pidió arrancar minimizado).
-        // No llamar Show() aqui: el formulario ya esta siendo mostrado por el evento Shown;
-        // llamarlo de nuevo causa reentrancy de Windows Forms y puede desbordar la pila (0xc00000fd).
-        if (!_settings.StartMinimized && !_startupRequest.StartMinimized)
+        if (_shown) return;
+        _shown = true;
+
+        try
         {
+            base.OnShown(e);
+
+            // La ventana debe verse siempre al abrir XoPy (salvo si se pidió arrancar minimizado).
+            // No llamar Show() aqui: el formulario ya esta siendo mostrado por el evento Shown;
+            // llamarlo de nuevo causa reentrancy de Windows Forms y puede desbordar la pila (0xc00000fd).
+            if (!_settings.StartMinimized && !_startupRequest.StartMinimized)
+            {
+                try
+                {
+                    if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
+                    Activate();
+                    BringToFront();
+                }
+                catch { }
+            }
+
+            // Inicializar componentes que dependen del shell de Windows DESPUÉS de que el formulario
+            // se ha mostrado y tiene handle de ventana. Hacerlo en el constructor (antes de que exista
+            // el handle) puede causar que el shell envíe mensajes al formulario antes de que esté listo,
+            // provocando reentrancy y desbordamiento de pila (0xc00000fd).
+            BuildTray();
+            ApplyCopierReplacement();
+
+            // Instalar el hook de pegado ahora que la ventana está lista, no durante el constructor.
+            InstallShellHookIfNeeded();
+
+            _ = HandleExternalAsync(_startupRequest, true);
+        }
+        catch (Exception ex)
+        {
+            // Si algo falla durante el arranque, intentar mostrar un mensaje en lugar de dejar
+            // que el proceso termine con stack overflow silencioso.
             try
             {
-                if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
-                Activate();
-                BringToFront();
+                FileLog.Write("Error crítico al mostrar la ventana: " + ex);
+                MessageBox.Show("XoPy no pudo iniciar: " + ex.Message, "XoPy",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
             catch { }
         }
-
-        // Instalar el hook de pegado ahora que la ventana está lista, no durante el constructor.
-        InstallShellHookIfNeeded();
-
-        _ = HandleExternalAsync(_startupRequest, true);
     }
 
     public void HandleExternalRequest(StartupRequest request) => _ = HandleExternalAsync(request, false);
