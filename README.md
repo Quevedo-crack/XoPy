@@ -38,12 +38,16 @@ XoPy.exe --move  --to "D:\Copias" "C:\Datos\carpeta"
 XoPy.exe --test  --to "D:\Copias" "C:\Datos\informe.pdf"
 XoPy.exe --copy  --overwrite --verify --algo sha256 --to "D:\Copias" "C:\Datos\informe.pdf"
 XoPy.exe --paste --to "D:\Copias"
+XoPy.exe --copy --engine robocopy --to "D:\Copias" "C:\Datos\carpeta"
+XoPy.exe --multi --copy --to "D:\Copias" "C:\Datos\informe.pdf"
 ```
 
 - `--overwrite`, `--skip`, `--rename` fuerzan la política de conflictos de esa ejecución.
 - `--verify` y `--algo crc32|md5|sha1|sha256|sha512` activan la verificación al copiar.
 - `--to2 "E:\Espejo"` añade un segundo destino (se puede repetir) y `--checksums` genera el archivo
   de checksums al terminar.
+- `--engine native|robocopy|managed` elige el motor de copia solo para esa ejecución.
+- `--multi` abre una ventana nueva de XoPy (permite dos copias a la vez).
 - `--locked` fuerza la lectura de archivos bloqueados, `--no-resume` desactiva la reanudación y
   `--secure N` sobrescribe N veces antes de borrar. `--script "C:\ruta\tarea.ps1"` se ejecuta al finalizar.
 - `--ask-destination` abre el selector de carpeta antes de empezar (es lo que hace «Copiar a… con XoPy»).
@@ -95,15 +99,28 @@ XoPy.exe --paste --to "D:\Copias"
 - Icono de progreso en el **área de notificación** y modo minimizado.
 - Temas **oscuro** y **claro**.
 
-## Novedades de la versión 2.3.0
+## Novedades de la versión 2.4.0
 
-- Corregido el bloqueo de la ventana al abrirse (bucle de redimensionado de columnas).
-- Motor de copia nativo de Windows activado por defecto, con reintentos y mensajes de error claros.
-- Reordenar con ↑/↓ y Alt+↑/Alt+↓ ya funciona también con los elementos de primer nivel.
-- El porcentaje de la barra, del título y del icono de bandeja sale del total real de bytes.
-- Diálogo de historial rediseñado: borrar entrada, vaciar historial, exportar CSV/HTML.
-- Nuevas pruebas automáticas de la interfaz: reordenar, ordenar, quitar de la lista, copiar
-  jerarquías, varios destinos, checksums y reanudación.
+- **XoPy sustituye al copiador de Windows**: `Ctrl+C`, `Ctrl+X` y `Ctrl+V` en el Explorador y en el
+  escritorio abren XoPy con su ventana y su progreso. Si venías de «Cortar», se mueve y se borra el
+  origen. Se puede desactivar en Preferencias → Integración para volver al copiador de Windows.
+- **Ya no aparece en «Enviar a»** ni como una opción suelta: el pegado es la forma normal de usarlo.
+- **Motor elegible**: Nativo (CopyFileEx), **Robocopy** o Administrado, en Preferencias → Transferencia.
+  Robocopy es el más rápido con miles de archivos, redes y rutas largas.
+- **Mover borra siempre el origen**, incluidos los archivos y las carpetas que quedan vacías.
+- **Tiempo estimado** en la barra de título, en el encabezado y en el pie («quedan 00:02:03»).
+- **En pausa la velocidad es 0 B/s** (antes seguía mostrando la última velocidad).
+- **Porcentaje más grande** en el icono de la bandeja y en el botón de la barra de tareas, con barra
+  de progreso propia en la barra de tareas.
+- **Clic izquierdo en el icono de la bandeja abre la ventana**.
+- **Nueva copia con otra en curso**: XoPy pregunta si añadirla a la actual o abrir otra ventana para
+  copiar las dos a la vez.
+- **Columna de trabajos plegable** (`«` en la barra de la lista) para dejar la ventana más pequeña.
+- **Ordenar por origen, destino, tamaño, tipo, nombre y estado**, en ambos sentidos.
+- **Reiniciar XoPy como administrador** desde Herramientas para copiar a carpetas protegidas.
+- Corregido el bloqueo de la ventana al abrirse y el reordenado de los elementos de primer nivel.
+- Pruebas automáticas nuevas: motor Robocopy con hash, mover carpetas completas borrando el origen,
+  ordenar por origen/destino y el pegado en el Explorador.
 
 ## Integración con el Explorador de Windows
 

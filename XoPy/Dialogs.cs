@@ -399,10 +399,10 @@ internal sealed class OptionsDialog : Form
             ("", _explorer, 40),
             ("", new Label
             {
-                Text = "Con el copiador sustituido, al pegar en el escritorio o en cualquier carpeta\n" +
-                       "(discos internos, externos, unidades de red) se abre XoPy con su ventana y su\n" +
-                       "progreso. Si venías de «Cortar», se mueve y se borra el origen.\n" +
-                       "Desactívalo para volver a usar el copiador de Windows cuando quieras.",
+                Text = "Al pegar en el escritorio o en cualquier carpeta (discos internos, externos\n" +
+                       "o unidades de red) se abre XoPy con su ventana y su progreso. Si venías de\n" +
+                       "«Cortar», se mueve y se borra el origen. Desactívalo para volver al\n" +
+                       "copiador de Windows cuando quieras.",
                 AutoSize = true,
                 ForeColor = _palette.Muted,
                 Font = new Font("Segoe UI", 8.5f),
