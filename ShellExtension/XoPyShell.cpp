@@ -3,6 +3,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <shlobj.h>
+#include <shlguid.h>
 #include <shellapi.h>
 #include <strsafe.h>
 #include <string>
@@ -75,7 +76,7 @@ public:
             STGMEDIUM medium = {};
             if (SUCCEEDED(selection->GetData(&format, &medium)))
             {
-                auto drop = static_cast<HDROP>(medium.hGlobal);
+                auto drop = reinterpret_cast<HDROP>(medium.hGlobal);
                 wchar_t selected[MAX_PATH] = {};
                 const DWORD attrs = DragQueryFileW(drop, 0, selected, MAX_PATH) ? GetFileAttributesW(selected) : INVALID_FILE_ATTRIBUTES;
                 if (attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY) != 0)
