@@ -372,7 +372,8 @@ public static class Ui
         // casi negro sobre negro. Se fija el color a mano en cada elemento.
         foreach (ToolStripItem item in menu.Items)
             item.ForeColor = palette.Text;
-        menu.ItemsAdded += (_, e) =>
+        // ToolStrip solo expone ItemAdded (ToolStripItemEventHandler), no ItemsAdded.
+        menu.ItemAdded += (_, e) =>
         {
             if (e.Item is not null) e.Item.ForeColor = palette.Text;
         };
@@ -475,7 +476,10 @@ internal sealed class DarkMenuRenderer : ToolStripProfessionalRenderer
     {
         var item = e.Item;
         var selected = item.Selected && item.Enabled;
-        var background = selected ? _palette.Hover : _palette.Surface;
+        // Los elementos de la barra de menús (Archivo, Cola…) comparten el fondo del menú
+        // superior; si se pintan como el desplegable, el texto claro se pierde.
+        var onMenuBar = item.Owner is MenuStrip;
+        var background = selected ? _palette.Hover : onMenuBar ? _palette.Canvas : _palette.Surface;
         using var brush = new SolidBrush(background);
         var bounds = new Rectangle(2, 0, Math.Max(0, e.Item.Width - 4), e.Item.Height);
         e.Graphics.FillRectangle(brush, bounds);
