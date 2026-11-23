@@ -8,13 +8,22 @@ namespace XoPy;
 
 internal static class Program
 {
-    private static string _logPath = @"C:\XoPy-startup.log";
+    private static string _logPath;
+
+    static Program()
+    {
+        // Usar LocalAppData que SIEMPRE es escribible, no C:\ que puede fallar por permisos
+        var appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        var logDir = Path.Combine(appData, "XoPy");
+        try { Directory.CreateDirectory(logDir); } catch { }
+        _logPath = Path.Combine(logDir, "startup.log");
+    }
 
     internal static void Log(string step)
     {
         try
         {
-            File.AppendAllText(_logPath, $"{step}\n");
+            File.AppendAllText(_logPath, step + "\n");
         }
         catch { }
     }
@@ -35,7 +44,7 @@ internal static class Program
             Log("4. ThreadException handler");
             Application.ThreadException += (_, e) =>
             {
-                Log($"6. ThreadException: {e.Exception.GetType().Name} - {e.Exception.Message}");
+                Log("6. ThreadException: " + e.Exception.GetType().Name + " - " + e.Exception.Message);
                 try { File.AppendAllText(_logPath, e.Exception.ToString() + "\n"); } catch { }
                 try { MessageBox.Show("XoPy error: " + e.Exception.Message, "XoPy", MessageBoxButtons.OK, MessageBoxIcon.Error); } catch { }
             };
@@ -43,7 +52,7 @@ internal static class Program
             Log("5. UnhandledException handler");
             AppDomain.CurrentDomain.UnhandledException += (_, e) =>
             {
-                Log($"7. UnhandledException: {e.ExceptionObject?.GetType().Name ?? "null"}");
+                Log("7. UnhandledException: " + (e.ExceptionObject?.GetType().Name ?? "null"));
                 try { File.AppendAllText(_logPath, e.ExceptionObject?.ToString() ?? "null exception object\n"); } catch { }
             };
 
@@ -80,8 +89,8 @@ internal static class Program
         }
         catch (Exception ex)
         {
-            Log($"FATAL: {ex.GetType().FullName} - {ex.Message}");
-            Log($"FATAL StackTrace: {ex.StackTrace}");
+            Log("FATAL: " + ex.GetType().FullName + " - " + ex.Message);
+            Log("FATAL StackTrace: " + ex.StackTrace);
             try
             {
                 MessageBox.Show("XoPy no pudo iniciar: " + ex.Message, "XoPy",

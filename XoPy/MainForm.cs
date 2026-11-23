@@ -1110,6 +1110,7 @@ public sealed partial class MainForm : Form
     protected override void OnHandleCreated(EventArgs e)
     {
         base.OnHandleCreated(e);
+        Program.Log("MF-OnHandleCreated done");
         if (!_settings.DarkTheme) return;
         try
         {
@@ -1297,6 +1298,16 @@ public sealed partial class MainForm : Form
 
         Program.Log("MF-OnShown start");
 
+        // Detectar si el formulario se cierra inesperadamente
+        FormClosing += (_, ce) =>
+        {
+            Program.Log("MF-FormClosing: Cancel=" + ce.Cancel + " Reason=" + ce.CloseReason);
+        };
+        Closed += (_, _) =>
+        {
+            Program.Log("MF-Closed: formulario cerrado");
+        };
+
         try
         {
             base.OnShown(e);
@@ -1379,6 +1390,12 @@ public sealed partial class MainForm : Form
         {
             Program.Log($"MF-OnShown-FATAL: {ex.GetType().FullName} - {ex.Message}");
             Program.Log($"MF-OnShown-FATAL Stack: {ex.StackTrace}");
+            try
+            {
+                MessageBox.Show("XoPy error en OnShown: " + ex.Message, "XoPy",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            catch { }
         }
 
         Program.Log("MF-OnShown end");
