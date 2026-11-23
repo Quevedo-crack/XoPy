@@ -1305,11 +1305,15 @@ public sealed partial class MainForm : Form
             Program.Log("MF16. No se pudo capturar: " + ex.Message);
         }
 
+        // Cerrar en cuanto la imagen está escrita: el proceso debe terminar solo para que
+        // el flujo de capturas pueda seguir con el paso siguiente.
         BeginInvoke(new Action(() =>
         {
             try { _timer.Stop(); } catch { }
-            ExitApplication();
-            Application.Exit();
+            try { _exitRequested = true; } catch { }
+            Close();
+            Application.ExitThread();
+            Environment.Exit(0);
         }));
     }
 
