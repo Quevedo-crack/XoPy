@@ -212,11 +212,10 @@ internal sealed class OptionsDialog : Form
         MinimizeBox = false;
         MaximizeBox = true;
         var workArea = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1280, 720);
-        // Debe caber entera dentro del área de trabajo: si es más alta que la pantalla,
-        // los botones Guardar/Cancelar quedan debajo de la barra de tareas.
         ClientSize = new Size(Math.Min(1000, Math.Max(820, workArea.Width - 120)),
             Math.Min(740, Math.Max(520, workArea.Height - 40)));
         MinimumSize = new Size(840, 560);
+
 
         _tabs = new TabControl
         {
@@ -342,6 +341,27 @@ internal sealed class OptionsDialog : Form
 
         AcceptButton = ok;
         CancelButton = cancel;
+    }
+
+    /// <summary>
+    /// Con el escalado DPI del sistema, el tamaño fijado en el constructor se multiplica y
+    /// el diálogo acababa más alto que la pantalla (los botones quedaban bajo la barra de
+    /// tareas). Ya cargado, se recorta al área de trabajo real.
+    /// </summary>
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+        var area = Screen.FromControl(this).WorkingArea;
+        var maxWidth = area.Width - 24;
+        var maxHeight = area.Height - 24;
+        if (Width > maxWidth || Height > maxHeight)
+        {
+            Width = Math.Min(Width, maxWidth);
+            Height = Math.Min(Height, maxHeight);
+        }
+        Location = new Point(
+            area.X + Math.Max(0, (area.Width - Width) / 2),
+            area.Y + Math.Max(0, (area.Height - Height) / 2));
     }
 
     /// <summary>
