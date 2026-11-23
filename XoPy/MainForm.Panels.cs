@@ -731,6 +731,10 @@ public sealed partial class MainForm
             : _items.Any(item => item.State == ItemState.Failed) ? "Con errores" : "Preparado";
 
         _hdrCopyState.Text = stateText;
+        if (_hdrCopyState is PillLabel pillCopy)
+            pillCopy.Accent = _items.Any(item => item.State == ItemState.Failed) ? _palette.Danger
+                : running ? _palette.AccentSoft
+                : _palette.Raised;
         // Fila de arriba: el ORIGEN real que se está leyendo (ruta completa del archivo).
         var current = runningLeaf?.SourcePath;
         if (string.IsNullOrWhiteSpace(current) && !string.IsNullOrWhiteSpace(runningLeaf?.CurrentFile))
@@ -763,6 +767,8 @@ public sealed partial class MainForm
         _hdrCopyBar.FillColor = _items.Any(item => item.State == ItemState.Failed) && !running ? _palette.Warning : _palette.Accent;
 
         _hdrTargetState.Text = "Destino";
+        if (_hdrTargetState is PillLabel pillTarget)
+            pillTarget.Accent = running && !string.IsNullOrWhiteSpace(_destination.Text) ? _palette.AccentSoft : _palette.Raised;
         // Fila de en medio: la CARPETA REAL de destino del archivo en curso, no la raíz.
         var destination = string.IsNullOrWhiteSpace(_destination.Text)
             ? "Sin destino — se preguntará al copiar"

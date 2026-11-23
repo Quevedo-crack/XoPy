@@ -134,6 +134,12 @@ public sealed partial class MainForm
                     : $"Lista preparada: {_items.Count(item => item.Kind == ItemKind.File)} archivo(s) listos para transferir.");
             }
 
+            // Sin destino elegido, se pregunta SIEMPRE al añadir: nunca se hereda una ruta
+            // guardada ni se rellena con Descargas (el usuario lo pidió explícitamente).
+            if ((targetList ?? _activeList) is { } list && string.IsNullOrWhiteSpace(list.Destination) &&
+                _items.Count > 0 && !_engine.IsRunning)
+                PromptDestinationForList(list, sayNothingIfCancelled: true);
+
             UpdateJobs();
         }
         catch (Exception ex)
@@ -648,7 +654,8 @@ public sealed partial class MainForm
 
     private void MoveSelected(int delta)
     {
-        if (_engine.IsRunning) { SetStatus("Detén la transferencia antes de cambiar el orden."); return; }
+        // Se puede reordenar con la copia en marcha o en pausa: el nuevo orden afecta
+        // solo a lo que falta por copiar, nunca al archivo que ya se está escribiendo.
         var selected = SelectedItems();
         if (selected.Count == 0) { SetStatus("Selecciona un elemento para cambiar su orden."); return; }
 
@@ -1337,7 +1344,7 @@ public sealed partial class MainForm
 
     private void ListItemDrag(object? sender, ItemDragEventArgs e)
     {
-        if (_engine.IsRunning || e.Item is not ListViewItem row || row.Tag is not TransferItem item) return;
+        if (e.Item is not ListViewItem row || row.Tag is not TransferItem item) return;
         var payload = new DataObject();
         payload.SetData("XoPy.QueueItem", item.Id.ToString("D"));
         _list.DoDragDrop(payload, DragDropEffects.Move);
@@ -1345,7 +1352,7 @@ public sealed partial class MainForm
 
     private void ListDragEnter(object? sender, DragEventArgs e)
     {
-        if (e.Data?.GetDataPresent("XoPy.QueueItem") == true && !_engine.IsRunning)
+        if (e.Data?.GetDataPresent("XoPy.QueueItem") == true)
             e.Effect = DragDropEffects.Move;
         else if (e.Data?.GetDataPresent(DataFormats.FileDrop) == true)
             e.Effect = DragDropEffects.Copy;
@@ -1369,7 +1376,6 @@ public sealed partial class MainForm
 
     private void ReorderByDrop(Guid draggedId, Point point)
     {
-        if (_engine.IsRunning) return;
         var source = _items.FirstOrDefault(item => item.Id == draggedId);
         var targetRow = _list.HitTest(point).Item;
         var target = targetRow?.Tag as TransferItem;
@@ -1867,19 +1873,43 @@ public sealed partial class MainForm
 
     // ---------------------------------------------------------------- cuadros de diálogo
 
+    /// <summary>
+    /// Pregunta la carpeta de destino de una lista concreta. Nunca propone una ruta
+    /// guardada antes: el usuario elige. Devuelve true si quedó un destino válido.
+    /// </summary>
+    private bool PromptDestinationForList(TransferList list, bool sayNothingIfCancelled = false)
+    {
+        using var dialog = new FolderBrowserDialog
+        {
+            Description = $"¿A qué carpeta quieres copiar los elementos de «{list.DisplayName}»?",
+            UseDescriptionForTitle = true,
+            ShowNewFolderButton = true,
+            SelectedPath = string.Empty
+        };
+        if (dialog.ShowDialog(this) != DialogResult.OK)
+        {
+            if (!sayNothingIfCancelled)
+                SetStatus("Sin destino: elige una carpeta para poder copiar.");
+            return false;
+        }
+
+        var path = dialog.SelectedPath?.Trim() ?? string.Empty;
+        if (path.Length == 0) return false;
+        try { Directory.CreateDirectory(path); } catch { }
+
+        list.Destination = path;
+        if (list == _activeList) _destination.Text = path;
+        _settings.Destination = path;
+        _store.Save(_settings);
+        UpdateTargetTab();
+        SetStatus("Destino: " + path);
+        return true;
+    }
+
     private void BrowseDestination()
     {
-        try
-        {
-            if (Directory.Exists(_destination.Text.Trim())) _pickDestination.SelectedPath = _destination.Text.Trim();
-        }
-        catch { }
-        _pickDestination.Description = "Selecciona la carpeta de destino";
-        if (_pickDestination.ShowDialog(this) != DialogResult.OK) return;
-        _destination.Text = _pickDestination.SelectedPath;
-        _settings.Destination = _destination.Text;
-        _store.Save(_settings);
-        SetStatus("Destino: " + _destination.Text);
+        if (PromptDestinationForList(_activeList ?? new TransferList { Name = "Lista de copia" }))
+            SetStatus("Destino: " + _destination.Text.Trim());
     }
 
     private void ShowOptions()
@@ -2183,12 +2213,12 @@ public sealed partial class MainForm
         LoadQueueSnapshot(_store.LastQueueFile, startAfterLoad: true);
     }
 
-    private enum QueueSortField { Name, Size, FolderSize, Type, Destination, Source, State }
+    private enum QueueSortField { Name, Size, FolderSize, Type, Destination, Source, State, AllSize }
 
     private void SortQueue(QueueSortField field, bool invert = false)
     {
         if (_items.Count < 2) { SetStatus("La lista está vacía."); return; }
-        if (_engine.IsRunning) { SetStatus("Detén la transferencia para ordenar la cola."); return; }
+        // Ordenar durante la copia o en pausa es válido: afecta a los pendientes.
 
         // Las carpetas se comparan por el tamaño REAL de todo su contenido (incluidas las
         // subcarpetas), no por el campo SizeBytes de la cabecera, y los archivos por su
@@ -2207,6 +2237,7 @@ public sealed partial class MainForm
         {
             QueueSortField.Size => (left, right) => sizes[left.Id].CompareTo(sizes[right.Id]),
             QueueSortField.FolderSize => (left, right) => sizes[left.Id].CompareTo(sizes[right.Id]),
+            QueueSortField.AllSize => (left, right) => sizes[left.Id].CompareTo(sizes[right.Id]),
             QueueSortField.Type => (left, right) => string.Compare(TypeKey(left), TypeKey(right), StringComparison.OrdinalIgnoreCase),
             QueueSortField.Destination => (left, right) => string.Compare(DestinationKey(left), DestinationKey(right), StringComparison.OrdinalIgnoreCase),
             QueueSortField.Source => (left, right) => string.Compare(SourceKey(left), SourceKey(right), StringComparison.OrdinalIgnoreCase),
@@ -2245,6 +2276,7 @@ public sealed partial class MainForm
         {
             QueueSortField.Size => "tamaño (las carpetas por el total de su contenido)",
             QueueSortField.FolderSize => "tamaño de carpeta",
+            QueueSortField.AllSize => "tamaño de todos los archivos",
             QueueSortField.Type => "tipo",
             QueueSortField.Destination => "carpeta de destino",
             QueueSortField.Source => "carpeta de origen",
@@ -2254,8 +2286,41 @@ public sealed partial class MainForm
         SetStatus($"Cola ordenada por {label}{(invert ? " (descendente)" : string.Empty)}. Las carpetas conservan sus archivos.");
     }
 
+    /// <summary>
+    /// Ordena TODOS los archivos de la lista por tamaño, sin importar de qué carpeta
+    /// vengan, para que la copia vaya del más pequeño al más grande (o al revés).
+    /// La jerarquía no se toca: cada archivo conserva su carpeta de destino real.
+    /// </summary>
+    private void SortAllFilesBySize(bool invert = false)
+    {
+        if (_items.Count < 2) { SetStatus("La lista está vacía."); return; }
+
+        var files = _items
+            .Where(item => item.Kind is ItemKind.File or ItemKind.DirectoryEntry)
+            .OrderBy(item => Math.Max(0, item.SizeBytes))
+            .ToList();
+        if (invert) files.Reverse();
+        if (files.Count == 0) { SetStatus("No hay archivos que ordenar."); return; }
+
+        // Clic en «Tamaño» otra vez invierte; se recuerda para alternar como en el Explorador.
+        _lastSortField = QueueSortField.AllSize;
+        _lastSortInverted = invert;
+
+        _visualOrder.Clear();
+        _visualOrder.AddRange(files.Select(item => item.Id));
+        // Las carpetas van al principio de su nivel para que el árbol siga teniendo sentido.
+        var folders = _items.Where(item => item.Kind == ItemKind.Folder).Select(item => item.Id);
+        _visualOrder.InsertRange(0, folders);
+
+        RebuildRows();
+        UpdateFooter();
+        SetStatus($"Archivos ordenados por tamaño, todos juntos {(invert ? "(mayor → menor)" : "(menor → mayor)")}. " +
+                  "Cada uno mantiene su carpeta de destino.");
+    }
+
     private QueueSortField? _lastSortField;
     private bool _lastSortInverted;
+    private int _sizeColumnClicks;
 
     /// <summary>
     /// Clic en una cabecera: ordena por esa columna y alterna ascendente/descendente.
@@ -2282,6 +2347,16 @@ public sealed partial class MainForm
         var invert = _lastSortField == field && !_lastSortInverted;
         _lastSortField = field;
         _lastSortInverted = invert;
+
+        // En la columna Tamaño: primer clic ordena cada carpeta por dentro (asc), segundo
+        // invierte, y a partir del tercero ordena TODOS los archivos juntos.
+        if (e.Column == 2 && _sizeColumnClicks >= 2)
+        {
+            _sizeColumnClicks++;
+            SortAllFilesBySize(_sizeColumnClicks % 2 == 0);
+            return;
+        }
+        if (e.Column == 2) _sizeColumnClicks++;
         SortQueue(field, invert);
     }
 
@@ -2473,8 +2548,12 @@ public sealed partial class MainForm
     {
         try
         {
-            if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
+            // Orden importante: primero devolver la entrada en la barra de tareas y
+            // estado Normal, después mostrar. Al revés, la ventana quedaba «visible»
+            // pero sin foco y parecía que XoPy no abría.
+            EnsureTrayIcon();
             ShowInTaskbar = true;
+            if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
             if (!Visible) Show();
             Activate();
             BringToFront();
@@ -2483,26 +2562,36 @@ public sealed partial class MainForm
             TopMost = true;
             TopMost = false;
             try { SetForegroundWindow(Handle); } catch { }
+            UpdateFooter();
+            UpdateButtons();
         }
         catch { }
     }
 
-    private void MinimizeToTray()
+    /// <summary>
+    /// Crea el icono de la bandeja si aún no existe. Sin él, ocultar la ventana dejaba
+    /// XoPy inaccesible: parecía que la aplicación se había cerrado y no volvía al pulsarla.
+    /// </summary>
+    private void EnsureTrayIcon()
     {
         try
         {
-            // Sin icono visible en la bandeja la ventana quedaría inaccesible y parecería
-            // que XoPy «se ha cerrado».
-            if (!_tray.Visible)
-            {
-                _baseIcon ??= Icons.AppIcon();
-                _tray.Icon = _baseIcon;
-                _tray.Text = "XoPy";
-                _tray.Visible = true;
-            }
+            if (_tray.Visible) return;
+            if (_trayPauseItem is null) BuildTray();
+            _baseIcon ??= Icons.AppIcon();
+            if (_tray.Icon is null) _tray.Icon = _baseIcon;
+            if (string.IsNullOrEmpty(_tray.Text)) _tray.Text = "XoPy";
+            _tray.Visible = true;
         }
-        catch { }
+        catch (Exception ex)
+        {
+            FileLog.Write("No se pudo mostrar el icono de la bandeja: " + ex.Message);
+        }
+    }
 
+    private void MinimizeToTray()
+    {
+        EnsureTrayIcon();
         Hide();
         ShowInTaskbar = false;
         try
@@ -2522,7 +2611,12 @@ public sealed partial class MainForm
     protected override void OnResize(EventArgs e)
     {
         base.OnResize(e);
-        if (WindowState == FormWindowState.Minimized && _settings.MinimizeToTray) MinimizeToTray();
+        if (WindowState != FormWindowState.Minimized || !_settings.MinimizeToTray || _exitRequested) return;
+        // Hide() dentro de OnResize deja el estado de la ventana a medias (Visible=false con
+        // WindowState=Minimized) y luego no vuelve al pulsar el icono. Se aplaza al bucle
+        // de mensajes para que el minimizado termine antes de ocultar.
+        try { BeginInvoke(new Action(() => { if (!_exitRequested && WindowState == FormWindowState.Minimized) MinimizeToTray(); })); }
+        catch { }
     }
 
     protected override void OnFormClosing(FormClosingEventArgs e)
