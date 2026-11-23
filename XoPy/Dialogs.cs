@@ -246,7 +246,8 @@ internal sealed class OptionsDialog : Form
             (int)settings.OnError);
         _retries = Numeric(settings.RetryCount, 0, 20, 1);
 
-        _replaceCopier = Check("Usar XoPy para Ctrl+V, Mayús+Insert y «Enviar a → XoPy»", settings.ReplaceWindowsCopier);
+        _replaceCopier = Check("Sustituir el copiador de Windows: Ctrl+V y Mayús+Insert en el Explorador abren XoPy",
+            settings.ReplaceWindowsCopier);
         _askWhenBusy = Check("Preguntar qué hacer si ya hay una transferencia en curso", settings.AskWhenBusy);
 
         _sound = Check("Reproducir un sonido al terminar", settings.PlaySoundWhenDone);

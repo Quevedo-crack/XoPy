@@ -731,9 +731,13 @@ public sealed partial class MainForm
             : _items.Any(item => item.State == ItemState.Failed) ? "Con errores" : "Preparado";
 
         _hdrCopyState.Text = stateText;
-        var current = runningLeaf?.RelativePath;
+        // Fila de arriba: el ORIGEN real que se está leyendo (ruta completa del archivo).
+        var current = runningLeaf?.SourcePath;
+        if (string.IsNullOrWhiteSpace(current) && !string.IsNullOrWhiteSpace(runningLeaf?.CurrentFile))
+            current = runningLeaf!.CurrentFile;
         _hdrCopyPath.Text = string.IsNullOrWhiteSpace(current)
-            ? (running ? "Preparando la transferencia…" : _lastDestination is { Length: > 0 } last ? "Último destino: " + last : "—")
+            ? (running ? "Preparando la transferencia…" : _items.FirstOrDefault()?.SourcePath is { Length: > 0 } first
+                ? first : _lastDestination is { Length: > 0 } last ? "Último destino: " + last : "—")
             : current;
         if (leaves.Count == 0)
         {
@@ -759,7 +763,21 @@ public sealed partial class MainForm
         _hdrCopyBar.FillColor = _items.Any(item => item.State == ItemState.Failed) && !running ? _palette.Warning : _palette.Accent;
 
         _hdrTargetState.Text = "Destino";
-        var destination = string.IsNullOrWhiteSpace(_destination.Text) ? "—" : _destination.Text.Trim();
+        // Fila de en medio: la CARPETA REAL de destino del archivo en curso, no la raíz.
+        var destination = string.IsNullOrWhiteSpace(_destination.Text)
+            ? "Sin destino — se preguntará al copiar"
+            : _destination.Text.Trim();
+        if (runningLeaf is not null && !string.IsNullOrWhiteSpace(_destination.Text))
+        {
+            if (!string.IsNullOrWhiteSpace(runningLeaf.DestinationPath))
+                destination = Path.GetDirectoryName(runningLeaf.DestinationPath) ?? destination;
+            else if (!string.IsNullOrWhiteSpace(runningLeaf.RelativePath))
+            {
+                var relativeFolder = Path.GetDirectoryName(runningLeaf.RelativePath);
+                if (!string.IsNullOrEmpty(relativeFolder) && !string.IsNullOrWhiteSpace(_destination.Text))
+                    destination = Path.Combine(_destination.Text.Trim(), relativeFolder);
+            }
+        }
         var extras = _settings.ExtraDestinations.Count;
         _hdrTargetPath.Text = extras > 0 ? $"{destination}  (+{extras})" : destination;
 
@@ -1024,7 +1042,7 @@ public sealed partial class MainForm
 
     private void UpdateHashColumns()
     {
-        if (_list is null || _list.Columns.Count < 6 || _updatingColumns) return;
+        if (_list is null || _list.Columns.Count < 7 || _updatingColumns) return;
         _updatingColumns = true;
         try
         {
@@ -1044,14 +1062,16 @@ public sealed partial class MainForm
 
     private void UpdateHashColumnsCore()
     {
-        if (_list.Columns.Count < 6) return;
-        var wideEnough = _list.ClientSize.Width >= 840;
+        if (_list.Columns.Count < 7) return;
+        var wideEnough = _list.ClientSize.Width >= 900;
         var show = wideEnough && _settings.ShowHashes && (_settings.VerifyAfterCopy || _lastOperation == OperationType.Test);
-        SetWidth(_list.Columns[1], show ? 88 : 96);
-        SetWidth(_list.Columns[2], show ? 110 : 132);
-        SetWidth(_list.Columns[3], show ? 132 : 210);
-        SetWidth(_list.Columns[4], show ? 138 : 0);
+        // 0 = Nombre · 1 = Destino · 2 = Tamaño · 3 = Estado · 4 = Progreso · 5/6 = hashes
+        SetWidth(_list.Columns[1], 236);
+        SetWidth(_list.Columns[2], show ? 84 : 92);
+        SetWidth(_list.Columns[3], show ? 108 : 128);
+        SetWidth(_list.Columns[4], show ? 126 : 190);
         SetWidth(_list.Columns[5], show ? 138 : 0);
+        SetWidth(_list.Columns[6], show ? 138 : 0);
     }
 
     private void ToggleHashes()
@@ -1180,11 +1200,27 @@ public sealed partial class MainForm
                 break;
             }
             case 1:
+            {
+                // Carpeta de destino real de este elemento, para que se vea a dónde va cada cosa.
+                var destinationText = DestinationText(item);
+                var hasCustomTarget =
+                    (item.State is ItemState.Completed or ItemState.Running or ItemState.Verifying or ItemState.Paused)
+                    && !string.IsNullOrWhiteSpace(item.DestinationPath);
+                var color = item.State == ItemState.Failed ? _palette.Danger
+                    : hasCustomTarget ? _palette.Text
+                    : _palette.Muted;
+                TextRenderer.DrawText(e.Graphics, destinationText, _list.Font,
+                    new Rectangle(e.Bounds.Left + 4, top, Math.Max(0, e.Bounds.Width - 10), height),
+                    color, TextFormatFlags.Left | TextFormatFlags.VerticalCenter
+                           | TextFormatFlags.PathEllipsis | TextFormatFlags.NoPrefix);
+                break;
+            }
+            case 2:
                 TextRenderer.DrawText(e.Graphics, item.SizeText, _list.Font,
                     new Rectangle(e.Bounds.Left, top, Math.Max(0, e.Bounds.Width - 12), height),
                     _palette.Muted, TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
                 break;
-            case 2:
+            case 3:
             {
                 var color = StateColor(item);
                 var glyph = item.State switch
@@ -1215,7 +1251,7 @@ public sealed partial class MainForm
                     TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
                 break;
             }
-            case 3:
+            case 4:
             {
                 var percent = RowPercent(item);
                 var bar = new Rectangle(e.Bounds.Left + 6, top + (height - 10) / 2, Math.Max(12, e.Bounds.Width - 68), 10);
@@ -1225,12 +1261,12 @@ public sealed partial class MainForm
                     TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
                 break;
             }
-            case 4:
+            case 5:
                 TextRenderer.DrawText(e.Graphics, item.HashSource ?? string.Empty, _monoFont,
                     Rectangle.Inflate(e.Bounds, -6, 0), _palette.Muted,
                     TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
                 break;
-            case 5:
+            case 6:
                 TextRenderer.DrawText(e.Graphics, item.HashTarget ?? string.Empty, _monoFont,
                     Rectangle.Inflate(e.Bounds, -6, 0),
                     string.Equals(item.HashSource, item.HashTarget, StringComparison.OrdinalIgnoreCase) ? _palette.Success : _palette.Muted,
@@ -1259,24 +1295,25 @@ public sealed partial class MainForm
 
     private void ResizeColumns()
     {
-        if (_list is null || _list.Columns.Count < 6 || _updatingColumns) return;
+        if (_list is null || _list.Columns.Count < 7 || _updatingColumns) return;
         _updatingColumns = true;
         try
         {
             var used = _list.Columns[1].Width + _list.Columns[2].Width + _list.Columns[3].Width
-                       + _list.Columns[4].Width + _list.Columns[5].Width;
+                       + _list.Columns[4].Width + _list.Columns[5].Width + _list.Columns[6].Width;
             var available = _list.ClientSize.Width - used - 4;
-            if (available < 380)
+            if (available < 300)
             {
-                // En ventanas pequeñas se reducen Tamaño y Progreso para que quepa el nombre.
-                SetWidth(_list.Columns[1], 76);
-                SetWidth(_list.Columns[2], 116);
-                SetWidth(_list.Columns[3], 130);
+                // En ventanas pequeñas se reduce el resto para que quepa el nombre.
+                SetWidth(_list.Columns[1], 168);
+                SetWidth(_list.Columns[2], 74);
+                SetWidth(_list.Columns[3], 112);
+                SetWidth(_list.Columns[4], 124);
                 used = _list.Columns[1].Width + _list.Columns[2].Width + _list.Columns[3].Width
-                       + _list.Columns[4].Width + _list.Columns[5].Width;
+                       + _list.Columns[4].Width + _list.Columns[5].Width + _list.Columns[6].Width;
                 available = _list.ClientSize.Width - used - 4;
             }
-            SetWidth(_list.Columns[0], Math.Max(160, available));
+            SetWidth(_list.Columns[0], Math.Max(150, available));
         }
         finally
         {

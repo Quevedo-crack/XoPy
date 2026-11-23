@@ -95,6 +95,8 @@ public static class Icons
     public const string Clock = "\uE823";
     public const string Blocked = "\uE733";
     public const string Remove = "\uE738";
+    /// <summary>Barrer/vaciar: distinto de la papelera para no confundirse con «Eliminar del disco».</summary>
+    public const string ClearList = "\uE894";
     public const string Up = "\uE70E";
     public const string Down = "\uE70D";
     public const string Refresh = "\uE72C";
