@@ -1233,6 +1233,17 @@ public sealed partial class MainForm : Form
     /// Genera un PNG con el aspecto real de la ventana y cierra la aplicación. Se usa desde
     /// el workflow «UI preview» para revisar la interfaz en Windows sin tocar el equipo.
     /// </summary>
+    /// <summary>Espera a que no haya transferencia en curso y guarda la captura.</summary>
+    private async Task WaitForEngineIdleAndCaptureAsync()
+    {
+        for (var waited = 0; waited < 60000 && _engine.IsRunning; waited += 250)
+            await Task.Delay(250);
+        // Un margen para que se repinte el último estado antes de fotografiar.
+        await Task.Delay(600);
+        try { CaptureScreenshot(_startupRequest.ScreenshotPath); }
+        catch (Exception ex) { Program.Log("MF16. CaptureScreenshot FATAL: " + ex.Message); }
+    }
+
     private void CaptureScreenshot(string? path)
     {
         var target = string.IsNullOrWhiteSpace(path)
@@ -1573,7 +1584,7 @@ public sealed partial class MainForm : Form
 
     // ---------------------------------------------------------------- arranque externo
 
-    protected override void OnShown(EventArgs e)
+    protected override async void OnShown(EventArgs e)
     {
         if (_shown) return;
         _shown = true;
@@ -1676,9 +1687,10 @@ public sealed partial class MainForm : Form
             // del arranque para que la imagen muestre la interfaz ya completa.
             if (_startupRequest.Screenshot)
             {
+                // Si además se pidió una transferencia (--test/--copy), la captura debe
+                // esperar a que termine; si no, el PNG sale a medias.
                 Program.Log("MF16. CaptureScreenshot start");
-                try { CaptureScreenshot(_startupRequest.ScreenshotPath); }
-                catch (Exception ex) { Program.Log("MF16. CaptureScreenshot FATAL: " + ex.Message); }
+                await WaitForEngineIdleAndCaptureAsync();
             }
         }
         catch (Exception ex)
