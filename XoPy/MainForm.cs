@@ -1286,8 +1286,9 @@ public sealed partial class MainForm : Form
                 .Select(row => (row.Tag as TransferItem)?.Name ?? "?")
                 .Where(name => name.EndsWith(".bin", StringComparison.OrdinalIgnoreCase)).ToList();
             report.Add("tras_ordenar=" + string.Join(",", afterSort));
-            if (afterSort.Count > 0 && afterSort[afterSort.Count - 1] != "archivo3.bin")
-            { report.Add("error=el orden por tamano no dejo al mayor al final"); ok = false; }
+            // «Mayor → menor» debe dejar arriba el archivo más grande (archivo3).
+            if (afterSort.Count > 0 && afterSort[0] != "archivo3.bin")
+            { report.Add("error=el orden por tamano no puso primero al mayor"); ok = false; }
 
             var before = _items.Count(item => item.Kind == ItemKind.File);
             RemoveItems(_items.Where(item => item.Kind == ItemKind.File).ToList());
