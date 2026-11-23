@@ -1,25 +1,22 @@
   Determining projects to restore...
-  Restored D:\a\XoPy\XoPy\XoPy\XoPy.csproj (in 18 ms).
-D:\a\XoPy\XoPy\XoPy\MainForm.cs(1663,13): warning CS8602: Dereference of a possibly null reference. [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
+  Restored D:\a\XoPy\XoPy\XoPy\XoPy.csproj (in 27 ms).
+D:\a\XoPy\XoPy\XoPy\MainForm.cs(1709,13): warning CS8602: Dereference of a possibly null reference. [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
 D:\a\XoPy\XoPy\XoPy\MainForm.cs(113,18): warning CS0414: The field 'MainForm._wasRunning' is assigned but its value is never used [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
 CSC : warning WFO0003: Remove high DPI settings from D:\a\XoPy\XoPy\XoPy\app.manifest and configure via Application.SetHighDpiMode API or 'ApplicationHighDpiMode' project property (https://aka.ms/winforms-warnings/wfo0003) [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
   XoPy -> D:\a\XoPy\XoPy\XoPy\bin\Release\net10.0-windows\win-x64\XoPy.dll
 
 Build succeeded.
 
-D:\a\XoPy\XoPy\XoPy\MainForm.cs(1663,13): warning CS8602: Dereference of a possibly null reference. [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
+D:\a\XoPy\XoPy\XoPy\MainForm.cs(1709,13): warning CS8602: Dereference of a possibly null reference. [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
 D:\a\XoPy\XoPy\XoPy\MainForm.cs(113,18): warning CS0414: The field 'MainForm._wasRunning' is assigned but its value is never used [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
 CSC : warning WFO0003: Remove high DPI settings from D:\a\XoPy\XoPy\XoPy\app.manifest and configure via Application.SetHighDpiMode API or 'ApplicationHighDpiMode' project property (https://aka.ms/winforms-warnings/wfo0003) [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
     3 Warning(s)
     0 Error(s)
 
-Time Elapsed 00:00:01.33
+Time Elapsed 00:00:03.05
 FILE: carpeta (1 bytes)
 FILE: exitcode.txt (34 bytes)
 FILE: informe.pdf (10242 bytes)
-FILE: shot.png.log (42 bytes)
 FILE: video.mp4 (20482 bytes)
 --- C:\xopytest\exitcode.txt
 exitcode=-1073741571 exited=True
---- C:\xopytest\shot.png.log
-inicio 2026-11-22T22:33:46.1620866+00:00
