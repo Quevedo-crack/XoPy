@@ -1313,7 +1313,7 @@ public sealed partial class MainForm : Form
             base.OnShown(e);
             Program.Log("MF-OnShown base.OnShown done");
 
-            // La ventana debe verse siempre al abrir XoP​y (salvo si se pidió arrancar minimizado).
+            // La ventana debe verse siempre al abrir XoPy (salvo si se pidió arrancar minimizado).
             // No llamar Show() aqui: el formulario ya esta siendo mostrado por el evento Shown;
             // llamarlo de nuevo causa reentrancy de Windows Forms y puede desbordar la pila (0xc00000fd).
             if (!_settings.StartMinimized && !_startupRequest.StartMinimized)
