@@ -1901,6 +1901,37 @@ public sealed partial class MainForm
         if (_trayPauseItem is not null) _trayPauseItem.Enabled = running;
     }
 
+    /// <summary>
+    /// Rellena el bloque de metadatos de la pestaña Lista (estilo TeraCopy): cuántos archivos
+    /// hay, de qué carpeta vienen y a qué carpeta van, con el tamaño al lado.
+    /// </summary>
+    private void UpdateMetaBlock(List<TransferItem> leaves, long done, long total)
+    {
+        if (_metaFilter is null) return;
+
+        var files = leaves.Count(item => item.Kind == ItemKind.File);
+        _metaFilter.Text = "Todos los archivos";
+        _metaCount.Text = done > 0
+            ? $"{files} archivo(s) · {Format.Bytes(done)} / {Format.Bytes(total)}"
+            : $"{files} archivo(s)";
+
+        // Origen: la carpeta común de los elementos añadidos (o el origen del archivo actual).
+        var roots = RootItems().Select(item => item.SourcePath).Where(path => !string.IsNullOrWhiteSpace(path)).ToList();
+        var origin = roots.Count switch
+        {
+            0 => "Sin origen",
+            1 => Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(roots[0])) ?? roots[0],
+            _ => $"{roots.Count} orígenes distintos"
+        };
+        _metaOrigin.Text = origin;
+        _metaOriginSize.Text = total > 0 ? Format.Bytes(total) : "0 B";
+
+        var destination = _destination?.Text.Trim() ?? string.Empty;
+        _metaDestination.Text = string.IsNullOrWhiteSpace(destination) ? "Sin destino: elige una carpeta" : destination;
+        _metaDestination.ForeColor = string.IsNullOrWhiteSpace(destination) ? _palette.Warning : _palette.Text;
+        _metaDestinationSize.Text = _activeList?.DisplayName ?? string.Empty;
+    }
+
     private void UpdateFooter()
     {
         if (_progress is null) return;
@@ -1925,6 +1956,7 @@ public sealed partial class MainForm
         }
 
         _lastPercent = percent;
+        UpdateMetaBlock(leaves, done, total);
         UpdateCountLabel(leaves.Count, total);
         _progress.Value = percent;
         _progress.FillColor = _items.Any(item => item.State == ItemState.Failed) && !_engine.IsRunning

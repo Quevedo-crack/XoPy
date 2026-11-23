@@ -24,7 +24,99 @@ public sealed partial class MainForm
 
     // ---------------------------------------------------------------- pestaña: lista
 
-    private Control BuildFilesPage() => BuildListShell();
+    private Control BuildFilesPage()
+    {
+        // Estilo TeraCopy 4: encima de la lista, un bloque de tres filas con la etiqueta en
+        // una cajita a la izquierda y el valor a la derecha. Es lo que hace que la ventana
+        // se reconozca al instante como TeraCopy, en lugar de solo una tabla suelta.
+        var page = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 2,
+            BackColor = _palette.Surface,
+            Padding = new Padding(0),
+            Margin = new Padding(0)
+        };
+        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 94));
+        page.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        page.Controls.Add(BuildMetaBlock(), 0, 0);
+        page.Controls.Add(BuildListShell(), 0, 1);
+        return page;
+    }
+
+    /// <summary>Bloque «Procesar archivos / Origen / Destino» con etiquetas en caja.</summary>
+    private Control BuildMetaBlock()
+    {
+        var block = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 3,
+            RowCount = 3,
+            BackColor = _palette.Surface,
+            Padding = new Padding(8, 5, 8, 3),
+            Margin = new Padding(0)
+        };
+        block.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 96));
+        block.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        block.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 96));
+        for (var i = 0; i < 3; i++) block.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
+
+        block.Controls.Add(MetaTag("Filtro"), 0, 0);
+        _metaFilter = MetaValue("Todos los archivos");
+        block.Controls.Add(_metaFilter, 1, 0);
+        _metaCount = MetaValue("0 / 0");
+        _metaCount.TextAlign = ContentAlignment.MiddleRight;
+        _metaCount.ForeColor = _palette.Muted;
+        block.Controls.Add(_metaCount, 2, 0);
+
+        block.Controls.Add(MetaTag("Origen"), 0, 1);
+        _metaOrigin = MetaValue("Sin origen");
+        block.Controls.Add(_metaOrigin, 1, 1);
+        _metaOriginSize = MetaValue("0 B");
+        _metaOriginSize.TextAlign = ContentAlignment.MiddleRight;
+        _metaOriginSize.ForeColor = _palette.Muted;
+        block.Controls.Add(_metaOriginSize, 2, 1);
+
+        block.Controls.Add(MetaTag("Destino"), 0, 2);
+        _metaDestination = MetaValue("Sin destino");
+        block.Controls.Add(_metaDestination, 1, 2);
+        _metaDestinationSize = MetaValue(string.Empty);
+        _metaDestinationSize.TextAlign = ContentAlignment.MiddleRight;
+        _metaDestinationSize.ForeColor = _palette.Muted;
+        block.Controls.Add(_metaDestinationSize, 2, 2);
+        return block;
+    }
+
+    /// <summary>Etiqueta pequeña en caja, como «Origen» o «Destino» de TeraCopy.</summary>
+    private Control MetaTag(string text)
+    {
+        var tag = new Label
+        {
+            Text = text,
+            AutoSize = false,
+            Dock = DockStyle.Fill,
+            TextAlign = ContentAlignment.MiddleCenter,
+            ForeColor = _palette.Muted,
+            BackColor = _palette.Raised,
+            Font = new Font("Segoe UI", 8f),
+            Margin = new Padding(0, 3, 8, 3)
+        };
+        return tag;
+    }
+
+    private Label MetaValue(string text) => new()
+    {
+        Text = text,
+        AutoSize = false,
+        Dock = DockStyle.Fill,
+        TextAlign = ContentAlignment.MiddleLeft,
+        ForeColor = _palette.Text,
+        Font = new Font("Segoe UI", 8.75f),
+        AutoEllipsis = true,
+        UseMnemonic = false,
+        Margin = new Padding(0, 3, 8, 3)
+    };
 
     // ---------------------------------------------------------------- pestaña: destino
 

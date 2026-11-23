@@ -114,6 +114,8 @@ public sealed partial class MainForm : Form
     private Icon? _percentIcon;
     private bool _wasRunning;
     private bool _exitRequested;
+    private Label _metaFilter = null!, _metaCount = null!, _metaOrigin = null!, _metaOriginSize = null!;
+    private Label _metaDestination = null!, _metaDestinationSize = null!;
     private bool _shown;
     /// <summary>La interfaz está construida y los controles existen (fin de OnShown).</summary>
     private volatile bool _uiReady;
