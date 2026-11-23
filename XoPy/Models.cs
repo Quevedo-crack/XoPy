@@ -209,6 +209,8 @@ public sealed class StartupRequest
     public bool NoShellHook { get; set; }
     public bool AskDestination { get; set; }
     public bool Screenshot { get; set; }
+    /// <summary>Ruta del PNG que se genera con --screenshot (solo para las capturas de CI).</summary>
+    public string? ScreenshotPath { get; set; }
     public ConflictPolicy? Conflict { get; set; }
     public VerifyAlgorithm? VerifyAlgorithm { get; set; }
     public bool VerifyAfterCopy { get; set; }
@@ -265,8 +267,13 @@ public sealed class StartupRequest
                 case "--screenshot-conflict":
                 case "--screenshot-tabs":
                 case "--screenshot-menus":
+                    // El argumento siguiente es la ruta del PNG: se guarda para escribir ahí
+                    // y NO se trata como archivo que copiar.
                     request.Screenshot = true;
-                    i++;
+                    if (i + 1 < args.Length && !args[i + 1].StartsWith("-", StringComparison.Ordinal))
+                        request.ScreenshotPath = Normalize(args[++i]);
+                    else
+                        i++;
                     break;
                 case "--to":
                     if (i + 1 < args.Length) request.Destination = Normalize(args[++i]);

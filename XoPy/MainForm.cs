@@ -1228,6 +1228,43 @@ public sealed partial class MainForm : Form
         if (_settings.WindowMaximized) WindowState = FormWindowState.Maximized;
     }
 
+    /// <summary>
+    /// Genera un PNG con el aspecto real de la ventana y cierra la aplicación. Se usa desde
+    /// el workflow «UI preview» para revisar la interfaz en Windows sin tocar el equipo.
+    /// </summary>
+    private void CaptureScreenshot(string? path)
+    {
+        var target = string.IsNullOrWhiteSpace(path)
+            ? Path.Combine(Path.GetTempPath(), "xopy.png")
+            : path!;
+        try { Directory.CreateDirectory(Path.GetDirectoryName(target) ?? "."); } catch { }
+
+        try
+        {
+            Application.DoEvents();
+            Update();
+            using var bitmap = new Bitmap(Math.Max(1, Width), Math.Max(1, Height));
+            using (var graphics = Graphics.FromImage(bitmap))
+            {
+                graphics.CopyFromScreen(Location, Point.Empty, Size);
+            }
+            bitmap.Save(target, System.Drawing.Imaging.ImageFormat.Png);
+            Program.Log("MF16. Captura guardada en " + target);
+        }
+        catch (Exception ex)
+        {
+            try { File.WriteAllText(target + ".error.txt", ex.ToString()); } catch { }
+            Program.Log("MF16. No se pudo capturar: " + ex.Message);
+        }
+
+        BeginInvoke(new Action(() =>
+        {
+            try { _timer.Stop(); } catch { }
+            ExitApplication();
+            Application.Exit();
+        }));
+    }
+
     private void SaveWindowGeometry()
     {
         try
@@ -1551,6 +1588,15 @@ public sealed partial class MainForm : Form
             Program.Log("MF15. InstallShellHookIfNeeded start");
             try { InstallShellHookIfNeeded(); Program.Log("MF15. InstallShellHookIfNeeded done"); }
             catch (Exception ex) { Program.Log("MF15. InstallShellHookIfNeeded FATAL: " + ex.GetType().FullName + " - " + ex.Message); }
+
+            // Modo captura (solo CI): guarda la ventana como PNG y cierra. Se hace al final
+            // del arranque para que la imagen muestre la interfaz ya completa.
+            if (_startupRequest.Screenshot)
+            {
+                Program.Log("MF16. CaptureScreenshot start");
+                try { CaptureScreenshot(_startupRequest.ScreenshotPath); }
+                catch (Exception ex) { Program.Log("MF16. CaptureScreenshot FATAL: " + ex.Message); }
+            }
         }
         catch (Exception ex)
         {
