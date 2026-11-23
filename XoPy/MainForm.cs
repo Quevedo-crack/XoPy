@@ -1312,8 +1312,8 @@ public sealed partial class MainForm : Form
     {
         for (var waited = 0; waited < 60000 && _engine.IsRunning; waited += 250)
             await Task.Delay(250);
-        // Un margen para que se repinte el último estado antes de fotografiar.
-        await Task.Delay(600);
+        // Un margen generoso para que la ventana esté totalmente pintada antes de fotografiar.
+        await Task.Delay(2000);
         try { CaptureScreenshot(_startupRequest.ScreenshotPath); }
         catch (Exception ex) { Program.Log("MF16. CaptureScreenshot FATAL: " + ex.Message); }
     }
@@ -1395,9 +1395,14 @@ public sealed partial class MainForm : Form
         Application.DoEvents();
         Refresh();
         foreach (Control child in Controls) child.Refresh();
-        Application.DoEvents();
-        Thread.Sleep(250);
-        Application.DoEvents();
+        // Varios ciclos de mensajes: la ventana acaba de crearse y Windows todavía está
+        // enviando WM_PAINT; con una sola pasada la captura salía a medio pintar.
+        for (var pass = 0; pass < 12; pass++)
+        {
+            Application.DoEvents();
+            Thread.Sleep(80);
+        }
+        Update();
 
         using var bitmap = new Bitmap(Math.Max(1, Width), Math.Max(1, Height));
         using (var graphics = Graphics.FromImage(bitmap)) graphics.CopyFromScreen(Location, Point.Empty, Size);
