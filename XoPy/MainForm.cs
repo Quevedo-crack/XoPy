@@ -149,32 +149,15 @@ public sealed partial class MainForm : Form
 
         try
         {
+            // Solo construir la interfaz básica. Todo lo demás (tray, shell, timer,
+            // carga de configuración en controles) se hace en OnShown para evitar
+            // que el shell de Windows o eventos de UI se disparen antes de que el
+            // formulario tenga handle de ventana, lo que causa reentrancy y
+            // StackOverflowException (0xc00000fd).
             BuildUi();
-            LoadSettingsIntoUi();
-            ApplyCompactView(_settings.CompactView, persist: false);
-            ApplyJobsCollapsed(_settings.CollapseJobs);
-            WireEngine();
-            EnsureDefaultList();
-            ApplyWindowGeometry();
-
-            if (_settings.ExplorerIntegration)
-            {
-                _settings.ExplorerIntegration = false;
-                _store.Save(_settings);
-            }
-
-            _timer.Tick += (_, _) => TimerTick();
-            _timer.Start();
-
-            UpdateButtons();
-            UpdateFooter();
-            UpdateHashColumns();
-            UpdateJobs();
         }
         catch (Exception ex)
         {
-            // Si algo falla durante la construcción de la interfaz, escribir el error
-            // a un archivo de diagnóstico y relanzar para que Program.Main() lo capture.
             try
             {
                 var dir = Path.Combine(
@@ -1358,17 +1341,52 @@ public sealed partial class MainForm : Form
                 catch { }
             }
 
+            // Cargar configuración en los controles de la UI (después de BuildUi que ya los creó).
+            try { LoadSettingsIntoUi(); } catch { }
+
+            // Aplicar vista compacta si está configurada.
+            try { ApplyCompactView(_settings.CompactView, persist: false); } catch { }
+
+            // Aplicar colapso de la columna de trabajos.
+            try { ApplyJobsCollapsed(_settings.CollapseJobs); } catch { }
+
+            // Conectar eventos del motor de copia.
+            try { WireEngine(); } catch { }
+
+            // Crear la lista predeterminada.
+            try { EnsureDefaultList(); } catch { }
+
+            // Aplicar geometría de ventana (tamaño y posición guardados).
+            try { ApplyWindowGeometry(); } catch { }
+
+            // Si había integración de Explorador activada en una versión anterior, desactivarla.
+            if (_settings.ExplorerIntegration)
+            {
+                try { _settings.ExplorerIntegration = false; _store.Save(_settings); } catch { }
+            }
+
+            // Iniciar el temporizador de actualización de UI.
+            try { _timer.Tick += (_, _) => TimerTick(); _timer.Start(); } catch { }
+
+            // Actualizar estado inicial de botones, pie de página, columnas y trabajos.
+            try { UpdateButtons(); } catch { }
+            try { UpdateFooter(); } catch { }
+            try { UpdateHashColumns(); } catch { }
+            try { UpdateJobs(); } catch { }
+
             // Inicializar componentes que dependen del shell de Windows DESPUÉS de que el formulario
             // se ha mostrado y tiene handle de ventana. Hacerlo en el constructor (antes de que exista
             // el handle) puede causar que el shell envíe mensajes al formulario antes de que esté listo,
             // provocando reentrancy y desbordamiento de pila (0xc00000fd).
-            BuildTray();
-            ApplyCopierReplacement();
+            try { BuildTray(); } catch { }
+            try { ApplyCopierReplacement(); } catch { }
 
             // Instalar el hook de pegado ahora que la ventana está lista, no durante el constructor.
-            InstallShellHookIfNeeded();
+            try { InstallShellHookIfNeeded(); } catch { }
 
-            _ = HandleExternalAsync(_startupRequest, true);
+            // NO llamar HandleExternalAsync al arranque: el programa abre con la ventana vacía.
+            // El usuario añade archivos manualmente o usa Ctrl+V. Esto elimina cualquier posible
+            // fuente de recursión en el arranque.
         }
         catch (Exception ex)
         {
