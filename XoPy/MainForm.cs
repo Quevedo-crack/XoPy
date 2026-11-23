@@ -114,6 +114,7 @@ public sealed partial class MainForm : Form
     private Icon? _percentIcon;
     private bool _wasRunning;
     private bool _exitRequested;
+    private bool _loadingUi;
     private Label _metaFilter = null!, _metaCount = null!, _metaOrigin = null!, _metaOriginSize = null!;
     private Label _metaDestination = null!, _metaDestinationSize = null!;
     private bool _shown;
@@ -1462,6 +1463,9 @@ public sealed partial class MainForm : Form
 
     private void LoadSettingsIntoUi()
     {
+        _loadingUi = true;
+        try
+        {
         // El destino NUNCA se rellena solo: el usuario lo elige al añadir o al copiar.
         // (Antes se pintaba el último destino guardado y por eso aparecía «Descargas».)
         if (_activeList is not null && string.IsNullOrWhiteSpace(_activeList.Destination))
@@ -1493,6 +1497,11 @@ public sealed partial class MainForm : Form
             ? $"Verificar ({Format.Algorithm(_settings.Verify)})"
             : "Verificar";
         SyncQuickOptions();
+        }
+        finally
+        {
+            _loadingUi = false;
+        }
     }
 
     private void AddFavorite()

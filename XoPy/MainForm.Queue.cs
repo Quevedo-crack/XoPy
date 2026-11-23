@@ -1292,6 +1292,8 @@ public sealed partial class MainForm
     private void ChangeCopyMode()
     {
         if (_copyMode is null || _copyMode.SelectedIndex < 0) return;
+        // Al reflejar los ajustes guardados no se debe reiniciar el motor ni escribir el estado.
+        if (_loadingUi) return;
         // Índice 0 = secuencial; 1..N = multihilo con ese número de transferencias a la vez.
         _settings.MultiThreadCopy = _copyMode.SelectedIndex > 0;
         if (_settings.MultiThreadCopy)
