@@ -270,7 +270,11 @@ jobs:
           $process = Start-Process -FilePath $exe -ArgumentList @('--self-test-queue', 'C:\xopytest\cola.txt') -PassThru
           if (-not $process.WaitForExit(60000)) { $process.Kill(); throw 'La prueba de la cola no terminó' }
           Get-Content C:\xopytest\cola.txt
-          if ($process.ExitCode -ne 0) { throw "La prueba de la cola falló: $(Get-Content C:\xopytest\cola.txt)" }
+          if ($process.ExitCode -ne 0) {
+            Write-Host "::error::La prueba de la cola falló"
+            throw "La prueba de la cola falló: $(Get-Content C:\xopytest\cola.txt)"
+          }
+          Write-Host "Prueba de la cola superada" 
 
       - name: Guardar la captura en el repositorio
         shell: pwsh
