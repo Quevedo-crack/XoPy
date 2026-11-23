@@ -295,6 +295,12 @@ jobs:
           foreach ($file in @('C:\xopytest\exitcode.txt', 'C:\xopytest\shot.png.log', 'C:\xopytest\shot.png.error.txt', 'C:\xopytest\tab.error.txt', 'C:\xopytest\options.png.error.txt', 'C:\xopytest\conflict.png.error.txt', 'C:\xopytest\menu.error.txt', 'C:\xopytest\copiatest.txt', 'C:\xopytest\movetest.txt', 'C:\xopytest\conflictotest.txt', 'C:\xopytest\jerarquiatest.txt', 'C:\xopytest\reanudartest.txt', 'C:\xopytest\cola.txt', 'C:\xopytest\robocopytest.txt', 'C:\xopytest\history.png.error.txt')) {
             if (Test-Path $file) { $out += "--- $file"; $out += Get-Content $file }
           }
+          # Registro propio de la aplicación (destinos, conflictos y errores de copia).
+          $log = Join-Path $env:LOCALAPPDATA 'XoPy\transfer.log'
+          if (Test-Path $log) {
+            $out += "--- transfer.log (últimas 120 líneas)"
+            $out += Get-Content $log -Tail 120
+          }
           New-Item -ItemType Directory -Force docs | Out-Null
           $out | Set-Content docs\diagnostics.txt
           git config user.name "XoPy Bot"
