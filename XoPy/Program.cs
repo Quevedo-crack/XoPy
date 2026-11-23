@@ -10,7 +10,7 @@ internal static class Program
 {
     private static string _logPath = @"C:\XoPy-startup.log";
 
-    private static void Log(string step)
+    internal static void Log(string step)
     {
         try
         {

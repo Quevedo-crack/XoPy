@@ -147,19 +147,30 @@ public sealed partial class MainForm : Form
         _history = _store.LoadHistory();
         _palette = Palette.For(_settings.DarkTheme);
 
-        try
-        {
-            Program.Log("MF1. BuildUi");
-            BuildUi();
+        BuildUi();
+        LoadSettingsIntoUi();
+        ApplyCompactView(_settings.CompactView, persist: false);
+        ApplyJobsCollapsed(_settings.CollapseJobs);
+        WireEngine();
+        EnsureDefaultList();
+        ApplyWindowGeometry();
 
-            Program.Log("MF-ctor end");
-        }
-        catch (Exception ex)
+        if (_settings.ExplorerIntegration)
         {
-            Program.Log($"MF-FATAL: {ex.GetType().FullName} - {ex.Message}");
-            Program.Log($"MF-FATAL Stack: {ex.StackTrace}");
-            throw;
+            _settings.ExplorerIntegration = false;
+            _store.Save(_settings);
         }
+
+        _timer.Tick += (_, _) => TimerTick();
+        _timer.Start();
+
+        UpdateButtons();
+        UpdateFooter();
+        UpdateHashColumns();
+        UpdateJobs();
+
+        // BuildTray y ApplyCopierReplacement desactivados temporalmente para
+        // descartar reentrancy del shell durante el arranque.
     }
 
     // ---------------------------------------------------------------- interfaz
@@ -208,6 +219,12 @@ public sealed partial class MainForm : Form
 
         DragEnter += (_, e) => e.Effect = e.Data?.GetDataPresent(DataFormats.FileDrop) == true ? DragDropEffects.Copy : DragDropEffects.None;
         DragDrop += (_, e) => DropPaths(e);
+        Shown += (_, _) =>
+        {
+            ResizeColumns();
+            SelectTab(0);
+            ApplyDarkScrollbars();
+        };
     }
 
     private void ToggleCompactView() => ApplyCompactView(!_compactView, persist: true);
@@ -989,6 +1006,7 @@ public sealed partial class MainForm : Form
         // Las columnas se ajustan al ancho de la ventana, no al de la lista:
         // así la aparición de la barra de desplazamiento no provoca un bucle de redimensionado.
         Resize += (_, _) => ScheduleColumnUpdate();
+        Shown += (_, _) => ScheduleColumnUpdate();
         _list.KeyDown += ListKeyDown;
         _list.DoubleClick += ListDoubleClick;
         _list.MouseDown += ListMouseDown;
@@ -1126,10 +1144,6 @@ public sealed partial class MainForm : Form
         }
         catch { }
         ApplyDarkScrollbars();
-
-        Program.Log("MF-HC ApplyWindowGeometry");
-        ApplyWindowGeometry();
-        Program.Log("MF-HC ApplyWindowGeometry done");
     }
 
     // ---------------------------------------------------------------- ajustes
@@ -1306,73 +1320,24 @@ public sealed partial class MainForm : Form
         if (_shown) return;
         _shown = true;
 
-        Program.Log("MF-OnShown start");
-
         try
         {
             base.OnShown(e);
-            Program.Log("MF-OnShown base.OnShown done");
 
-            // La ventana debe verse siempre al abrir XoP​y (salvo si se pidió arrancar minimizado).
             // No llamar Show() aqui: el formulario ya esta siendo mostrado por el evento Shown;
             // llamarlo de nuevo causa reentrancy de Windows Forms y puede desbordar la pila (0xc00000fd).
             if (!_settings.StartMinimized && !_startupRequest.StartMinimized)
             {
-                Program.Log("MF-OnShown Activate");
                 if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
                 Activate();
                 BringToFront();
-                Program.Log("MF-OnShown Activate done");
             }
-
-            // Inicialización restante paso a paso (movida del constructor para aislar el stack overflow).
-            Program.Log("MF2. LoadSettingsIntoUi");
-            LoadSettingsIntoUi();
-
-            Program.Log("MF3. ApplyCompactView");
-            ApplyCompactView(_settings.CompactView, persist: false);
-
-            Program.Log("MF4. ApplyJobsCollapsed");
-            ApplyJobsCollapsed(_settings.CollapseJobs);
-
-            Program.Log("MF5. WireEngine");
-            WireEngine();
-
-            Program.Log("MF6. EnsureDefaultList");
-            EnsureDefaultList();
-
-            if (_settings.ExplorerIntegration)
-            {
-                _settings.ExplorerIntegration = false;
-                _store.Save(_settings);
-            }
-
-            Program.Log("MF8. Timer start");
-            _timer.Tick += (_, _) => TimerTick();
-            _timer.Start();
-
-            Program.Log("MF9. UpdateButtons");
-            UpdateButtons();
-
-            Program.Log("MF10. UpdateFooter");
-            UpdateFooter();
-
-            Program.Log("MF11. UpdateHashColumns");
-            UpdateHashColumns();
-
-            Program.Log("MF12. UpdateJobs");
-            UpdateJobs();
-
-            // InstallShellHookIfNeeded, BuildTray y ApplyCopierReplacement desactivados
-            // temporalmente para descartar reentrancy del shell durante el arranque.
         }
         catch (Exception ex)
         {
             Program.Log($"MF-OnShown-FATAL: {ex.GetType().FullName} - {ex.Message}");
             Program.Log($"MF-OnShown-FATAL Stack: {ex.StackTrace}");
         }
-
-        Program.Log("MF-OnShown end");
     }
 
     public void HandleExternalRequest(StartupRequest request) => _ = HandleExternalAsync(request, false);
