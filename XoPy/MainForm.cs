@@ -146,31 +146,6 @@ public sealed partial class MainForm : Form
         _settings = _store.Load();
         _history = _store.LoadHistory();
         _palette = Palette.For(_settings.DarkTheme);
-
-        BuildUi();
-        LoadSettingsIntoUi();
-        ApplyCompactView(_settings.CompactView, persist: false);
-        ApplyJobsCollapsed(_settings.CollapseJobs);
-        WireEngine();
-        EnsureDefaultList();
-        ApplyWindowGeometry();
-
-        if (_settings.ExplorerIntegration)
-        {
-            _settings.ExplorerIntegration = false;
-            _store.Save(_settings);
-        }
-
-        _timer.Tick += (_, _) => TimerTick();
-        _timer.Start();
-
-        UpdateButtons();
-        UpdateFooter();
-        UpdateHashColumns();
-        UpdateJobs();
-
-        // BuildTray y ApplyCopierReplacement desactivados temporalmente para
-        // descartar reentrancy del shell durante el arranque.
     }
 
     // ---------------------------------------------------------------- interfaz
@@ -1320,24 +1295,93 @@ public sealed partial class MainForm : Form
         if (_shown) return;
         _shown = true;
 
+        Program.Log("MF-OnShown start");
+
         try
         {
             base.OnShown(e);
+            Program.Log("MF-OnShown base.OnShown done");
 
             // No llamar Show() aqui: el formulario ya esta siendo mostrado por el evento Shown;
             // llamarlo de nuevo causa reentrancy de Windows Forms y puede desbordar la pila (0xc00000fd).
             if (!_settings.StartMinimized && !_startupRequest.StartMinimized)
             {
+                Program.Log("MF-OnShown Activate");
                 if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
                 Activate();
                 BringToFront();
+                Program.Log("MF-OnShown Activate done");
             }
+
+            // === TODA LA INICIALIZACIÓN se movió del constructor a OnShown ===
+            // El constructor solo asigna campos. Toda la UI se construye aquí para
+            // evitar reentrancy y stack overflow durante el arranque.
+
+            Program.Log("MF1. BuildUi");
+            BuildUi();
+            Program.Log("MF1. BuildUi done");
+
+            Program.Log("MF2. LoadSettingsIntoUi");
+            LoadSettingsIntoUi();
+            Program.Log("MF2. LoadSettingsIntoUi done");
+
+            Program.Log("MF3. ApplyCompactView");
+            ApplyCompactView(_settings.CompactView, persist: false);
+            Program.Log("MF3. ApplyCompactView done");
+
+            Program.Log("MF4. ApplyJobsCollapsed");
+            ApplyJobsCollapsed(_settings.CollapseJobs);
+            Program.Log("MF4. ApplyJobsCollapsed done");
+
+            Program.Log("MF5. WireEngine");
+            WireEngine();
+            Program.Log("MF5. WireEngine done");
+
+            Program.Log("MF6. EnsureDefaultList");
+            EnsureDefaultList();
+            Program.Log("MF6. EnsureDefaultList done");
+
+            Program.Log("MF7. ApplyWindowGeometry");
+            ApplyWindowGeometry();
+            Program.Log("MF7. ApplyWindowGeometry done");
+
+            if (_settings.ExplorerIntegration)
+            {
+                _settings.ExplorerIntegration = false;
+                _store.Save(_settings);
+            }
+
+            Program.Log("MF8. Timer start");
+            _timer.Tick += (_, _) => TimerTick();
+            _timer.Start();
+            Program.Log("MF8. Timer start done");
+
+            Program.Log("MF9. UpdateButtons");
+            UpdateButtons();
+            Program.Log("MF9. UpdateButtons done");
+
+            Program.Log("MF10. UpdateFooter");
+            UpdateFooter();
+            Program.Log("MF10. UpdateFooter done");
+
+            Program.Log("MF11. UpdateHashColumns");
+            UpdateHashColumns();
+            Program.Log("MF11. UpdateHashColumns done");
+
+            Program.Log("MF12. UpdateJobs");
+            UpdateJobs();
+            Program.Log("MF12. UpdateJobs done");
+
+            // BuildTray y ApplyCopierReplacement desactivados temporalmente para
+            // descartar reentrancy del shell durante el arranque.
         }
         catch (Exception ex)
         {
             Program.Log($"MF-OnShown-FATAL: {ex.GetType().FullName} - {ex.Message}");
             Program.Log($"MF-OnShown-FATAL Stack: {ex.StackTrace}");
         }
+
+        Program.Log("MF-OnShown end");
     }
 
     public void HandleExternalRequest(StartupRequest request) => _ = HandleExternalAsync(request, false);
