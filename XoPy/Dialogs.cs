@@ -212,10 +212,10 @@ internal sealed class OptionsDialog : Form
         MinimizeBox = false;
         MaximizeBox = true;
         var workArea = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1280, 720);
-        // Un poco más alto para que quepan todas las secciones sin que la barra de tareas
-        // tape «Dispositivos lentos» y las casillas inferiores.
-        ClientSize = new Size(Math.Min(1000, Math.Max(820, workArea.Width - 160)),
-            Math.Min(760, Math.Max(600, workArea.Height - 90)));
+        // Debe caber entera dentro del área de trabajo: si es más alta que la pantalla,
+        // los botones Guardar/Cancelar quedan debajo de la barra de tareas.
+        ClientSize = new Size(Math.Min(1000, Math.Max(820, workArea.Width - 120)),
+            Math.Min(740, Math.Max(520, workArea.Height - 40)));
         MinimumSize = new Size(840, 560);
 
         _tabs = new TabControl
@@ -423,8 +423,25 @@ internal sealed class OptionsDialog : Form
         };
         columns.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 52));
         columns.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 48));
-        columns.Controls.Add(left, 0, 0);
-        columns.Controls.Add(right, 1, 0);
+
+        // Cada columna en un panel con scroll: en pantallas bajas (como la del CI, 577 px)
+        // todo el contenido sigue siendo accesible sin tapar los botones inferiores.
+        var leftScroll = new Panel { Dock = DockStyle.Fill, BackColor = _palette.Canvas, AutoScroll = true };
+        left.AutoScroll = false;
+        left.Dock = DockStyle.Top;
+        left.AutoSize = true;
+        left.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+        leftScroll.Controls.Add(left);
+
+        var rightScroll = new Panel { Dock = DockStyle.Fill, BackColor = _palette.Canvas, AutoScroll = true };
+        right.AutoScroll = false;
+        right.Dock = DockStyle.Top;
+        right.AutoSize = true;
+        right.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+        rightScroll.Controls.Add(right);
+
+        columns.Controls.Add(leftScroll, 0, 0);
+        columns.Controls.Add(rightScroll, 1, 0);
 
         var advanced = Ui.DialogButton("Opciones avanzadas…", _palette);
         advanced.Size = new Size(180, 30);
