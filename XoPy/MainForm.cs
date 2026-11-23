@@ -1176,6 +1176,21 @@ public sealed partial class MainForm : Form
             }
             catch { }
         }
+
+        // La lista y el cuadro de registro son controles nativos: sus barras de desplazamiento
+        // no heredan el tema y dejaban una esquina blanca. Se aplica también a cada hijo nativo.
+        foreach (var parent in new Control?[] { _list, _logBox })
+        {
+            if (parent is null || !parent.IsHandleCreated) continue;
+            foreach (Control child in parent.Controls)
+            {
+                try
+                {
+                    if (child.IsHandleCreated) SetWindowTheme(child.Handle, "DarkMode_Explorer", null);
+                }
+                catch { }
+            }
+        }
     }
 
     /// <summary>Selecciona una pestaña (0 Lista, 1 Destino, 2 Opciones, 3 Estado, 4 Registro).</summary>

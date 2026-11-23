@@ -1153,6 +1153,9 @@ public sealed partial class MainForm
         ResizeColumns();
     }
 
+    [DllImport("user32.dll")]
+    private static extern int ShowScrollBar(IntPtr hwnd, int bar, bool show);
+
     private static void SetWidth(ColumnHeader column, int width)
     {
         if (column.Width != width) column.Width = width;
@@ -1419,11 +1422,13 @@ public sealed partial class MainForm
             var total = 0;
             for (var index = 0; index < 7; index++) total += _list.Columns[index].Width;
             var spare = _list.ClientSize.Width - total - 4;
-            if (spare > 0)
-            {
-                var last = _list.Columns[6].Width > 0 ? 6 : _list.Columns[5].Width > 0 ? 5 : 4;
-                SetWidth(_list.Columns[last], _list.Columns[last].Width + spare);
-            }
+            var last = _list.Columns[6].Width > 0 ? 6 : _list.Columns[5].Width > 0 ? 5 : 4;
+            if (spare > 0) SetWidth(_list.Columns[last], _list.Columns[last].Width + spare);
+            else if (spare < -12) SetWidth(_list.Columns[last], Math.Max(60, _list.Columns[last].Width + spare));
+
+            // Con las columnas ajustadas al ancho no hace falta desplazarse en horizontal:
+            // su barra (blanca en el tema oscuro) aparecía como una línea al pie de la lista.
+            if (total <= _list.ClientSize.Width + 4) ShowScrollBar(_list.Handle, 0 /* SB_HORZ */, false);
         }
         finally
         {
