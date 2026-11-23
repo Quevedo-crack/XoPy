@@ -1212,6 +1212,14 @@ public sealed partial class MainForm : Form
         try
         {
             ShellIntegration.Apply(_settings.ReplaceWindowsCopier);
+
+            // El interceptor de Ctrl+V sólo funciona mientras XoPy se está ejecutando.
+            // No se activa el inicio con Windows por la cara: si el usuario lo quiere,
+            // hay un aviso en el estado y una opción en Preferencias.
+            if (_settings.ReplaceWindowsCopier && !_settings.StartWithWindows)
+                FileLog.Write("Aviso: el copiador está sustituido, pero XoPy no arranca con Windows; " +
+                              "el Ctrl+V del Explorador sólo se intercepta con XoPy abierto.");
+
             if (_settings.ReplaceWindowsCopier)
             {
                 if (_pasteHook is not null) return;

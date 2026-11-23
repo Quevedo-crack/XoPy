@@ -731,9 +731,13 @@ public sealed partial class MainForm
             : _items.Any(item => item.State == ItemState.Failed) ? "Con errores" : "Preparado";
 
         _hdrCopyState.Text = stateText;
-        var current = runningLeaf?.RelativePath;
+        // Fila de arriba: el ORIGEN real que se está leyendo (ruta completa del archivo).
+        var current = runningLeaf?.SourcePath;
+        if (string.IsNullOrWhiteSpace(current) && !string.IsNullOrWhiteSpace(runningLeaf?.CurrentFile))
+            current = runningLeaf!.CurrentFile;
         _hdrCopyPath.Text = string.IsNullOrWhiteSpace(current)
-            ? (running ? "Preparando la transferencia…" : _lastDestination is { Length: > 0 } last ? "Último destino: " + last : "—")
+            ? (running ? "Preparando la transferencia…" : _items.FirstOrDefault()?.SourcePath is { Length: > 0 } first
+                ? first : _lastDestination is { Length: > 0 } last ? "Último destino: " + last : "—")
             : current;
         if (leaves.Count == 0)
         {
@@ -759,7 +763,21 @@ public sealed partial class MainForm
         _hdrCopyBar.FillColor = _items.Any(item => item.State == ItemState.Failed) && !running ? _palette.Warning : _palette.Accent;
 
         _hdrTargetState.Text = "Destino";
-        var destination = string.IsNullOrWhiteSpace(_destination.Text) ? "—" : _destination.Text.Trim();
+        // Fila de en medio: la CARPETA REAL de destino del archivo en curso, no la raíz.
+        var destination = string.IsNullOrWhiteSpace(_destination.Text)
+            ? "Sin destino — se preguntará al copiar"
+            : _destination.Text.Trim();
+        if (runningLeaf is not null && !string.IsNullOrWhiteSpace(_destination.Text))
+        {
+            if (!string.IsNullOrWhiteSpace(runningLeaf.DestinationPath))
+                destination = Path.GetDirectoryName(runningLeaf.DestinationPath) ?? destination;
+            else if (!string.IsNullOrWhiteSpace(runningLeaf.RelativePath))
+            {
+                var relativeFolder = Path.GetDirectoryName(runningLeaf.RelativePath);
+                if (!string.IsNullOrEmpty(relativeFolder) && !string.IsNullOrWhiteSpace(_destination.Text))
+                    destination = Path.Combine(_destination.Text.Trim(), relativeFolder);
+            }
+        }
         var extras = _settings.ExtraDestinations.Count;
         _hdrTargetPath.Text = extras > 0 ? $"{destination}  (+{extras})" : destination;
 

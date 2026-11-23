@@ -32,7 +32,14 @@ public sealed partial class MainForm
 
     private void DropPaths(DragEventArgs e)
     {
-        if (e.Data?.GetData(DataFormats.FileDrop) is string[] paths) _ = HandleExternalFiles(paths, null, false);
+        if (e.Data?.GetData(DataFormats.FileDrop) is not string[] paths || paths.Length == 0) return;
+        if (!_uiReady)
+        {
+            // Soltar archivos durante el arranque hacía fallar la UI a medio construir.
+            SetStatus("La ventana aún se está preparando. Suelta los archivos en un segundo.");
+            return;
+        }
+        _ = HandleExternalFiles(paths, null, false);
     }
 
     private async Task AddPathsAsync(IEnumerable<string> paths, TransferList? targetList = null)
@@ -1600,8 +1607,20 @@ public sealed partial class MainForm
 
         if (failed == 0 && cancelled == 0 && _settings.CloseWhenDone && _lastOperation is OperationType.Copy or OperationType.Move)
         {
+            // Cerrar de verdad, aunque MinimizeToTray esté activo: Close() con
+            // CloseReason.UserClosing se cancelaba y la ventana se quedaba «desaparecida»
+            // en la bandeja, que es lo que el usuario veía como «se cierra sola».
             _exitRequested = true;
-            BeginInvoke(new Action(Close));
+            BeginInvoke(new Action(() =>
+            {
+                try
+                {
+                    SaveWindowGeometry();
+                    _tray.Visible = false;
+                    Application.Exit();
+                }
+                catch { }
+            }));
         }
     }
 
@@ -2464,11 +2483,26 @@ public sealed partial class MainForm
 
     private void MinimizeToTray()
     {
+        try
+        {
+            // Sin icono visible en la bandeja la ventana quedaría inaccesible y parecería
+            // que XoPy «se ha cerrado».
+            if (!_tray.Visible)
+            {
+                _baseIcon ??= Icons.AppIcon();
+                _tray.Icon = _baseIcon;
+                _tray.Text = "XoPy";
+                _tray.Visible = true;
+            }
+        }
+        catch { }
+
         Hide();
         ShowInTaskbar = false;
         try
         {
-            _tray.ShowBalloonTip(1200, "XoPy", "XoPy sigue abierto en el área de notificación.", ToolTipIcon.Info);
+            _tray.ShowBalloonTip(1500, "XoPy", "XoPy sigue abierto en el área de notificación. " +
+                "Haz clic en el icono para volver.", ToolTipIcon.Info);
         }
         catch { }
     }
@@ -2517,6 +2551,7 @@ public sealed partial class MainForm
             _engine.Cancel();
             _tray.Visible = false;
             _tray.Dispose();
+            _trayPauseItem?.Dispose();
             _trayMenu.Dispose();
             if (_listMenu is not null) _listMenu.Dispose();
             _percentIcon?.Dispose();
