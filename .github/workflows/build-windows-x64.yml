@@ -173,6 +173,20 @@ jobs:
           path: build.log
           retention-days: 7
 
+      # Los artefactos no siempre se pueden descargar desde el agente: los errores del
+      # compilador se publican también como anotación, que sí se puede leer por la API.
+      - name: Publicar errores de compilación como anotación
+        if: failure()
+        shell: pwsh
+        run: |
+          if (-not (Test-Path build.log)) { Write-Host "::warning::No hay build.log"; exit 0 }
+          $errors = Select-String -Path build.log -Pattern 'error (CS|MSB|NETSDK|NU)\d+' | Select-Object -First 25
+          foreach ($e in $errors) {
+            $line = ($e.Line -replace '%','%25' -replace '\r','' -replace '\n','%0A')
+            Write-Host "::error file=XoPy/XoPy.csproj::$line"
+          }
+          if ($errors.Count -eq 0) { Write-Host "::error::El publish falló sin errores CS/MSB visibles en build.log" }
+
       - name: Subir log de instalador si falla
         if: failure()
         uses: actions/upload-artifact@v4
