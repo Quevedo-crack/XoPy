@@ -1717,6 +1717,9 @@ public sealed partial class MainForm
             try { Process.Start(new ProcessStartInfo("shutdown", "/s /t 30") { CreateNoWindow = true, UseShellExecute = false }); } catch { }
         }
 
+        // En modo captura el cierre lo controla CaptureScreenshot, justo después del PNG.
+        if (_startupRequest.Screenshot) return;
+
         // ---exit: proceso de un solo uso (automatizaciones e integraciones).
         if (_startupRequest.ExitWhenDone && !_engine.IsRunning)
         {
