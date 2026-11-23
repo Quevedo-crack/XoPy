@@ -149,12 +149,25 @@ public sealed partial class MainForm : Form
 
         try
         {
+            Program.Log("MF1. BuildUi");
             BuildUi();
+
+            Program.Log("MF2. LoadSettingsIntoUi");
             LoadSettingsIntoUi();
+
+            Program.Log("MF3. ApplyCompactView");
             ApplyCompactView(_settings.CompactView, persist: false);
+
+            Program.Log("MF4. ApplyJobsCollapsed");
             ApplyJobsCollapsed(_settings.CollapseJobs);
+
+            Program.Log("MF5. WireEngine");
             WireEngine();
+
+            Program.Log("MF6. EnsureDefaultList");
             EnsureDefaultList();
+
+            Program.Log("MF7. ApplyWindowGeometry");
             ApplyWindowGeometry();
 
             if (_settings.ExplorerIntegration)
@@ -163,36 +176,29 @@ public sealed partial class MainForm : Form
                 _store.Save(_settings);
             }
 
+            Program.Log("MF8. Timer start");
             _timer.Tick += (_, _) => TimerTick();
             _timer.Start();
 
+            Program.Log("MF9. UpdateButtons");
             UpdateButtons();
+
+            Program.Log("MF10. UpdateFooter");
             UpdateFooter();
+
+            Program.Log("MF11. UpdateHashColumns");
             UpdateHashColumns();
+
+            Program.Log("MF12. UpdateJobs");
             UpdateJobs();
 
-            // Inicializar componentes de shell y bandeja en el constructor (como siempre se ha hecho).
-            // La única causa de stack overflow (0xc00000fd) era llamar Show() dentro de OnShown,
-            // no estas llamadas.
-            BuildTray();
-            ApplyCopierReplacement();
+            // BuildTray y ApplyCopierReplacement desactivados temporalmente para
+            // descartar reentrancy del shell durante el arranque.
         }
         catch (Exception ex)
         {
-            try
-            {
-                var dir = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                    "XoPy");
-                Directory.CreateDirectory(dir);
-                File.WriteAllText(Path.Combine(dir, "startup-error.txt"),
-                    $"{DateTime.Now:yyyy-MM-dd HH:mm:ss}  ERROR construyendo MainForm{Environment.NewLine}" +
-                    $"Excepción: {ex.GetType().FullName}{Environment.NewLine}" +
-                    $"Mensaje: {ex.Message}{Environment.NewLine}" +
-                    $"StackTrace: {ex.StackTrace}{Environment.NewLine}");
-            }
-            catch { }
-
+            Program.Log($"MF-FATAL: {ex.GetType().FullName} - {ex.Message}");
+            Program.Log($"MF-FATAL Stack: {ex.StackTrace}");
             throw;
         }
     }
@@ -1344,43 +1350,36 @@ public sealed partial class MainForm : Form
         if (_shown) return;
         _shown = true;
 
+        Program.Log("MF-OnShown start");
+
         try
         {
             base.OnShown(e);
+
+            Program.Log("MF-OnShown base.OnShown done");
 
             // La ventana debe verse siempre al abrir XoPy (salvo si se pidió arrancar minimizado).
             // No llamar Show() aqui: el formulario ya esta siendo mostrado por el evento Shown;
             // llamarlo de nuevo causa reentrancy de Windows Forms y puede desbordar la pila (0xc00000fd).
             if (!_settings.StartMinimized && !_startupRequest.StartMinimized)
             {
-                try
-                {
-                    if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
-                    Activate();
-                    BringToFront();
-                }
-                catch { }
+                Program.Log("MF-OnShown Activate");
+                if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
+                Activate();
+                BringToFront();
+                Program.Log("MF-OnShown Activate done");
             }
 
-            // Instalar el hook de pegado ahora que la ventana tiene handle, no durante el constructor.
-            try { InstallShellHookIfNeeded(); } catch { }
-
-            // NO llamar HandleExternalAsync al arranque: el programa abre con la ventana vacía.
-            // El usuario añade archivos manualmente o usa Ctrl+V. Esto elimina cualquier posible
-            // fuente de recursión en el arranque.
+            // InstallShellHookIfNeeded, BuildTray y ApplyCopierReplacement desactivados
+            // temporalmente para descartar reentrancy del shell durante el arranque.
         }
         catch (Exception ex)
         {
-            // Si algo falla durante el arranque, intentar mostrar un mensaje en lugar de dejar
-            // que el proceso termine con stack overflow silencioso.
-            try
-            {
-                FileLog.Write("Error crítico al mostrar la ventana: " + ex);
-                MessageBox.Show("XoPy no pudo iniciar: " + ex.Message, "XoPy",
-                    MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-            catch { }
+            Program.Log($"MF-OnShown-FATAL: {ex.GetType().FullName} - {ex.Message}");
+            Program.Log($"MF-OnShown-FATAL Stack: {ex.StackTrace}");
         }
+
+        Program.Log("MF-OnShown end");
     }
 
     public void HandleExternalRequest(StartupRequest request) => _ = HandleExternalAsync(request, false);

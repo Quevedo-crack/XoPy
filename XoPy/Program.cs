@@ -8,78 +8,86 @@ namespace XoPy;
 
 internal static class Program
 {
-    private static string? _diagnosticFile;
+    private static string _logPath = @"C:\XoPy-startup.log";
+
+    private static void Log(string step)
+    {
+        try
+        {
+            File.AppendAllText(_logPath, $"{step}\n");
+        }
+        catch { }
+    }
 
     [STAThread]
     private static void Main(string[] args)
     {
+        Log("1. Inicio Main");
+
         try
         {
-            _diagnosticFile = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "XoPy", "startup-error.txt");
-
+            Log("2. ApplicationConfiguration.Initialize");
             ApplicationConfiguration.Initialize();
-            Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
-            Application.ThreadException += (_, e) => ShowFatal(e.Exception);
-            AppDomain.CurrentDomain.UnhandledException += (_, e) => ShowFatal(e.ExceptionObject as Exception);
 
+            Log("3. SetUnhandledExceptionMode");
+            Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+
+            Log("4. ThreadException handler");
+            Application.ThreadException += (_, e) =>
+            {
+                Log($"6. ThreadException: {e.Exception.GetType().Name} - {e.Exception.Message}");
+                try { File.AppendAllText(_logPath, e.Exception.ToString() + "\n"); } catch { }
+                try { MessageBox.Show("XoPy error: " + e.Exception.Message, "XoPy", MessageBoxButtons.OK, MessageBoxIcon.Error); } catch { }
+            };
+
+            Log("5. UnhandledException handler");
+            AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+            {
+                Log($"7. UnhandledException: {e.ExceptionObject?.GetType().Name ?? "null"}");
+                try { File.AppendAllText(_logPath, e.ExceptionObject?.ToString() ?? "null exception object\n"); } catch { }
+            };
+
+            Log("8. StartupRequest.Parse");
             var request = StartupRequest.Parse(args);
 
+            Log("9. Crear Mutex");
             var mutex = new Mutex(true, Ipc.MutexName, out var isFirstInstance);
+
+            Log("10. Verificar primera instancia");
             if (!isFirstInstance)
             {
+                Log("11. No es primera instancia, intentar IPC");
                 if (IpcClient.Send(request))
                 {
+                    Log("12. IPC enviado, salir");
                     mutex.Dispose();
                     return;
                 }
-
                 try { mutex.Dispose(); } catch { }
             }
 
+            Log("13. Crear MainForm");
             using var form = new MainForm(request);
+
+            Log("14. Iniciar IpcServer");
             IpcServer.Start(form);
+
+            Log("15. Application.Run");
             Application.Run(form);
+
+            Log("16. Application.Run terminó");
             GC.KeepAlive(mutex);
         }
         catch (Exception ex)
         {
+            Log($"FATAL: {ex.GetType().FullName} - {ex.Message}");
+            Log($"FATAL StackTrace: {ex.StackTrace}");
             try
             {
-                var dir = Path.GetDirectoryName(_diagnosticFile ?? string.Empty);
-                if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-                File.WriteAllText(_diagnosticFile ?? string.Empty,
-                    $"{DateTime.Now:yyyy-MM-dd HH:mm:ss}  ERROR AL INICIAR XoPy{Environment.NewLine}" +
-                    $"Excepción: {ex.GetType().FullName}{Environment.NewLine}" +
-                    $"Mensaje: {ex.Message}{Environment.NewLine}" +
-                    $"StackTrace: {ex.StackTrace}{Environment.NewLine}");
-            }
-            catch { }
-
-            try
-            {
-                MessageBox.Show("XoPy no pudo iniciar: " + ex.Message,
-                    "XoPy", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show("XoPy no pudo iniciar: " + ex.Message, "XoPy",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
             catch { }
         }
-    }
-
-    private static void ShowFatal(Exception? exception)
-    {
-        if (exception is null) return;
-        var file = _diagnosticFile;
-        if (!string.IsNullOrEmpty(file))
-        {
-            try { File.WriteAllText(file, exception.ToString()); } catch { }
-            Environment.Exit(3);
-        }
-        try
-        {
-            MessageBox.Show("XoPy ha encontrado un problema:\n\n" + exception.Message,
-                "XoPy", MessageBoxButtons.OK, MessageBoxIcon.Error);
-        }
-        catch { }
     }
 }
