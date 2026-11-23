@@ -1778,12 +1778,7 @@ public sealed partial class MainForm : Form
         if (request.CopyLockedFiles) _settings.CopyLockedFiles = true;
 
         if (request.Paths.Count > 0)
-        {
             await HandleExternalFiles(request.Paths, request.Destination, request.Operation == OperationType.Move);
-            // --copy/--move/--test/--delete desde la línea de comandos: arrancar sola.
-            if (isStartup && request.Operation is { } operation && !_engine.IsRunning)
-                StartTransfer(operation);
-        }
         else if (!string.IsNullOrWhiteSpace(request.Destination))
         {
             _destination.Text = request.Destination!;
@@ -1806,6 +1801,12 @@ public sealed partial class MainForm : Form
         foreach (var extra in request.ExtraDestinations.Where(Directory.Exists))
             if (!_settings.ExtraDestinations.Contains(extra, StringComparer.OrdinalIgnoreCase))
                 _settings.ExtraDestinations.Add(extra);
+
+        // La transferencia pedida por línea de comandos arranca AHORA, cuando --to2, --algo,
+        // --overwrite y el motor ya están aplicados. Antes arrancaba dentro del bloque de
+        // rutas y por eso el segundo destino (--to2) nunca se copiaba.
+        if (isStartup && request.Paths.Count > 0 && request.Operation is { } cliOperation && !_engine.IsRunning)
+            StartTransfer(cliOperation);
         RefreshExtraDestinations();
 
         var op = request.Operation;
