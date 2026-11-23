@@ -212,8 +212,10 @@ internal sealed class OptionsDialog : Form
         MinimizeBox = false;
         MaximizeBox = true;
         var workArea = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1280, 720);
-        ClientSize = new Size(Math.Min(1060, Math.Max(820, workArea.Width - 120)),
-            Math.Min(700, Math.Max(540, workArea.Height - 80)));
+        // Un poco más alto para que quepan todas las secciones sin que la barra de tareas
+        // tape «Dispositivos lentos» y las casillas inferiores.
+        ClientSize = new Size(Math.Min(1000, Math.Max(820, workArea.Width - 160)),
+            Math.Min(760, Math.Max(600, workArea.Height - 90)));
         MinimumSize = new Size(840, 560);
 
         _tabs = new TabControl
@@ -378,7 +380,7 @@ internal sealed class OptionsDialog : Form
         left.Controls.Add(Stack(_verifyWithChecksum));
         left.Controls.Add(Spacer(14));
         left.Controls.Add(SectionTitle("Cola"));
-        left.Controls.Add(Stack(Inline("trabajos activos como máximo", _maxJobs)));
+        left.Controls.Add(Stack(Inline("Trabajos activos como máximo:", _maxJobs)));
         left.Controls.Add(Spacer(10));
         left.Controls.Add(SectionTitle("Dispositivos rápidos"));
         left.Controls.Add(_fastDevices);
