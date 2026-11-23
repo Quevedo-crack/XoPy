@@ -1212,7 +1212,10 @@ public sealed partial class MainForm : Form
     {
         var workingArea = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1920, 1080);
         var width = _settings.WindowWidth >= MinimumSize.Width ? Math.Min(_settings.WindowWidth, 1080) : 940;
-        var height = _compactView ? MinimumSize.Height : _settings.WindowHeight >= MinimumSize.Height ? Math.Min(_settings.WindowHeight, 660) : 600;
+        // En vista compacta el alto mínimo es 210 px (lista oculta), pero la ventana debe
+        // abrirse con el alto normal: si se usaba MinimumSize.Height, la ventana arrancaba
+        // recortada y con la barra de botones y la lista cortadas por abajo.
+        var height = _settings.WindowHeight >= 480 ? Math.Min(_settings.WindowHeight, 660) : 600;
         if (!_startupRequest.Screenshot)
         {
             width = Math.Min(width, workingArea.Width - 20);
