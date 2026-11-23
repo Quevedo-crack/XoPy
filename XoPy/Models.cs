@@ -227,6 +227,9 @@ public sealed class StartupRequest
     /// Lo usan los flujos de CI para revisar la interfaz en Windows.
     /// </summary>
     public string ScreenshotMode { get; set; } = "window";
+
+    /// <summary>Cerrar al terminar la transferencia pedida por línea de comandos (--exit).</summary>
+    public bool ExitWhenDone { get; set; }
     public ConflictPolicy? Conflict { get; set; }
     public VerifyAlgorithm? VerifyAlgorithm { get; set; }
     public bool VerifyAfterCopy { get; set; }
@@ -253,6 +256,7 @@ public sealed class StartupRequest
                 case "--paste": request.PasteFromClipboard = true; break;
                 case "--no-shell-hook": request.NoShellHook = true; break;
                 case "--tray": request.StartMinimized = true; break;
+                case "--exit": request.ExitWhenDone = true; break;
                 case "--ask-destination": request.AskDestination = true; break;
                 case "--locked": request.CopyLockedFiles = true; break;
                 case "--no-resume": request.ResumePartials = false; break;

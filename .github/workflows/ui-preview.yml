@@ -115,7 +115,7 @@ jobs:
         run: |
           $exe = (Resolve-Path .\publish\XoPy.exe).Path
           New-Item -ItemType Directory -Force C:\xopytest\destino | Out-Null
-          $process = Start-Process -FilePath $exe -ArgumentList @('--copy', '--to', 'C:\xopytest\destino', 'C:\xopytest\informe.pdf', 'C:\xopytest\carpeta') -PassThru
+          $process = Start-Process -FilePath $exe -ArgumentList @('--copy', '--exit', '--to', 'C:\xopytest\destino', 'C:\xopytest\informe.pdf', 'C:\xopytest\carpeta') -PassThru
           Start-Sleep -Seconds 15
           $report = @()
           $file = 'C:\xopytest\destino\informe.pdf'
@@ -138,7 +138,7 @@ jobs:
           $exe = (Resolve-Path .\publish\XoPy.exe).Path
           [IO.File]::WriteAllBytes('C:\xopytest\destino\video.mp4', [byte[]]::new(100))
           (Get-Item 'C:\xopytest\destino\video.mp4').IsReadOnly = $true
-          $process = Start-Process -FilePath $exe -ArgumentList @('--copy', '--overwrite', '--to', 'C:\xopytest\destino', 'C:\xopytest\video.mp4', '--verify', '--algo', 'sha256') -PassThru
+          $process = Start-Process -FilePath $exe -ArgumentList @('--copy', '--exit', '--overwrite', '--to', 'C:\xopytest\destino', 'C:\xopytest\video.mp4', '--verify', '--algo', 'sha256') -PassThru
           Start-Sleep -Seconds 12
           if (-not $process.HasExited) { $process.Kill() }
           $report = @()
@@ -150,7 +150,7 @@ jobs:
           if ((Get-FileHash 'C:\xopytest\destino\video.mp4').Hash -ne (Get-FileHash 'C:\xopytest\video.mp4').Hash) { throw 'No se pudo sobrescribir el archivo de solo lectura' }
 
           [IO.File]::WriteAllBytes('C:\xopytest\destino\video.mp4', [byte[]]::new(50))
-          $process = Start-Process -FilePath $exe -ArgumentList @('--copy', '--skip', '--to', 'C:\xopytest\destino', 'C:\xopytest\video.mp4') -PassThru
+          $process = Start-Process -FilePath $exe -ArgumentList @('--copy', '--exit', '--skip', '--to', 'C:\xopytest\destino', 'C:\xopytest\video.mp4') -PassThru
           Start-Sleep -Seconds 10
           $size = (Get-Item 'C:\xopytest\destino\video.mp4').Length
           if (-not $process.HasExited) { $process.Kill() }
@@ -161,7 +161,7 @@ jobs:
         shell: pwsh
         run: |
           $exe = (Resolve-Path .\publish\XoPy.exe).Path
-          $process = Start-Process -FilePath $exe -ArgumentList @('--test', '--to', 'C:\xopytest\destino', 'C:\xopytest\informe.pdf', '--screenshot', 'C:\xopytest\verify.png') -PassThru
+          $process = Start-Process -FilePath $exe -ArgumentList @('--test', '--exit', '--to', 'C:\xopytest\destino', 'C:\xopytest\informe.pdf', '--screenshot', 'C:\xopytest\verify.png') -PassThru
           if (-not $process.WaitForExit(60000)) { $process.Kill(); throw 'La verificación no terminó' }
           if (-not (Test-Path 'C:\xopytest\verify.png')) { throw 'No se generó la captura de verificación' }
           Copy-Item 'C:\xopytest\verify.png' 'docs\xopy-verify.png'
@@ -172,7 +172,7 @@ jobs:
           $exe = (Resolve-Path .\publish\XoPy.exe).Path
           New-Item -ItemType Directory -Force C:\xopytest\destino2 | Out-Null
           Set-Content C:\xopytest\mover.txt ("m" * 5000)
-          $process = Start-Process -FilePath $exe -ArgumentList @('--move', '--to', 'C:\xopytest\destino2', 'C:\xopytest\mover.txt') -PassThru
+          $process = Start-Process -FilePath $exe -ArgumentList @('--move', '--exit', '--to', 'C:\xopytest\destino2', 'C:\xopytest\mover.txt') -PassThru
           Start-Sleep -Seconds 12
           $report = @()
           $report += "movido=$(Test-Path 'C:\xopytest\destino2\mover.txt')"
@@ -187,7 +187,7 @@ jobs:
           New-Item -ItemType Directory -Force C:\xopytest\movercarpeta\sub | Out-Null
           Set-Content 'C:\xopytest\movercarpeta\uno.txt' ('u' * 4096)
           Set-Content 'C:\xopytest\movercarpeta\sub\dos.txt' ('d' * 4096)
-          $process = Start-Process -FilePath $exe -ArgumentList @('--move', '--to', 'C:\xopytest\destino2', 'C:\xopytest\movercarpeta') -PassThru
+          $process = Start-Process -FilePath $exe -ArgumentList @('--move', '--exit', '--to', 'C:\xopytest\destino2', 'C:\xopytest\movercarpeta') -PassThru
           Start-Sleep -Seconds 14
           if (-not $process.HasExited) { $process.Kill() }
           "carpeta_movida=$(Test-Path 'C:\xopytest\destino2\movercarpeta\sub\dos.txt')" | Add-Content C:\xopytest\movetest.txt
@@ -202,7 +202,7 @@ jobs:
           $exe = (Resolve-Path .\publish\XoPy.exe).Path
           New-Item -ItemType Directory -Force C:\xopytest\dest-rbcopy | Out-Null
           Set-Content C:\xopytest\rbcopy.bin ('q' * 200000)
-          $process = Start-Process -FilePath $exe -ArgumentList @('--copy', '--engine', 'robocopy', '--to', 'C:\xopytest\dest-rbcopy', 'C:\xopytest\rbcopy.bin') -PassThru
+          $process = Start-Process -FilePath $exe -ArgumentList @('--copy', '--exit', '--engine', 'robocopy', '--to', 'C:\xopytest\dest-rbcopy', 'C:\xopytest\rbcopy.bin') -PassThru
           Start-Sleep -Seconds 14
           if (-not $process.HasExited) { $process.Kill() }
           $source = (Get-FileHash C:\xopytest\rbcopy.bin -Algorithm SHA256).Hash
@@ -221,9 +221,8 @@ jobs:
           Set-Content 'C:\xopytest\jerarquia\raiz.txt' ('r' * 2048)
           New-Item -ItemType Directory -Force C:\xopytest\jerarquia\vacia | Out-Null
           New-Item -ItemType Directory -Force C:\xopytest\dest3, C:\xopytest\dest4 | Out-Null
-          $process = Start-Process -FilePath $exe -ArgumentList @('--copy', '--checksums', '--to', 'C:\xopytest\dest3', '--to2', 'C:\xopytest\dest4', 'C:\xopytest\jerarquia', 'C:\xopytest\informe.pdf') -PassThru
-          Start-Sleep -Seconds 18
-          if (-not $process.HasExited) { $process.Kill() }
+          $process = Start-Process -FilePath $exe -ArgumentList @('--copy', '--exit', '--checksums', '--to', 'C:\xopytest\dest3', '--to2', 'C:\xopytest\dest4', 'C:\xopytest\jerarquia', 'C:\xopytest\informe.pdf') -PassThru
+          if ($process.WaitForExit(60000)) { Start-Sleep -Seconds 2 } else { $process.Kill(); Start-Sleep -Seconds 1 }
           $report = @()
           $report += "anidado_dest1=$(Test-Path 'C:\xopytest\dest3\jerarquia\sub\anidado.txt')"
           $report += "anidado_dest2=$(Test-Path 'C:\xopytest\dest4\jerarquia\sub\anidado.txt')"
@@ -249,7 +248,7 @@ jobs:
           (New-Object Random 7).NextBytes($bytes)
           [IO.File]::WriteAllBytes('C:\xopytest\grande.bin', $bytes)
           [IO.File]::WriteAllBytes('C:\xopytest\dest5\.grande.bin.xopy-part', $bytes[0..149999])
-          $process = Start-Process -FilePath $exe -ArgumentList @('--copy', '--to', 'C:\xopytest\dest5', 'C:\xopytest\grande.bin') -PassThru
+          $process = Start-Process -FilePath $exe -ArgumentList @('--copy', '--exit', '--to', 'C:\xopytest\dest5', 'C:\xopytest\grande.bin') -PassThru
           Start-Sleep -Seconds 15
           if (-not $process.HasExited) { $process.Kill() }
           $report = @()

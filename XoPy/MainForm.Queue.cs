@@ -1717,6 +1717,14 @@ public sealed partial class MainForm
             try { Process.Start(new ProcessStartInfo("shutdown", "/s /t 30") { CreateNoWindow = true, UseShellExecute = false }); } catch { }
         }
 
+        // ---exit: proceso de un solo uso (automatizaciones e integraciones).
+        if (_startupRequest.ExitWhenDone && !_engine.IsRunning)
+        {
+            try { _exitRequested = true; } catch { }
+            BeginInvoke(new Action(() => { try { Application.Exit(); } catch { } Environment.Exit(0); }));
+            return;
+        }
+
         if (failed == 0 && cancelled == 0 && _settings.CloseWhenDone && _lastOperation is OperationType.Copy or OperationType.Move)
         {
             // Cerrar de verdad, aunque MinimizeToTray esté activo: Close() con
