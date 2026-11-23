@@ -1336,10 +1336,11 @@ public sealed partial class MainForm : Form
             if (e.Button == MouseButtons.Left) RestoreWindow();
         };
         Ui.StyleMenu(_trayMenu, _palette);
-        _trayPauseItem = new ToolStripMenuItem("Pausar");
-        _trayPauseItem.Click += (_, _) => TogglePause();
+        var pauseItem = new ToolStripMenuItem("Pausar");
+        pauseItem.Click += (_, _) => TogglePause();
+        _trayPauseItem = pauseItem;
         _trayMenu.Items.Add("Abrir XoPy", null, (_, _) => RestoreWindow());
-        _trayMenu.Items.Add(_trayPauseItem);
+        _trayMenu.Items.Add(pauseItem);
         _trayMenu.Items.Add("Saltar el archivo actual", null, (_, _) => SkipCurrent());
         _trayMenu.Items.Add("Detener", null, (_, _) => StopTransfer());
         _trayMenu.Items.Add(new ToolStripSeparator());

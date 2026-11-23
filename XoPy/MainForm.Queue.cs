@@ -671,16 +671,21 @@ public sealed partial class MainForm
 
     private bool MoveBlock(TransferItem item, int delta)
     {
-        // Files are presentation rows: update only the visual sequence. The
-        // underlying transfer order, ParentId, RelativePath and Depth stay intact.
+        // Los archivos son solo filas visuales: se cambia su posición en la secuencia
+        // visual, nunca el ParentId, RelativePath ni Depth. Además solo se intercambian
+        // con archivos del MISMO padre: un archivo no puede «saltar» a otra carpeta.
         if (item.Kind == ItemKind.File)
         {
-            var files = VisualItems().Where(candidate => candidate.Kind == ItemKind.File).ToList();
+            // Solo archivos hermanos (mismo ParentId): el orden real de _items no se toca.
+            var files = VisualItems()
+                .Where(candidate => candidate.Kind == ItemKind.File && candidate.ParentId == item.ParentId)
+                .ToList();
             var fileIndex = files.IndexOf(item);
             var fileTarget = fileIndex + delta;
             if (fileIndex < 0 || fileTarget < 0 || fileTarget >= files.Count) return false;
             var first = _visualOrder.IndexOf(files[fileIndex].Id);
             var second = _visualOrder.IndexOf(files[fileTarget].Id);
+            if (first < 0 || second < 0) return false;
             (_visualOrder[first], _visualOrder[second]) = (_visualOrder[second], _visualOrder[first]);
             return true;
         }
@@ -1993,11 +1998,12 @@ public sealed partial class MainForm
         _items.AddRange(new[] { folder, child1, child2, otherFolder, otherChild, a, b });
         RebuildRows();
 
-        if (!MoveBlock(a, -1) || VisualItems().Where(item => item.Kind == ItemKind.File).ToList()[2] != a)
-            report.AppendLine("FALLO: no se pudo intercalar un archivo entre grupos de carpetas distintos.");
-        if (_items.Where(item => item.Kind == ItemKind.File).ToList()[3] != a ||
-            !Children(folder).SequenceEqual(new[] { child1, child2 }) || a.ParentId is not null || a.RelativePath != "a.txt")
-            report.AppendLine("FALLO: el orden de transferencia, jerarquía o ruta cambió al reordenar visualmente.");
+        // Arrastrar sólo reordena dentro del mismo padre: nunca cambia un archivo de carpeta.
+        if (!MoveBlock(a, -1) || RootItems().IndexOf(a) != RootItems().IndexOf(b) - 1)
+            report.AppendLine("FALLO: no se pudo reordenar un archivo dentro de su mismo nivel.");
+        if (!Children(folder).SequenceEqual(new[] { child1, child2 }) || a.ParentId is not null || a.RelativePath != "a.txt" ||
+            b.RelativePath != "b.txt")
+            report.AppendLine("FALLO: el orden visual cambió la jerarquía o las rutas de transferencia.");
         if (child2.Depth != 1 || child2.ParentId != folder.Id || child2.RelativePath != Path.Combine("Carpeta", "foto2.jpg") ||
             otherChild.Depth != 1 || otherChild.ParentId != otherFolder.Id || otherChild.RelativePath != Path.Combine("Otra", "documento.txt"))
             report.AppendLine("FALLO: el orden visual cambió la jerarquía o rutas de transferencia.");
