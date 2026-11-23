@@ -202,12 +202,13 @@ internal sealed class OptionsDialog : Form
         {
             Dock = DockStyle.Fill,
             SizeMode = TabSizeMode.Fixed,
-            ItemSize = new Size(92, 28),
+            ItemSize = new Size(112, 30),
             Padding = new Point(12, 6),
             DrawMode = TabDrawMode.OwnerDrawFixed,
             Font = new Font("Segoe UI", 9f)
         };
         _tabs.DrawItem += DrawTab;
+        _tabs.HandleCreated += (_, _) => FitTabWidths();
 
         _destination = TextBox(settings.Destination);
         _theme = new ChoiceButton(palette, new[] { "Oscuro", "Claro" }, settings.DarkTheme ? 0 : 1);
@@ -222,7 +223,7 @@ internal sealed class OptionsDialog : Form
         _preserveTimestamps = Check("Conservar las fechas de modificación", settings.PreserveTimestamps);
         _recycleBin = Check("Enviar a la Papelera de reciclaje al eliminar", settings.UseRecycleBin);
         _copyLocked = Check("Copiar archivos bloqueados o en uso", settings.CopyLockedFiles);
-        _engine = new ChoiceButton(palette, new[] { "Nativo (CopyFileEx, recomendado)", "Robocopy (muchos archivos y redes)", "Administrado (máxima compatibilidad)" }, (int)settings.Engine);
+        _engine = new ChoiceButton(palette, new[] { "Nativo — CopyFileEx (recomendado)", "Robocopy — muchos archivos y redes", "Administrado — máxima compatibilidad" }, (int)settings.Engine);
         _engine.SelectedIndexChanged += (_, _) => { };
         _resumePartials = Check("Reanudar copias parciales al reintentar", settings.ResumePartials);
         _writeChecksums = Check("Crear un archivo de checksums al terminar", settings.WriteChecksumFile);
@@ -366,7 +367,7 @@ internal sealed class OptionsDialog : Form
             ("Carpetas que reciben una copia de todo", extraPanel, 260),
             ("", new Label
             {
-                Text = "Cada destino adicional recibe una copia completa de lo que se copie o mueva.\n" +
+                Text = "Cada destino adicional recibe una copia completa de lo que se copie o mueva. " +
                        "El script final recibe la carpeta de destino, los errores y la operación.",
                 AutoSize = true,
                 ForeColor = _palette.Muted,
@@ -379,9 +380,9 @@ internal sealed class OptionsDialog : Form
             ("", _verifyAfterCopy, 40),
             ("", new Label
             {
-                Text = "La verificación compara el archivo copiado con el original. Con SHA-256\n" +
-                       "puedes estar seguro de que la copia es idéntica bit a bit, a costa de\n" +
-                       "leer los archivos dos veces. Desactívala para copiar a máxima velocidad.",
+                Text = "La verificación compara el archivo copiado con el original. Con SHA-256 puedes " +
+                       "estar seguro de que la copia es idéntica bit a bit, a costa de leer los archivos dos " +
+                       "veces. Desactívala para copiar a máxima velocidad.",
                 AutoSize = true,
                 ForeColor = _palette.Muted,
                 Font = new Font("Segoe UI", 8.5f),
@@ -398,12 +399,12 @@ internal sealed class OptionsDialog : Form
             ("", _replaceCopier, 60),
             ("", new Label
             {
-                Text = "Ctrl+V y Mayús+Insert en el Explorador y el escritorio se transfieren con XoPy.\n" +
-                       "«Enviar a → XoPy» abre el selector de destino. Si el portapapeles contiene\n" +
-                       "elementos cortados, XoPy los mueve y elimina el origen al finalizar.\n\n" +
-                       "El pegado nativo del menú contextual de Windows se conserva: Windows no ofrece\n" +
-                       "una forma compatible de reemplazarlo globalmente. XoPy no añade otra opción\n" +
-                       "«Pegar» al menú contextual; así se evita el duplicado y no se reinicia Explorer.", 
+                Text = "Ctrl+V y Mayús+Insert en el Explorador y el escritorio se transfieren con XoPy. " +
+                       "«Enviar a → XoPy» abre el selector de destino. Si el portapapeles contiene elementos " +
+                       "cortados, XoPy los mueve y elimina el origen al finalizar." + Environment.NewLine + Environment.NewLine +
+                       "El pegado nativo del menú contextual de Windows se conserva: Windows no ofrece una " +
+                       "forma compatible de reemplazarlo globalmente. XoPy no añade otra opción «Pegar» al " +
+                       "menú contextual; así se evita el duplicado y no se reinicia Explorer.", 
                 AutoSize = true,
                 ForeColor = _palette.Muted,
                 Font = new Font("Segoe UI", 8.5f),
@@ -466,7 +467,7 @@ internal sealed class OptionsDialog : Form
 
     private TabPage Page(string title, int rows, params (string Label, Control Control, int Height)[] items)
     {
-        var page = new TabPage(title) { BackColor = _palette.Canvas, Padding = new Padding(18), AutoScroll = true };
+        var page = new TabPage(title) { BackColor = _palette.Canvas, Padding = new Padding(14, 12, 14, 12), AutoScroll = true };
         var layout = new TableLayoutPanel
         {
             Dock = DockStyle.Top,
@@ -474,16 +475,24 @@ internal sealed class OptionsDialog : Form
             AutoSizeMode = AutoSizeMode.GrowAndShrink,
             ColumnCount = 2,
             BackColor = _palette.Canvas,
-            GrowStyle = TableLayoutPanelGrowStyle.FixedSize
+            GrowStyle = TableLayoutPanelGrowStyle.FixedSize,
+            Padding = new Padding(0)
         };
-        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 300));
+        // Columnas: rótulo estrecho + control que aprovecha todo el ancho restante.
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 236));
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
 
-        layout.RowCount = items.Length + 1;
+        var descriptions = new List<Label>();
+        layout.RowCount = items.Length;
         var row = 0;
         foreach (var (label, control, height) in items)
         {
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, height));
+            // Las descripciones largas crecen solas: fila automática y ajuste de línea real,
+            // en lugar de un alto fijo que recortaba el texto a media frase.
+            var isDescription = control is Label && string.IsNullOrEmpty(label);
+            layout.RowStyles.Add(isDescription
+                ? new RowStyle(SizeType.AutoSize)
+                : new RowStyle(SizeType.Absolute, height));
             var text = new Label
             {
                 Text = label,
@@ -491,29 +500,67 @@ internal sealed class OptionsDialog : Form
                 Dock = DockStyle.Fill,
                 TextAlign = ContentAlignment.MiddleLeft,
                 AutoEllipsis = true,
+                UseMnemonic = false,
                 ForeColor = _palette.Muted,
                 BackColor = Color.Transparent,
-                Margin = new Padding(0, 0, 14, 0)
+                Font = new Font("Segoe UI", 8.75f),
+                Margin = new Padding(0, 0, 16, 0)
             };
             if (control is Label description)
             {
-                description.AutoSize = false;
-                description.Dock = DockStyle.Fill;
-                description.TextAlign = ContentAlignment.MiddleLeft;
+                description.AutoSize = true;
+                description.Dock = DockStyle.None;
+                description.TextAlign = ContentAlignment.TopLeft;
                 description.AutoEllipsis = false;
+                description.UseMnemonic = false;
+                description.MaximumSize = new Size(520, 0);
+                description.Margin = new Padding(0, 8, 8, 8);
+                descriptions.Add(description);
+            }
+            else if (control is CheckBox)
+            {
+                control.Anchor = AnchorStyles.Left;
+                control.Margin = new Padding(0, 0, 8, 0);
             }
             else
             {
-                control.Anchor = AnchorStyles.Left;
+                // Combos, cajas de texto, numéricos y paneles: ocupan el ancho útil.
+                control.Anchor = AnchorStyles.Left | AnchorStyles.Right;
+                control.Margin = new Padding(0, 2, 8, 2);
             }
-            control.Margin = new Padding(0, 0, 0, 0);
             layout.Controls.Add(text, 0, row);
             layout.Controls.Add(control, 1, row);
             row++;
         }
-        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+
+        // El ancho de las descripciones sigue al ancho real de la pestaña para que el
+        // texto se reparta en varias líneas sin huecos ni cortes.
+        page.Resize += (_, _) =>
+        {
+            var available = Math.Max(280, page.ClientSize.Width - layout.ColumnStyles[0].Width - 40);
+            foreach (var description in descriptions) description.MaximumSize = new Size(available, 0);
+        };
+
         page.Controls.Add(layout);
         return page;
+    }
+
+    /// <summary>
+    /// Ajusta el ancho de TODAS las pestañas al título más largo. Con un ancho fijo de 92 px
+    /// se cortaban «Transferencia», «Verificación» e «Integración» y el diálogo parecía roto.
+    /// </summary>
+    private void FitTabWidths()
+    {
+        if (_tabs.TabPages.Count == 0) return;
+        var widest = 0;
+        foreach (TabPage tab in _tabs.TabPages)
+        {
+            var measured = TextRenderer.MeasureText(tab.Text, _tabs.Font,
+                new Size(int.MaxValue, int.MaxValue), TextFormatFlags.NoPrefix);
+            widest = Math.Max(widest, measured.Width);
+        }
+        var width = Math.Max(84, widest + 34);
+        _tabs.ItemSize = new Size(width, 30);
     }
 
     private void DrawTab(object? sender, DrawItemEventArgs e)

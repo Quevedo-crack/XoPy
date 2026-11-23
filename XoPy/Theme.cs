@@ -707,8 +707,11 @@ internal sealed class ChoiceButton : Button
         BackColor = palette.Surface;
         ForeColor = palette.Text;
         Font = new Font("Segoe UI", 9f);
-        Height = 32;
-        Width = 340;
+        Height = 30;
+        // Ancho mínimo: el texto debe caber entero sin cortarse; crece con el ancho del diálogo.
+        Width = 380;
+        MinimumSize = new Size(300, 30);
+        AutoEllipsis = true;
         Cursor = Cursors.Hand;
         Image = Icons.Glyph(Icons.ChevronDown, palette.Muted, 12);
         ImageAlign = ContentAlignment.MiddleRight;

@@ -42,7 +42,12 @@ public sealed partial class MainForm
         _ = HandleExternalFiles(paths, null, false);
     }
 
-    private async Task AddPathsAsync(IEnumerable<string> paths, TransferList? targetList = null)
+    /// <param name="askDestination">
+    /// true (por defecto) muestra la pantalla de elegir carpeta al terminar de añadir, aunque
+    /// la lista ya tuviera un destino. Solo se pasa false cuando el destino es explícito
+    /// (pegado desde el Explorador, --to, «Enviar a»), para no preguntar dos veces.
+    /// </param>
+    private async Task AddPathsAsync(IEnumerable<string> paths, TransferList? targetList = null, bool askDestination = true)
     {
         try
         {
@@ -134,9 +139,9 @@ public sealed partial class MainForm
                     : $"Lista preparada: {_items.Count(item => item.Kind == ItemKind.File)} archivo(s) listos para transferir.");
             }
 
-            // Sin destino elegido, se pregunta SIEMPRE al añadir: nunca se hereda una ruta
-            // guardada ni se rellena con Descargas (el usuario lo pidió explícitamente).
-            if ((targetList ?? _activeList) is { } list && string.IsNullOrWhiteSpace(list.Destination) &&
+            // Al añadir archivos se pregunta SIEMPRE la carpeta de destino, aunque la lista
+            // conserve la última usada: el destino nunca viene prefijado (pedido explícito).
+            if (askDestination && (targetList ?? _activeList) is { } list &&
                 _items.Count > 0 && !_engine.IsRunning)
                 PromptDestinationForList(list, sayNothingIfCancelled: true);
 
@@ -1290,9 +1295,26 @@ public sealed partial class MainForm
     private void ChangeCopyMode()
     {
         if (_copyMode is null || _copyMode.SelectedIndex < 0) return;
-        _settings.MultiThreadCopy = _copyMode.SelectedIndex == 1;
+        // Índice 0 = secuencial; 1..N = multihilo con ese número de transferencias a la vez.
+        _settings.MultiThreadCopy = _copyMode.SelectedIndex > 0;
+        if (_settings.MultiThreadCopy)
+        {
+            var threads = _copyMode.SelectedIndex switch
+            {
+                1 => 2, 2 => 4, 3 => 6, 4 => 8, 5 => 12, _ => 16
+            };
+            _settings.Parallelism = Math.Clamp(threads, 1, 16);
+        }
         _store.Save(_settings);
         var parallelism = _settings.MultiThreadCopy ? _settings.Parallelism : 1;
+        if (_copyMode is not null)
+        {
+            // Se reetiqueta la opción elegida con el número real de hilos (2, 4, 6…).
+            var label = ModeLabel(_settings.MultiThreadCopy, parallelism);
+            var index = _copyMode.SelectedIndex;
+            if (index >= 0 && !string.Equals(_copyMode.Items[index] as string, label, StringComparison.Ordinal))
+                _copyMode.Items[index] = label;
+        }
         if (_engine.IsRunning)
         {
             _engine.SetParallelism(parallelism);
@@ -1382,12 +1404,21 @@ public sealed partial class MainForm
         if (source is null || target is null || ReferenceEquals(source, target))
             return;
 
-        // El arrastre NUNCA cambia un elemento de carpeta: sólo reordena dentro de su
-        // misma raíz/padre. Mover un archivo de grupo lo haría parecer que cambia de
-        // carpeta de destino, y eso no es lo que hace la copia.
+        // Arrastrar a OTRA carpeta de la lista mueve el elemento a ese grupo: cambia
+        // ParentId y Depth de todo el bloque (archivo o carpeta con su contenido). Es
+        // un reordenamiento de la cola, no un cambio de carpeta de destino en el disco.
         if (source.ParentId != target.ParentId)
         {
-            SetStatus("Arrastra dentro de la misma carpeta para reordenar. Para cambiar el destino usa la pestaña Destino.");
+            // Si se suelta sobre un archivo, el bloque va al mismo grupo que ese archivo.
+            var newParent = target.Kind == ItemKind.Folder
+                ? target
+                : target.ParentId is { } parentId ? _items.FirstOrDefault(item => item.Id == parentId) : null;
+            if (newParent is not null && (ReferenceEquals(newParent, source) || IsAncestor(source, newParent)))
+            {
+                SetStatus("No se puede mover una carpeta dentro de sí misma.");
+                return;
+            }
+            Reparent(source, target);
             return;
         }
 
@@ -1411,6 +1442,79 @@ public sealed partial class MainForm
         SetStatus(source.Kind == ItemKind.Folder
             ? "Carpeta reordenada junto con todo su contenido."
             : "Archivo reordenado dentro de su carpeta.");
+    }
+
+    /// <summary>¿<paramref name="candidate"/> está dentro de <paramref name="ancestor"/>?</summary>
+    private bool IsAncestor(TransferItem candidate, TransferItem node)
+    {
+        var current = node.ParentId;
+        var guard = 0;
+        while (current is not null && guard++ < 512)
+        {
+            if (current.Value == candidate.Id) return true;
+            current = _items.FirstOrDefault(item => item.Id == current.Value)?.ParentId;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Pasa <paramref name="source"/> (con todo su contenido) al grupo de <paramref name="target"/>
+    /// y lo coloca justo donde se soltó. Sirve para pasar de la raíz a una subcarpeta y al revés.
+    /// </summary>
+    private void Reparent(TransferItem source, TransferItem target)
+    {
+        var newParent = target.Kind == ItemKind.Folder
+            ? target
+            : target.ParentId is { } parentId ? _items.FirstOrDefault(item => item.Id == parentId) : null;
+        var depthDelta = (newParent?.Depth + 1 ?? 0) - source.Depth;
+
+        // Se recogen los descendientes ANTES de tocar los parentescos.
+        var block = new List<TransferItem> { source };
+        block.AddRange(Descendants(source));
+
+        source.ParentId = newParent?.Id;
+        foreach (var node in block)
+            node.Depth = Math.Max(0, node.Depth + depthDelta);
+
+        // La ruta relativa manda en la ruta de destino: se recalcula con los nombres reales
+        // para que el bloque se copie dentro de la carpeta nueva y no en la de antes.
+        var origin = _destination?.Text.Trim() ?? string.Empty;
+        void Repath(TransferItem node)
+        {
+            var parent = node.ParentId is { } pid ? _items.FirstOrDefault(item => item.Id == pid) : null;
+            var name = node.Name;
+            if (string.IsNullOrEmpty(name)) return;
+            node.RelativePath = parent is null || string.IsNullOrWhiteSpace(parent.RelativePath)
+                ? name
+                : Path.Combine(parent.RelativePath, name);
+            if (node.Kind == ItemKind.File && origin.Length > 0)
+                node.DestinationPath = Path.Combine(origin, node.RelativePath);
+            foreach (var child in Children(node)) Repath(child);
+        }
+        Repath(source);
+
+        // Se recoloca el bloque completo junto al destino, en el orden de _items.
+        var blockIds = block.Select(item => item.Id).ToHashSet();
+        var remaining = _items.Where(item => !blockIds.Contains(item.Id)).ToList();
+        var targetIndex = remaining.IndexOf(target);
+        if (targetIndex < 0) targetIndex = remaining.Count;
+        remaining.InsertRange(targetIndex, block);
+
+        _items.Clear();
+        _items.AddRange(remaining);
+        ResetVisualOrder();
+        RebuildRows();
+
+        if (newParent is not null && !newParent.IsExpanded)
+        {
+            newParent.IsExpanded = true;
+            RebuildRows();
+        }
+        if (_rows.TryGetValue(source.Id, out var row)) row.Selected = true;
+        SetStatus(newParent is null
+            ? $"«{source.Name}» movido a la raíz de la lista."
+            : $"«{source.Name}» movido dentro de «{newParent.Name}».");
+        UpdateFooter();
     }
 
     private void TogglePause()
@@ -1906,6 +2010,97 @@ public sealed partial class MainForm
         return true;
     }
 
+    /// <summary>
+    /// Rellena «Enviar a» con las carpetas favoritas y los destinos adicionales de las
+    /// preferencias, para cambiar el destino de lo seleccionado sin salir de la lista.
+    /// </summary>
+    private void RefreshSendToMenu()
+    {
+        var sendTo = _listMenu.Items.Find("send-to", false).FirstOrDefault() as ToolStripMenuItem;
+        if (sendTo is null) return;
+
+        // Se reconstruye cada vez que se abre el menú para reflejar los favoritos actuales.
+        while (sendTo.DropDownItems.Count > 2) sendTo.DropDownItems.RemoveAt(2);
+
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var folder in _settings.Favorites.Concat(_settings.ExtraDestinations))
+        {
+            if (string.IsNullOrWhiteSpace(folder) || !seen.Add(folder)) continue;
+            var target = folder;
+            sendTo.DropDownItems.Add(new ToolStripMenuItem(ShortPath(target), null,
+                (_, _) => SendSelectionTo(target)) { ToolTipText = target });
+        }
+
+        if (sendTo.DropDownItems.Count == 2)
+        {
+            var empty = new ToolStripMenuItem("(No hay carpetas favoritas)") { Enabled = false };
+            sendTo.DropDownItems.Add(empty);
+        }
+    }
+
+    /// <summary>Cambia el destino de los elementos seleccionados a <paramref name="folder"/>.</summary>
+    private void SendSelectionTo(string? folder)
+    {
+        var selected = SelectedItems().ToList();
+        if (selected.Count == 0)
+        {
+            SetStatus("Selecciona primero los elementos que quieres enviar.");
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(folder))
+        {
+            using var dialog = new FolderBrowserDialog
+            {
+                Description = "¿A qué carpeta quieres enviar los elementos seleccionados?",
+                UseDescriptionForTitle = true,
+                ShowNewFolderButton = true,
+                SelectedPath = string.Empty
+            };
+            if (dialog.ShowDialog(this) != DialogResult.OK) return;
+            folder = dialog.SelectedPath?.Trim();
+            if (string.IsNullOrWhiteSpace(folder)) return;
+        }
+
+        var destination = folder!;
+        try { Directory.CreateDirectory(destination); } catch { }
+
+        var roots = selected.Where(item => item.ParentId is null || !selected.Any(other => other.Id == item.ParentId)).ToList();
+        foreach (var root in roots)
+        {
+            foreach (var leaf in root.Kind == ItemKind.Folder ? Descendants(root).Append(root) : new[] { root })
+            {
+                if (leaf.Kind != ItemKind.File) continue;
+                // Se mantiene la ruta relativa para no perder la estructura de subcarpetas.
+                leaf.RelativePath = string.IsNullOrWhiteSpace(leaf.RelativePath)
+                    ? leaf.Name
+                    : Path.GetFileName(leaf.RelativePath);
+                leaf.DestinationPath = Path.Combine(destination, leaf.RelativePath);
+            }
+        }
+
+        if (_activeList is not null)
+        {
+            _activeList.Destination = destination;
+            if (_destination is not null) _destination.Text = destination;
+        }
+        _settings.Destination = destination;
+        _store.Save(_settings);
+        RebuildRows();
+        UpdateTargetTab();
+        UpdateFooter();
+        SetStatus($"Destino cambiado: {destination}");
+    }
+
+    private static string ShortPath(string path)
+    {
+        var trimmed = Path.TrimEndingDirectorySeparator(path);
+        var name = Path.GetFileName(trimmed);
+        if (string.IsNullOrEmpty(name)) name = trimmed;
+        var parent = Path.GetFileName(Path.GetDirectoryName(trimmed) ?? string.Empty);
+        return string.IsNullOrEmpty(parent) ? name : parent + "\\" + name;
+    }
+
     private void BrowseDestination()
     {
         if (PromptDestinationForList(_activeList ?? new TransferList { Name = "Lista de copia" }))
@@ -2178,7 +2373,7 @@ public sealed partial class MainForm
             _verifyCheck.Checked = snapshot.VerifyAfterCopy;
             if (startAfterLoad) _settings.Verify = snapshot.Verify;
 
-            _ = AddPathsAsync(snapshot.Sources);
+            _ = AddPathsAsync(snapshot.Sources, askDestination: false);
             if (startAfterLoad)
             {
                 SetStatus("Reanudando la cola guardada…");

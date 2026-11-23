@@ -319,23 +319,33 @@ public sealed partial class MainForm : Form
         queue.DropDownItems.Add(MenuItem("Subir el elemento  (Alt+↑)", (_, _) => MoveSelected(-1)));
         queue.DropDownItems.Add(MenuItem("Bajar el elemento  (Alt+↓)", (_, _) => MoveSelected(1)));
         queue.DropDownItems.Add(new ToolStripSeparator());
-        queue.DropDownItems.Add(MenuItem("Ordenar por nombre", (_, _) => SortQueue(QueueSortField.Name)));
-        queue.DropDownItems.Add(MenuItem("Ordenar por tamaño", (_, _) => SortQueue(QueueSortField.Size)));
-        queue.DropDownItems.Add(MenuItem("Ordenar TODOS los archivos por tamaño", (_, _) => SortAllFilesBySize()));
-        queue.DropDownItems.Add(MenuItem("Ordenar por tipo", (_, _) => SortQueue(QueueSortField.Type)));
-        queue.DropDownItems.Add(MenuItem("Ordenar por carpeta de destino", (_, _) => SortQueue(QueueSortField.Destination)));
-        queue.DropDownItems.Add(MenuItem("Ordenar por carpeta de origen", (_, _) => SortQueue(QueueSortField.Source)));
-        queue.DropDownItems.Add(MenuItem("Ordenar por estado", (_, _) => SortQueue(QueueSortField.State)));
-        queue.DropDownItems.Add(MenuItem("Invertir el orden", (_, _) => SortQueue(QueueSortField.Name, invert: true)));
-        queue.DropDownItems.Add(new ToolStripSeparator());
-        queue.DropDownItems.Add(MenuItem("Expandir todo", (_, _) => ExpandAll(true)));
-        queue.DropDownItems.Add(MenuItem("Contraer todo", (_, _) => ExpandAll(false)));
+        // Un solo submenú «Ordenar» en vez de ocho líneas sueltas: así el menú Cola queda
+        // corto y ordenado, como el menú contextual de TeraCopy.
+        var sortMenu = SubMenu("Ordenar");
+        sortMenu.DropDownItems.Add(MenuItem("Nombre (A → Z)", (_, _) => SortQueue(QueueSortField.Name)));
+        sortMenu.DropDownItems.Add(MenuItem("Nombre (Z → A)", (_, _) => SortQueue(QueueSortField.Name, invert: true)));
+        sortMenu.DropDownItems.Add(new ToolStripSeparator());
+        sortMenu.DropDownItems.Add(MenuItem("Tamaño, dentro de cada carpeta", (_, _) => SortQueue(QueueSortField.Size)));
+        sortMenu.DropDownItems.Add(MenuItem("Tamaño total de la carpeta", (_, _) => SortQueue(QueueSortField.FolderSize, invert: true)));
+        sortMenu.DropDownItems.Add(MenuItem("TODOS los archivos por tamaño (menor → mayor)", (_, _) => SortAllFilesBySize(false)));
+        sortMenu.DropDownItems.Add(MenuItem("TODOS los archivos por tamaño (mayor → menor)", (_, _) => SortAllFilesBySize(true)));
+        sortMenu.DropDownItems.Add(new ToolStripSeparator());
+        sortMenu.DropDownItems.Add(MenuItem("Tipo de archivo", (_, _) => SortQueue(QueueSortField.Type)));
+        sortMenu.DropDownItems.Add(MenuItem("Carpeta de destino", (_, _) => SortQueue(QueueSortField.Destination)));
+        sortMenu.DropDownItems.Add(MenuItem("Carpeta de origen", (_, _) => SortQueue(QueueSortField.Source)));
+        sortMenu.DropDownItems.Add(MenuItem("Estado", (_, _) => SortQueue(QueueSortField.State)));
+        queue.DropDownItems.Add(sortMenu);
+
+        var viewMenu = SubMenu("Ver lista");
+        viewMenu.DropDownItems.Add(MenuItem("Expandir todo", (_, _) => ExpandAll(true)));
+        viewMenu.DropDownItems.Add(MenuItem("Contraer todo", (_, _) => ExpandAll(false)));
+        viewMenu.DropDownItems.Add(new ToolStripSeparator());
+        viewMenu.DropDownItems.Add(MenuItem("Ocultar o mostrar la lista de copia", (_, _) => ToggleCompactView()));
+        viewMenu.DropDownItems.Add(MenuItem("Mostrar u ocultar la columna de trabajos", (_, _) => ToggleJobsPanel()));
+        queue.DropDownItems.Add(viewMenu);
         queue.DropDownItems.Add(new ToolStripSeparator());
         queue.DropDownItems.Add(MenuItem("Quitar seleccionados", (_, _) => RemoveSelected()));
         queue.DropDownItems.Add(MenuItem("Limpiar la lista", (_, _) => ClearList()));
-        queue.DropDownItems.Add(new ToolStripSeparator());
-        queue.DropDownItems.Add(MenuItem("Ocultar o mostrar la lista de copia", (_, _) => ToggleCompactView()));
-        queue.DropDownItems.Add(MenuItem("Mostrar u ocultar la columna de trabajos", (_, _) => ToggleJobsPanel()));
 
         var tools = new ToolStripMenuItem("Herramientas");
         tools.DropDownItems.Add(MenuItem("Preferencias…", (_, _) => ShowOptions()));
@@ -351,6 +361,12 @@ public sealed partial class MainForm : Form
         menu.Items.AddRange(new ToolStripItem[] { file, transfer, queue, tools, help });
         return menu;
     }
+
+    /// <summary>Texto de cada opción del selector de modo de copia.</summary>
+    private static string ModeLabel(bool multi, int threads) =>
+        multi ? $"Multihilo · {threads} a la vez" : "Secuencial · 1 a la vez";
+
+    private static ToolStripMenuItem SubMenu(string text) => new(text);
 
     private static ToolStripMenuItem MenuItem(string text, EventHandler handler, Keys shortcut = Keys.None)
     {
@@ -391,20 +407,26 @@ public sealed partial class MainForm : Form
             Font = new Font("Segoe UI", 8.75f),
             BackColor = _palette.Raised,
             ForeColor = _palette.Text,
-            Width = 124,
+            Width = 168,
             Height = 26,
             IntegralHeight = false,
-            MaxDropDownItems = 4
+            MaxDropDownItems = 8
         };
-        modeCombo.Items.AddRange(new object[] { "Secuencial", "Multihilo" });
-        modeCombo.SelectedIndex = _settings.MultiThreadCopy ? 1 : 0;
+        // Se listan los hilos concretos, no un simple «Multihilo»: así se ajusta el número
+        // (2, 4, 8…) sin abrir Preferencias, como en TeraCopy.
+        modeCombo.Items.Add(ModeLabel(false, 1));
+        foreach (var threads in new[] { 2, 4, 6, 8, 12, 16 })
+            modeCombo.Items.Add(ModeLabel(true, threads));
+        modeCombo.SelectedIndex = _settings.MultiThreadCopy
+            ? Math.Max(0, modeCombo.Items.IndexOf(ModeLabel(true, _settings.Parallelism)))
+            : 0;
         modeCombo.SelectedIndexChanged += (_, _) => ChangeCopyMode();
         var modeHost = new ToolStripControlHost(modeCombo)
         {
             AutoSize = false,
             Margin = new Padding(2, 3, 6, 0),
-            Size = new Size(124, 26),
-            ToolTipText = "Modo de copia: secuencial (un archivo a la vez) o multihilo (varios en paralelo)"
+            Size = new Size(168, 26),
+            ToolTipText = "Modo de copia: secuencial (un archivo a la vez) o multihilo con N archivos en paralelo"
         };
         _copyMode = modeCombo;
         _compactButton = BarButton("Ocultar", Icons.ChevronRight, (_, _) => ToggleCompactView());
@@ -553,7 +575,8 @@ public sealed partial class MainForm : Form
     {
         // Destination is an internal target selected from the active Explorer window
         // or the Destino tab; keep it out of the always-visible toolbar.
-        _destination = new TextBox { Text = _settings.Destination };
+        // Arranca vacío: el destino no se prefija nunca al abrir el programa.
+        _destination = new TextBox { Text = string.Empty };
         _destination.TextChanged += (_, _) =>
         {
             if (_activeList is not null) _activeList.Destination = _destination.Text.Trim();
@@ -1081,12 +1104,20 @@ public sealed partial class MainForm : Form
         _listMenu.Items.Add("Expandir / contraer", null, (_, _) => ToggleSelectedFolders());
         _listMenu.Items.Add("Subir", null, (_, _) => MoveSelected(-1));
         _listMenu.Items.Add("Bajar", null, (_, _) => MoveSelected(1));
+
+        // «Enviar a»: cambio de carpeta de destino de lo seleccionado, igual que en TeraCopy.
+        var sendTo = new ToolStripMenuItem("Enviar a");
+        sendTo.Name = "send-to";
+        sendTo.DropDownItems.Add("Elegir destino…", null, (_, _) => SendSelectionTo(null));
+        sendTo.DropDownItems.Add(new ToolStripSeparator());
+        _listMenu.Items.Add(sendTo);
+        _listMenu.Items.Add("Cambiar el destino de la lista…", null, (_, _) => BrowseDestination());
         _listMenu.Items.Add(new ToolStripSeparator());
         var pauseItem = new ToolStripMenuItem("Pausar archivo seleccionado");
         pauseItem.Click += (_, _) => ToggleSelectedFilePause();
         pauseItem.Name = "pause-single-file";
         _listMenu.Items.Add(pauseItem);
-        _listMenu.Opening += (_, _) => UpdateListMenuState();
+        _listMenu.Opening += (_, _) => { RefreshSendToMenu(); UpdateListMenuState(); };
         _listMenu.Items.Add(new ToolStripSeparator());
         _listMenu.Items.Add("Quitar de la lista (Supr)", null, (_, _) => RemoveSelected());
         _listMenu.Items.Add("Reintentar los fallidos", null, (_, _) => RetryFailed());
@@ -1216,6 +1247,22 @@ public sealed partial class MainForm : Form
     private void LoadSettingsIntoUi()
     {
         _destination.Text = _settings.Destination;
+
+        // El selector de modo refleja lo guardado en Preferencias sin volver a guardar.
+        if (_copyMode is not null)
+        {
+            var index = 0;
+            if (_settings.MultiThreadCopy)
+            {
+                index = _settings.Parallelism switch
+                {
+                    <= 2 => 1, <= 4 => 2, <= 6 => 3, <= 8 => 4, <= 12 => 5, _ => 6
+                };
+                _copyMode.Items[index] = ModeLabel(true, _settings.Parallelism);
+            }
+            if (_copyMode.SelectedIndex != index) _copyMode.SelectedIndex = index;
+        }
+
         _verifyCheck.Checked = _settings.VerifyAfterCopy;
         _verifyCheck.Text = _settings.VerifyAfterCopy
             ? $"Verificar ({Format.Algorithm(_settings.Verify)})"
@@ -1623,8 +1670,10 @@ public sealed partial class MainForm : Form
             var list = new TransferList
             {
                 Name = "Lista de copia",
-                // Sin destino prefijado: se pregunta al copiar o al pegar desde el Explorador.
-                Destination = string.IsNullOrWhiteSpace(_settings.Destination) ? string.Empty : _settings.Destination
+                // Nunca se hereda el último destino: cada lista empieza sin destino y se
+                // pregunta al añadir elementos. Antes se reutilizaba _settings.Destination y
+                // por eso la pantalla de elegir carpeta casi nunca aparecía.
+                Destination = string.Empty
             };
             _lists.Add(list);
             _activeList = list;
@@ -1926,7 +1975,8 @@ public sealed partial class MainForm : Form
             UpdateTargetTab();
         }
 
-        await AddPathsAsync(files);
+        // El destino ya lo eligió el Explorer/--to: no se vuelve a preguntar.
+        await AddPathsAsync(files, askDestination: false);
         if (!_engine.IsRunning)
             StartTransfer(move ? OperationType.Move : OperationType.Copy);
     }
@@ -2010,7 +2060,7 @@ public sealed partial class MainForm : Form
         _destination.Text = destination;
         _settings.Destination = destination;
         _store.Save(_settings);
-        _ = AddPathsAsync(files);
+        _ = AddPathsAsync(files, askDestination: false);
         var operation = ShellPasteHook.ClipboardIsCut() ? OperationType.Move : OperationType.Copy;
         StartTransfer(operation);
     }
