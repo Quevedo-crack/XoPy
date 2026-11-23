@@ -1713,7 +1713,19 @@ public sealed partial class MainForm : Form
             !string.IsNullOrWhiteSpace(_startupRequest.Destination))
         {
             Program.Log("MF-OnShown HandleExternalAsync(startup) start");
-            _ = HandleExternalAsync(_startupRequest, true);
+            // Primero se aplican destinos, política de conflicto y motor; después se arranca
+            // la transferencia desde el llamador, cuando todo está ya fijado.
+            try
+            {
+                await ApplyStartupRequestSettingsAsync();
+                if (_startupRequest.Paths.Count > 0 && _startupRequest.Operation is { } startupOperation
+                    && !_startupRequest.Screenshot && !_engine.IsRunning)
+                {
+                    Program.Log("MF-OnShown start transfer " + startupOperation);
+                    StartTransfer(startupOperation);
+                }
+            }
+            catch (Exception ex) { Program.Log("MF-OnShown startup request FATAL: " + ex.Message); }
         }
 
     }
@@ -1755,6 +1767,40 @@ public sealed partial class MainForm : Form
             catch { }
         }
         ScheduleRetry();
+    }
+
+    /// <summary>
+    /// Aplica todo lo pedido por línea de comandos ANTES de iniciar ninguna copia:
+    /// destino principal, destinos adicionales (--to2), política de conflicto y motor.
+    /// </summary>
+    private async Task ApplyStartupRequestSettingsAsync()
+    {
+        var request = _startupRequest;
+        if (!string.IsNullOrWhiteSpace(request.Destination))
+        {
+            EnsureDefaultList();
+            if (_activeList is not null) _activeList.Destination = request.Destination!;
+            if (_destination is not null) _destination.Text = request.Destination!;
+        }
+
+        if (request.Conflict is not null) _settings.Conflict = request.Conflict.Value;
+        if (request.VerifyAlgorithm is not null) _settings.Verify = request.VerifyAlgorithm.Value;
+        if (request.VerifyAfterCopy) _settings.VerifyAfterCopy = true;
+        if (request.CopyLockedFiles) _settings.CopyLockedFiles = true;
+        if (!request.ResumePartials) _settings.ResumePartials = false;
+        if (request.Engine is not null) _engineOverride = request.Engine.Value;
+        if (request.WriteChecksumFile)
+        {
+            _settings.WriteChecksumFile = true;
+            if (_settings.Verify == VerifyAlgorithm.None) _settings.Verify = VerifyAlgorithm.Sha256;
+        }
+        foreach (var extra in request.ExtraDestinations.Where(Directory.Exists))
+            if (!_settings.ExtraDestinations.Contains(extra, StringComparer.OrdinalIgnoreCase))
+                _settings.ExtraDestinations.Add(extra);
+        RefreshExtraDestinations();
+        FileLog.Write($"Arranque: destinos extra=[{string.Join(" | ", request.ExtraDestinations)}] " +
+                      $"guardados=[{string.Join(" | ", _settings.ExtraDestinations)}]");
+        await Task.CompletedTask;
     }
 
     private async Task HandleExternalAsync(StartupRequest request, bool isStartup)
@@ -1805,7 +1851,7 @@ public sealed partial class MainForm : Form
         // La transferencia pedida por línea de comandos arranca AHORA, cuando --to2, --algo,
         // --overwrite y el motor ya están aplicados. Antes arrancaba dentro del bloque de
         // rutas y por eso el segundo destino (--to2) nunca se copiaba.
-        if (isStartup && request.Paths.Count > 0 && request.Operation is { } cliOperation && !_engine.IsRunning)
+        if (!isStartup && request.Paths.Count > 0 && request.Operation is { } cliOperation && !_engine.IsRunning)
             StartTransfer(cliOperation);
         RefreshExtraDestinations();
 
