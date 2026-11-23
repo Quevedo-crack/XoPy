@@ -569,7 +569,7 @@ public sealed partial class MainForm : Form
         "Carpeta" => "Añadir una carpeta completa (Ctrl+Mayús+O)",
         "Copiar" => "Copiar los elementos seleccionados (F5)",
         "Mover" => "Mover los elementos seleccionados (Ctrl+F5)",
-        "Test" => "Comprobar la copia comparando hashes (F6)",
+        "Verificar" => "Comprobar la copia comparando hashes (F6)",
         "Eliminar" => "Eliminar los archivos del disco (no es lo mismo que quitarlos de la lista)",
         "Saltar" => "Saltar el archivo que se está copiando",
         _ => text
@@ -1102,7 +1102,7 @@ public sealed partial class MainForm : Form
         _listMenu.Items.Add(new ToolStripSeparator());
         _listMenu.Items.Add("Copiar…", null, (_, _) => StartTransfer(OperationType.Copy));
         _listMenu.Items.Add("Mover…", null, (_, _) => StartTransfer(OperationType.Move));
-        _listMenu.Items.Add("Test (verificar)", null, (_, _) => StartTransfer(OperationType.Test));
+        _listMenu.Items.Add("Verificar", null, (_, _) => StartTransfer(OperationType.Test));
         _listMenu.Items.Add("Eliminar del disco…", null, (_, _) => StartTransfer(OperationType.Delete));
         _listMenu.Items.Add(new ToolStripSeparator());
         _listMenu.Items.Add("Expandir / contraer", null, (_, _) => ToggleSelectedFolders());
