@@ -1759,6 +1759,13 @@ public sealed partial class MainForm : Form
             if (_destination is not null) _destination.Text = request.Destination!;
         }
 
+        // Las opciones de la línea de comandos (--overwrite, --skip, --algo…) se aplican
+        // ANTES de la transferencia: si no, se usaba la política guardada y no sobrescribía.
+        if (request.Conflict is not null) _settings.Conflict = request.Conflict.Value;
+        if (request.VerifyAlgorithm is not null) _settings.Verify = request.VerifyAlgorithm.Value;
+        if (request.VerifyAfterCopy) _settings.VerifyAfterCopy = true;
+        if (request.CopyLockedFiles) _settings.CopyLockedFiles = true;
+
         if (request.Paths.Count > 0)
         {
             await HandleExternalFiles(request.Paths, request.Destination, request.Operation == OperationType.Move);
@@ -1773,10 +1780,6 @@ public sealed partial class MainForm : Form
         }
         if (request.PasteFromClipboard) PasteFromClipboard(request.Destination);
 
-        if (request.Conflict is not null) _settings.Conflict = request.Conflict.Value;
-        if (request.VerifyAlgorithm is not null) _settings.Verify = request.VerifyAlgorithm.Value;
-        if (request.VerifyAfterCopy) _settings.VerifyAfterCopy = true;
-        if (request.CopyLockedFiles) _settings.CopyLockedFiles = true;
         if (!request.ResumePartials) _settings.ResumePartials = false;
         if (request.Engine is not null) _engineOverride = request.Engine.Value;
         if (request.WriteChecksumFile)
