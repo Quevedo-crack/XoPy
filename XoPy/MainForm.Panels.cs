@@ -1412,6 +1412,18 @@ public sealed partial class MainForm
                 available = _list.ClientSize.Width - used - 4;
             }
             SetWidth(_list.Columns[0], Math.Max(150, available));
+
+            // Si sobra espacio a la derecha de la última columna, el ListView pinta esa
+            // franja con el color del sistema (blanco). Se la come la última columna
+            // visible para que el fondo oscuro llegue hasta el borde.
+            var total = 0;
+            for (var index = 0; index < 7; index++) total += _list.Columns[index].Width;
+            var spare = _list.ClientSize.Width - total - 4;
+            if (spare > 0)
+            {
+                var last = _list.Columns[6].Width > 0 ? 6 : _list.Columns[5].Width > 0 ? 5 : 4;
+                SetWidth(_list.Columns[last], _list.Columns[last].Width + spare);
+            }
         }
         finally
         {

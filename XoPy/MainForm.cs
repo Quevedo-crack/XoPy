@@ -1396,7 +1396,10 @@ public sealed partial class MainForm : Form
     {
         // Se fuerza un repintado completo: al arrancar, la ventana aún no había pintado la
         // barra ni la lista y la captura salía recortada por abajo.
+        // Ajuste final de columnas: si la ventana se redimensionó al abrirse, el reparto
+        // podía quedarse atrás y dejaba una franja clara a la derecha de la última columna.
         Application.DoEvents();
+        ResizeColumns();
         Refresh();
         foreach (Control child in Controls) child.Refresh();
         // Varios ciclos de mensajes: la ventana acaba de crearse y Windows todavía está
