@@ -21,7 +21,7 @@ public sealed partial class MainForm : Form
     private readonly System.Windows.Forms.Timer _timer = new() { Interval = 300 };
     private readonly NotifyIcon _tray = new();
     private readonly ContextMenuStrip _trayMenu = new();
-    private ToolStripMenuItem _trayPauseItem = null!;
+    private ToolStripMenuItem? _trayPauseItem;
     private readonly StartupRequest _startupRequest;
     private readonly OpenFileDialog _openFiles = new() { Multiselect = true, Title = "Añadir archivos", Filter = "Todos los archivos (*.*)|*.*" };
     private readonly FolderBrowserDialog _pickFolder = new() { Description = "Selecciona la carpeta que quieres añadir" };
@@ -113,6 +113,8 @@ public sealed partial class MainForm : Form
     private bool _wasRunning;
     private bool _exitRequested;
     private bool _shown;
+    /// <summary>La interfaz está construida y los controles existen (fin de OnShown).</summary>
+    private volatile bool _uiReady;
     private int _trayPercent = -1;
     private TableLayoutPanel _contentGrid = null!;
     private Control _jobsPanel = null!;
@@ -415,13 +417,15 @@ public sealed partial class MainForm : Form
         _newListButton.Width = 40;
         _newListButton.ToolTipText = "Crear una nueva lista de copia independiente";
 
-        _deleteListButton = BarButton("Eliminar lista", Icons.Delete, (_, _) => DeleteActiveList(), iconOnly: true);
+        // Dos acciones distintas con iconos distintos: antes ambas usaban la papelera y
+        // parecían «eliminar archivos» duplicado.
+        _deleteListButton = BarButton("Borrar lista", Icons.ClearList, (_, _) => DeleteActiveList(), iconOnly: true);
         _deleteListButton.Width = 40;
-        _deleteListButton.ToolTipText = "Borrar esta lista de copia (sólo del listado, no borra los archivos del disco)";
+        _deleteListButton.ToolTipText = "Cerrar esta lista de copia del listado (no borra archivos del disco)";
 
-        _removeFromListButton = BarButton("Quitar selección", Icons.Delete, (_, _) => RemoveSelected(), iconOnly: true);
+        _removeFromListButton = BarButton("Quitar selección", Icons.Remove, (_, _) => RemoveSelected(), iconOnly: true);
         _removeFromListButton.Width = 40;
-        _removeFromListButton.ToolTipText = "Quitar del listado los archivos seleccionados (no borra nada del disco)";
+        _removeFromListButton.ToolTipText = "Quitar los elementos seleccionados de la lista (no borra nada del disco)";
 
         var left = new ToolStrip
         {
@@ -791,6 +795,7 @@ public sealed partial class MainForm : Form
         Add("Nombre (Z → A)", () => SortQueue(QueueSortField.Name, invert: true));
         Add("Tamaño (menor → mayor)", () => SortQueue(QueueSortField.Size));
         Add("Tamaño (mayor → menor)", () => SortQueue(QueueSortField.Size, invert: true));
+        Add("Tamaño de carpeta, por el total de su contenido", () => SortQueue(QueueSortField.FolderSize, invert: true));
         Add("Tipo de archivo (A → Z)", () => SortQueue(QueueSortField.Type));
         Add("Carpeta de destino (A → Z)", () => SortQueue(QueueSortField.Destination));
         Add("Carpeta de destino (Z → A)", () => SortQueue(QueueSortField.Destination, invert: true));
@@ -918,9 +923,10 @@ public sealed partial class MainForm : Form
         _upButton.Click += (_, _) => MoveSelected(-1);
         _downButton = Ui.IconButton(Icons.Down, _palette, "Bajar el elemento seleccionado (Alt+↓)");
         _downButton.Click += (_, _) => MoveSelected(1);
-        _removeButton = Ui.IconButton(Icons.Remove, _palette, "Quitar de la lista (Supr)");
+        _removeButton = Ui.IconButton(Icons.Remove, _palette, "Quitar los elementos seleccionados de la lista (Supr)\nNo borra nada del disco.");
         _removeButton.Click += (_, _) => RemoveSelected();
-        _clearButton = Ui.IconButton(Icons.Delete, _palette, "Limpiar la lista");
+        // Icono y texto distintos de «Quitar» y de «Eliminar del disco»: esto solo vacía la lista.
+        _clearButton = Ui.IconButton(Icons.ClearList, _palette, "Vaciar la lista completa (no borra archivos del disco)");
         _clearButton.Click += (_, _) => ClearList();
 
         var tools = new FlowLayoutPanel
@@ -968,10 +974,11 @@ public sealed partial class MainForm : Form
             LabelEdit = false,
             GridLines = false
         };
-        _list.Columns.Add("Nombre", 520);
-        _list.Columns.Add("Tamaño", 96, HorizontalAlignment.Right);
-        _list.Columns.Add("Estado", 132);
-        _list.Columns.Add("Progreso", 210);
+        _list.Columns.Add("Nombre", 380);
+        _list.Columns.Add("Destino", 240);
+        _list.Columns.Add("Tamaño", 92, HorizontalAlignment.Right);
+        _list.Columns.Add("Estado", 128);
+        _list.Columns.Add("Progreso", 190);
         _list.Columns.Add("Hash origen", 0);
         _list.Columns.Add("Hash destino", 0);
 
@@ -990,6 +997,7 @@ public sealed partial class MainForm : Form
         _list.DragOver += ListDragEnter;
         _list.DragDrop += ListDragDrop;
         _list.SelectedIndexChanged += (_, _) => UpdateButtons();
+        _list.ColumnClick += ListColumnClick;
 
         // Doble búfer para que la lista no parpadee mientras se actualiza el progreso.
         try
@@ -1250,16 +1258,61 @@ public sealed partial class MainForm : Form
         }
     }
 
-    private async void HandleExplorerPaste(IReadOnlyList<string> files, string destination, bool move)
+    /// <summary>
+    /// Punto de entrada del pegado interceptado. Puede llegar desde el hilo STA del hook
+    /// de teclado, así que SIEMPRE se transfiere al hilo de la interfaz antes de tocar
+    /// cualquier control: en otro hilo esas llamadas lanzaban NullReferenceException.
+    /// </summary>
+    private void HandleExplorerPaste(IReadOnlyList<string> files, string destination, bool move)
+    {
+        if (IsDisposed) return;
+        if (InvokeRequired)
+        {
+            try { BeginInvoke(new Action(() => HandleExplorerPaste(files, destination, move))); }
+            catch (ObjectDisposedException) { }
+            catch (InvalidOperationException) { }
+            return;
+        }
+        _ = HandleExplorerPasteAsync(files, destination, move);
+    }
+
+    private async Task HandleExplorerPasteAsync(IReadOnlyList<string> files, string destination, bool move)
     {
         try
         {
             if (IsDisposed) return;
+            if (!_uiReady)
+            {
+                // La UI aún no está construida: se reintenta cuando el formulario esté listo
+                // en lugar de descartar el pegado (eso rompía el Ctrl+V al abrir XoPy).
+                var captured = files;
+                void Retry()
+                {
+                    try
+                    {
+                        BeginInvoke(new Action(() =>
+                        {
+                            if (IsDisposed) return;
+                            if (_uiReady) _ = HandleExplorerPasteAsync(captured, destination, move);
+                            else Retry();
+                        }));
+                    }
+                    catch { }
+                }
+                Retry();
+                return;
+            }
             await HandleExternalFiles(files, destination, move);
+        }
+        catch (NullReferenceException ex)
+        {
+            FileLog.Write("Error al pegar con XoPy (referencia nula): " + ex);
+            SetStatus("No se pudo pegar: la ventana aún se está preparando. Inténtalo otra vez.");
         }
         catch (Exception ex)
         {
             FileLog.Write("Error al pegar con XoPy: " + ex);
+            SetStatus("No se pudo pegar desde el Explorador: " + ex.Message);
         }
     }
 
@@ -1356,12 +1409,6 @@ public sealed partial class MainForm : Form
             try { ApplyWindowGeometry(); Program.Log("MF7. ApplyWindowGeometry done"); }
             catch (Exception ex) { Program.Log("MF7. ApplyWindowGeometry FATAL: " + ex.GetType().FullName + " - " + ex.Message); Program.Log("MF7. ApplyWindowGeometry Stack: " + ex.StackTrace); }
 
-            if (_settings.ExplorerIntegration)
-            {
-                _settings.ExplorerIntegration = false;
-                _store.Save(_settings);
-            }
-
             Program.Log("MF8. Timer start");
             try { _timer.Tick += (_, _) => TimerTick(); _timer.Start(); Program.Log("MF8. Timer start done"); }
             catch (Exception ex) { Program.Log("MF8. Timer start FATAL: " + ex.GetType().FullName + " - " + ex.Message); }
@@ -1382,8 +1429,19 @@ public sealed partial class MainForm : Form
             try { UpdateJobs(); Program.Log("MF12. UpdateJobs done"); }
             catch (Exception ex) { Program.Log("MF12. UpdateJobs FATAL: " + ex.GetType().FullName + " - " + ex.Message); }
 
-            // BuildTray y ApplyCopierReplacement desactivados temporalmente para
-            // descartar reentrancy del shell durante el arranque.
+            // La bandeja y la sustitución del copiador se activan al final del arranque,
+            // cuando la ventana ya está creada y el selector de listas está estable.
+            Program.Log("MF13. BuildTray start");
+            try { BuildTray(); Program.Log("MF13. BuildTray done"); }
+            catch (Exception ex) { Program.Log("MF13. BuildTray FATAL: " + ex.GetType().FullName + " - " + ex.Message); }
+
+            Program.Log("MF14. ApplyCopierReplacement start");
+            try { ApplyCopierReplacement(); Program.Log("MF14. ApplyCopierReplacement done"); }
+            catch (Exception ex) { Program.Log("MF14. ApplyCopierReplacement FATAL: " + ex.GetType().FullName + " - " + ex.Message); }
+
+            Program.Log("MF15. InstallShellHookIfNeeded start");
+            try { InstallShellHookIfNeeded(); Program.Log("MF15. InstallShellHookIfNeeded done"); }
+            catch (Exception ex) { Program.Log("MF15. InstallShellHookIfNeeded FATAL: " + ex.GetType().FullName + " - " + ex.Message); }
         }
         catch (Exception ex)
         {
@@ -1397,10 +1455,48 @@ public sealed partial class MainForm : Form
             catch { }
         }
 
-        Program.Log("MF-OnShown end");
+        _uiReady = true;
+        Program.Log("MF-OnShown end (UI lista)");
     }
 
-    public void HandleExternalRequest(StartupRequest request) => _ = HandleExternalAsync(request, false);
+    public void HandleExternalRequest(StartupRequest request)
+    {
+        // Si aún no se ha construido la interfaz (segunda instancia que llega durante el
+        // arranque) se espera a que el formulario esté listo. Sin esto, cualquier referencia
+        // a controles todavía sin crear lanza NullReferenceException (error 16387 = 0x80004003).
+        if (_uiReady)
+        {
+            if (InvokeRequired)
+            {
+                try { BeginInvoke(new Action(() => _ = HandleExternalAsync(request, false))); }
+                catch (ObjectDisposedException) { }
+                catch (InvalidOperationException) { }
+                return;
+            }
+            _ = HandleExternalAsync(request, false);
+            return;
+        }
+
+        // Reintento diferido: se espera a que OnShown termine de construir la UI y
+        // se vuelve a llamar en el hilo de la interfaz. Con límite para no girar sin fin
+        // si la ventana nunca llega a estar lista.
+        var attempts = 0;
+        void ScheduleRetry()
+        {
+            if (IsDisposed || ++attempts > 100) return;
+            try
+            {
+                BeginInvoke(new Action(() =>
+                {
+                    if (IsDisposed) return;
+                    if (_uiReady) { _ = HandleExternalAsync(request, false); return; }
+                    Task.Delay(50).ContinueWith(_ => { try { ScheduleRetry(); } catch { } });
+                }));
+            }
+            catch { }
+        }
+        ScheduleRetry();
+    }
 
     private async Task HandleExternalAsync(StartupRequest request, bool isStartup)
     {
@@ -1467,8 +1563,8 @@ public sealed partial class MainForm : Form
             var list = new TransferList
             {
                 Name = "Lista de copia",
-                Destination = string.IsNullOrWhiteSpace(_settings.Destination)
-                    ? AppSettings.DefaultDestination() : _settings.Destination
+                // Sin destino prefijado: se pregunta al copiar o al pegar desde el Explorador.
+                Destination = string.IsNullOrWhiteSpace(_settings.Destination) ? string.Empty : _settings.Destination
             };
             _lists.Add(list);
             _activeList = list;
@@ -1489,7 +1585,7 @@ public sealed partial class MainForm : Form
         var list = new TransferList
         {
             Name = $"Lista de copia {next}",
-            Destination = string.IsNullOrWhiteSpace(destination) ? AppSettings.DefaultDestination() : destination
+            Destination = string.IsNullOrWhiteSpace(destination) ? string.Empty : destination
         };
         _lists.Add(list);
         SwitchToList(list);
@@ -1707,7 +1803,8 @@ public sealed partial class MainForm : Form
         dlg.Controls.Add(host);
 
         if (dlg.ShowDialog(this) != DialogResult.OK) return null;
-        var target = chosen ?? _activeList!;
+        var target = chosen ?? _activeList;
+        if (target is null) return null;
         if (!_lists.Contains(target)) _lists.Add(target);
         var changeDestination = target != _activeList
             || !string.Equals(target.Destination, detectedDestination, StringComparison.OrdinalIgnoreCase);
@@ -1725,7 +1822,13 @@ public sealed partial class MainForm : Form
         if (IsDisposed) return;
 
         EnsureDefaultList();
-        var target = _activeList!;
+        var target = _activeList;
+        if (target is null)
+        {
+            FileLog.Write("HandleExternalFiles: no hay lista activa (se aborta el pegado).");
+            SetStatus("No se pudo preparar la lista de copia. Abre XoPy e inténtalo de nuevo.");
+            return;
+        }
         bool changeDestination = false;
         string? resolvedDestination = detectedDestination;
 

@@ -1,8 +1,10 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
 using System.Windows.Forms;
 
 namespace XoPy;
@@ -11,6 +13,11 @@ namespace XoPy;
 /// Intercepta los atajos Ctrl+V y Mayús+Insert en el Explorador y el escritorio.
 /// Cuando hay archivos en el portapapeles se cancela el pegado nativo y se hace con XoPy.
 /// Si el portapapeles viene de un «Cortar» (Ctrl+X), se mueve y se borra el origen.
+///
+/// Importante: un hook de teclado de bajo nivel se ejecuta en el hilo de entrada de
+/// Windows y debe responder en microsegundos. Por eso el portapapeles NO se lee dentro
+/// del hook: un hilo STA en segundo plano mantiene un indicador actualizado y el hook
+/// solo consulta ese indicador. El trabajo real se encola en ese mismo hilo STA.
 /// </summary>
 public sealed class ShellPasteHook : IDisposable
 {
@@ -47,7 +54,12 @@ public sealed class ShellPasteHook : IDisposable
     };
 
     private readonly HookProc _callback;
+    private readonly BlockingCollection<Action> _work = new();
+    private readonly Thread _worker;
     private IntPtr _hook;
+    private volatile bool _clipboardHasFiles;
+    private volatile bool _disposed;
+    private IntPtr _explorerWindow;
 
     public bool Enabled { get; set; }
     public event Action<IReadOnlyList<string>, string, bool>? PasteRequested;
@@ -57,21 +69,70 @@ public sealed class ShellPasteHook : IDisposable
     public ShellPasteHook()
     {
         _callback = OnKeyboard;
+
+        // Hilo STA dedicado: mantiene el indicador del portapapeles al día y ejecuta
+        // el trabajo pesado (leer archivos, consultar la carpeta del Explorador).
+        _worker = new Thread(WorkerLoop)
+        {
+            IsBackground = true,
+            Name = "XoPy-PasteHook"
+        };
+        _worker.SetApartmentState(ApartmentState.STA);
+        _worker.Start();
+    }
+
+    private void WorkerLoop()
+    {
+        while (!_disposed)
+        {
+            try
+            {
+                // Actualiza el indicador sin bloquear el hook.
+                _clipboardHasFiles = SafeContainsFileDropList();
+
+                if (_work.TryTake(out var action, 200))
+                {
+                    try { action(); }
+                    catch (Exception ex) { FileLog.Write("Error en el trabajo de pegado: " + ex.Message); }
+                }
+            }
+            catch (ObjectDisposedException) { return; }
+            catch { Thread.Sleep(150); }
+        }
+    }
+
+    private static bool SafeContainsFileDropList()
+    {
+        try { return Clipboard.ContainsFileDropList(); }
+        catch { return false; }
     }
 
     public void Install()
     {
         if (_hook != IntPtr.Zero) return;
-        _hook = SetWindowsHookEx(WhKeyboardLl, _callback, GetModuleHandle(null), 0);
+        // Para un hook de bajo nivel (WH_KEYBOARD_LL) el módulo debe ser IntPtr.Zero:
+        // pasar el módulo del ejecutable hace que Windows rechace la instalación.
+        _hook = SetWindowsHookEx(WhKeyboardLl, _callback, IntPtr.Zero, 0);
+        if (_hook == IntPtr.Zero)
+        {
+            // Reintento con el módulo propio por si el sistema lo exigiera.
+            try { _hook = SetWindowsHookEx(WhKeyboardLl, _callback, GetModuleHandle(null), 0); } catch { }
+        }
         if (_hook == IntPtr.Zero)
             FileLog.Write("No se pudo instalar el interceptor del teclado: " + Marshal.GetLastWin32Error());
+        else
+            FileLog.Write("Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).");
     }
 
     public void Dispose()
     {
-        if (_hook == IntPtr.Zero) return;
-        try { UnhookWindowsHookEx(_hook); } catch { }
-        _hook = IntPtr.Zero;
+        _disposed = true;
+        try { _work.CompleteAdding(); } catch { }
+        if (_hook != IntPtr.Zero)
+        {
+            try { UnhookWindowsHookEx(_hook); } catch { }
+            _hook = IntPtr.Zero;
+        }
     }
 
     private IntPtr OnKeyboard(int code, IntPtr wParam, IntPtr lParam)
@@ -87,22 +148,19 @@ public sealed class ShellPasteHook : IDisposable
 
         try
         {
+            // Sólo se consulta el indicador mantenido por el hilo STA: nada de COM ni
+            // portapapeles aquí dentro (eso colgaba el Explorador y daba «Object reference»).
+            if (!_clipboardHasFiles) return CallNextHookEx(_hook, code, wParam, lParam);
+
             var window = GetForegroundWindow();
             if (!IsExplorer(window)) return CallNextHookEx(_hook, code, wParam, lParam);
 
-            var files = ClipboardFiles();
-            if (files.Count == 0) return CallNextHookEx(_hook, code, wParam, lParam);
+            _explorerWindow = window;
 
-            var destination = ExplorerDestination(window);
-            if (string.IsNullOrWhiteSpace(destination)) return CallNextHookEx(_hook, code, wParam, lParam);
+            // Se cancela el pegado nativo y el trabajo se hace en el hilo STA.
+            if (!_work.IsAddingCompleted)
+                _work.Add(ProcessPaste);
 
-            var move = ClipboardIsCut();
-            var handler = PasteRequested;
-            if (handler is null) return CallNextHookEx(_hook, code, wParam, lParam);
-
-            // Se cancela el pegado de Windows y se hace con XoPy.
-            handler(files, destination, move);
-            FileLog.Write($"Pegado interceptado: {files.Count} elemento(s) a {destination} ({(move ? "mover" : "copiar")})");
             return (IntPtr)1;
         }
         catch (Exception ex)
@@ -110,6 +168,22 @@ public sealed class ShellPasteHook : IDisposable
             FileLog.Write("Error en el interceptor de pegado: " + ex.Message);
             return CallNextHookEx(_hook, code, wParam, lParam);
         }
+    }
+
+    private void ProcessPaste()
+    {
+        var handler = PasteRequested;
+        if (handler is null) return;
+
+        var files = ClipboardFilesCore();
+        if (files.Count == 0) return;
+
+        var destination = ExplorerDestinationCore(_explorerWindow);
+        if (string.IsNullOrWhiteSpace(destination)) return;
+
+        var move = ClipboardIsCutCore();
+        handler(files, destination, move);
+        FileLog.Write($"Pegado interceptado: {files.Count} elemento(s) a {destination} ({(move ? "mover" : "copiar")})");
     }
 
     private static bool IsExplorer(IntPtr window)
@@ -121,7 +195,8 @@ public sealed class ShellPasteHook : IDisposable
         return ExplorerClasses.Any(candidate => string.Equals(candidate, name, StringComparison.OrdinalIgnoreCase));
     }
 
-    private static List<string> ClipboardFiles()
+    /// <summary>Lee los archivos del portapapeles. Debe llamarse en un hilo STA.</summary>
+    private static List<string> ClipboardFilesCore()
     {
         var result = new List<string>();
         try
@@ -141,6 +216,26 @@ public sealed class ShellPasteHook : IDisposable
     {
         try
         {
+            if (Application.MessageLoop || Thread.CurrentThread.GetApartmentState() == ApartmentState.STA)
+                return ClipboardIsCutCore();
+            var cut = false;
+            var thread = new Thread(() => { try { cut = ClipboardIsCutCore(); } catch { } });
+            thread.SetApartmentState(ApartmentState.STA);
+            thread.IsBackground = true;
+            thread.Start();
+            thread.Join(1000);
+            return cut;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool ClipboardIsCutCore()
+    {
+        try
+        {
             var data = Clipboard.GetDataObject();
             if (data is null || !data.GetDataPresent("Preferred DropEffect")) return false;
             if (data.GetData("Preferred DropEffect") is not MemoryStream stream) return false;
@@ -156,7 +251,7 @@ public sealed class ShellPasteHook : IDisposable
     }
 
     /// <summary>Carpeta de la ventana del Explorador que tiene el foco (o el escritorio).</summary>
-    private static string? ExplorerDestination(IntPtr window)
+    private static string? ExplorerDestinationCore(IntPtr window)
     {
         var builder = new StringBuilder(256);
         GetClassName(window, builder, builder.Capacity);
@@ -172,15 +267,22 @@ public sealed class ShellPasteHook : IDisposable
             if (shellType is null) return null;
             dynamic? shell = Activator.CreateInstance(shellType);
             if (shell is null) return null;
-            foreach (dynamic candidate in shell.Windows())
+            try
             {
-                try
+                foreach (dynamic candidate in shell.Windows())
                 {
-                    if ((long)candidate.HWND != window.ToInt64()) continue;
-                    string? path = candidate.Document?.Folder?.Self?.Path;
-                    if (!string.IsNullOrWhiteSpace(path)) return path;
+                    try
+                    {
+                        if ((long)candidate.HWND != window.ToInt64()) continue;
+                        string? path = candidate.Document?.Folder?.Self?.Path;
+                        if (!string.IsNullOrWhiteSpace(path)) return path;
+                    }
+                    catch { }
                 }
-                catch { }
+            }
+            finally
+            {
+                try { Marshal.FinalReleaseComObject(shell); } catch { }
             }
         }
         catch (Exception ex)
