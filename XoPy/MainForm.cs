@@ -1239,17 +1239,52 @@ public sealed partial class MainForm : Form
             : path!;
         try { Directory.CreateDirectory(Path.GetDirectoryName(target) ?? "."); } catch { }
 
+        var mode = _startupRequest.ScreenshotMode;
         try
         {
             Application.DoEvents();
             Update();
-            using var bitmap = new Bitmap(Math.Max(1, Width), Math.Max(1, Height));
-            using (var graphics = Graphics.FromImage(bitmap))
+
+            switch (mode)
             {
-                graphics.CopyFromScreen(Location, Point.Empty, Size);
+                case "tabs":
+                    // Una imagen por pestaña: tab-0.png, tab-1.png, …
+                    var stem = Path.Combine(Path.GetDirectoryName(target) ?? ".",
+                        Path.GetFileNameWithoutExtension(target));
+                    for (var index = 0; index < 5; index++)
+                    {
+                        SelectTab(index);
+                        Application.DoEvents();
+                        Update();
+                        SaveWindowPng($"{stem}-{index}.png");
+                    }
+                    break;
+
+                case "menus":
+                    // Ventana + desplegable principal y menú contextual de la lista.
+                    SaveWindowPng(target + "-menu.png");
+                    SaveControlPng(_listMenu, target + "-context.png");
+                    break;
+
+                case "options":
+                    CaptureDialogPng(() => new OptionsDialog(_settings, _palette), target);
+                    break;
+
+                case "conflict":
+                    CaptureDialogPng(() => new PromptDialog(_palette, "Archivo ya existente",
+                        "El archivo «informe.pdf» ya existe en la carpeta de destino. ¿Qué quieres hacer?",
+                        new[] { "Sobrescribir", "Omitir", "Cambiar nombre", "Cancelar" }), target);
+                    break;
+
+                case "history":
+                    CaptureDialogPng(() => new HistoryDialog(_history, _palette), target);
+                    break;
+
+                default:
+                    SaveWindowPng(target);
+                    break;
             }
-            bitmap.Save(target, System.Drawing.Imaging.ImageFormat.Png);
-            Program.Log("MF16. Captura guardada en " + target);
+            Program.Log("MF16. Capturas guardadas con modo " + mode);
         }
         catch (Exception ex)
         {
@@ -1263,6 +1298,43 @@ public sealed partial class MainForm : Form
             ExitApplication();
             Application.Exit();
         }));
+    }
+
+    private void SaveWindowPng(string target)
+    {
+        using var bitmap = new Bitmap(Math.Max(1, Width), Math.Max(1, Height));
+        using (var graphics = Graphics.FromImage(bitmap)) graphics.CopyFromScreen(Location, Point.Empty, Size);
+        bitmap.Save(target, System.Drawing.Imaging.ImageFormat.Png);
+    }
+
+    private static void SaveControlPng(Control? control, string target)
+    {
+        if (control is null) return;
+        using var bitmap = new Bitmap(Math.Max(1, control.Width), Math.Max(1, control.Height));
+        control.DrawToBitmap(bitmap, new Rectangle(0, 0, control.Width, control.Height));
+        bitmap.Save(target, System.Drawing.Imaging.ImageFormat.Png);
+    }
+
+    private void CaptureDialogPng(Func<Form> factory, string target)
+    {
+        using var dialog = factory();
+        dialog.StartPosition = FormStartPosition.Manual;
+        dialog.Location = new Point(Location.X + 40, Location.Y + 40);
+        dialog.Show(this);
+        Application.DoEvents();
+        dialog.Refresh();
+        Application.DoEvents();
+        try
+        {
+            using var bitmap = new Bitmap(Math.Max(1, dialog.Width), Math.Max(1, dialog.Height));
+            using (var graphics = Graphics.FromImage(bitmap))
+                graphics.CopyFromScreen(dialog.Location, Point.Empty, dialog.Size);
+            bitmap.Save(target, System.Drawing.Imaging.ImageFormat.Png);
+        }
+        finally
+        {
+            dialog.Close();
+        }
     }
 
     private void SaveWindowGeometry()
@@ -2016,7 +2088,7 @@ public sealed partial class MainForm : Form
         }
 
         SwitchToList(target);
-        if (changeDestination && !string.IsNullOrEmpty(resolvedDestination))
+        if (changeDestination && !string.IsNullOrEmpty(resolvedDestination) && target is not null)
         {
             target.Destination = resolvedDestination;
             _destination.Text = resolvedDestination;

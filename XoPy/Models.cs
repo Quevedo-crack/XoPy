@@ -211,6 +211,12 @@ public sealed class StartupRequest
     public bool Screenshot { get; set; }
     /// <summary>Ruta del PNG que se genera con --screenshot (solo para las capturas de CI).</summary>
     public string? ScreenshotPath { get; set; }
+
+    /// <summary>
+    /// Qué captura pedir: window (por defecto), tabs, menus, options, conflict o history.
+    /// Lo usan los flujos de CI para revisar la interfaz en Windows.
+    /// </summary>
+    public string ScreenshotMode { get; set; } = "window";
     public ConflictPolicy? Conflict { get; set; }
     public VerifyAlgorithm? VerifyAlgorithm { get; set; }
     public bool VerifyAfterCopy { get; set; }
@@ -267,9 +273,19 @@ public sealed class StartupRequest
                 case "--screenshot-conflict":
                 case "--screenshot-tabs":
                 case "--screenshot-menus":
+                case "--screenshot-history":
                     // El argumento siguiente es la ruta del PNG: se guarda para escribir ahí
                     // y NO se trata como archivo que copiar.
                     request.Screenshot = true;
+                    request.ScreenshotMode = arg switch
+                    {
+                        "--screenshot-tabs" => "tabs",
+                        "--screenshot-menus" => "menus",
+                        "--screenshot-options" => "options",
+                        "--screenshot-conflict" => "conflict",
+                        "--screenshot-history" => "history",
+                        _ => "window"
+                    };
                     if (i + 1 < args.Length && !args[i + 1].StartsWith("-", StringComparison.Ordinal))
                         request.ScreenshotPath = Normalize(args[++i]);
                     else
