@@ -1328,8 +1328,13 @@ public sealed partial class MainForm : Form
         var mode = _startupRequest.ScreenshotMode;
         try
         {
+            // Traer la ventana al frente: si está detrás, CopyFromScreen captura otro programa.
             Application.DoEvents();
+            Activate();
+            BringToFront();
+            SetForegroundWindow(Handle);
             Update();
+            Application.DoEvents();
 
             switch (mode)
             {
@@ -1385,6 +1390,15 @@ public sealed partial class MainForm : Form
 
     private void SaveWindowPng(string target)
     {
+        // Se fuerza un repintado completo: al arrancar, la ventana aún no había pintado la
+        // barra ni la lista y la captura salía recortada por abajo.
+        Application.DoEvents();
+        Refresh();
+        foreach (Control child in Controls) child.Refresh();
+        Application.DoEvents();
+        Thread.Sleep(250);
+        Application.DoEvents();
+
         using var bitmap = new Bitmap(Math.Max(1, Width), Math.Max(1, Height));
         using (var graphics = Graphics.FromImage(bitmap)) graphics.CopyFromScreen(Location, Point.Empty, Size);
         bitmap.Save(target, System.Drawing.Imaging.ImageFormat.Png);
