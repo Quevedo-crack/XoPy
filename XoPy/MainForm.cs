@@ -1348,13 +1348,13 @@ public sealed partial class MainForm : Form
             WireEngine();
             Program.Log("MF5. WireEngine done");
 
-            Program.Log("MF6. EnsureDefaultList");
-            EnsureDefaultList();
-            Program.Log("MF6. EnsureDefaultList done");
+            Program.Log("MF6. EnsureDefaultList start");
+            try { EnsureDefaultList(); Program.Log("MF6. EnsureDefaultList done"); }
+            catch (Exception ex) { Program.Log("MF6. EnsureDefaultList FATAL: " + ex.GetType().FullName + " - " + ex.Message); Program.Log("MF6. EnsureDefaultList Stack: " + ex.StackTrace); }
 
-            Program.Log("MF7. ApplyWindowGeometry");
-            ApplyWindowGeometry();
-            Program.Log("MF7. ApplyWindowGeometry done");
+            Program.Log("MF7. ApplyWindowGeometry start");
+            try { ApplyWindowGeometry(); Program.Log("MF7. ApplyWindowGeometry done"); }
+            catch (Exception ex) { Program.Log("MF7. ApplyWindowGeometry FATAL: " + ex.GetType().FullName + " - " + ex.Message); Program.Log("MF7. ApplyWindowGeometry Stack: " + ex.StackTrace); }
 
             if (_settings.ExplorerIntegration)
             {
@@ -1363,25 +1363,24 @@ public sealed partial class MainForm : Form
             }
 
             Program.Log("MF8. Timer start");
-            _timer.Tick += (_, _) => TimerTick();
-            _timer.Start();
-            Program.Log("MF8. Timer start done");
+            try { _timer.Tick += (_, _) => TimerTick(); _timer.Start(); Program.Log("MF8. Timer start done"); }
+            catch (Exception ex) { Program.Log("MF8. Timer start FATAL: " + ex.GetType().FullName + " - " + ex.Message); }
 
-            Program.Log("MF9. UpdateButtons");
-            UpdateButtons();
-            Program.Log("MF9. UpdateButtons done");
+            Program.Log("MF9. UpdateButtons start");
+            try { UpdateButtons(); Program.Log("MF9. UpdateButtons done"); }
+            catch (Exception ex) { Program.Log("MF9. UpdateButtons FATAL: " + ex.GetType().FullName + " - " + ex.Message); }
 
-            Program.Log("MF10. UpdateFooter");
-            UpdateFooter();
-            Program.Log("MF10. UpdateFooter done");
+            Program.Log("MF10. UpdateFooter start");
+            try { UpdateFooter(); Program.Log("MF10. UpdateFooter done"); }
+            catch (Exception ex) { Program.Log("MF10. UpdateFooter FATAL: " + ex.GetType().FullName + " - " + ex.Message); }
 
-            Program.Log("MF11. UpdateHashColumns");
-            UpdateHashColumns();
-            Program.Log("MF11. UpdateHashColumns done");
+            Program.Log("MF11. UpdateHashColumns start");
+            try { UpdateHashColumns(); Program.Log("MF11. UpdateHashColumns done"); }
+            catch (Exception ex) { Program.Log("MF11. UpdateHashColumns FATAL: " + ex.GetType().FullName + " - " + ex.Message); }
 
-            Program.Log("MF12. UpdateJobs");
-            UpdateJobs();
-            Program.Log("MF12. UpdateJobs done");
+            Program.Log("MF12. UpdateJobs start");
+            try { UpdateJobs(); Program.Log("MF12. UpdateJobs done"); }
+            catch (Exception ex) { Program.Log("MF12. UpdateJobs FATAL: " + ex.GetType().FullName + " - " + ex.Message); }
 
             // BuildTray y ApplyCopierReplacement desactivados temporalmente para
             // descartar reentrancy del shell durante el arranque.
@@ -1462,17 +1461,26 @@ public sealed partial class MainForm : Form
 
     private void EnsureDefaultList()
     {
-        if (_lists.Count > 0) return;
-        var list = new TransferList
+        try
         {
-            Name = "Lista de copia",
-            Destination = string.IsNullOrWhiteSpace(_settings.Destination)
-                ? AppSettings.DefaultDestination() : _settings.Destination
-        };
-        _lists.Add(list);
-        _activeList = list;
-        _items = list.Items;
-        RefreshListSelector();
+            if (_lists.Count > 0) return;
+            var list = new TransferList
+            {
+                Name = "Lista de copia",
+                Destination = string.IsNullOrWhiteSpace(_settings.Destination)
+                    ? AppSettings.DefaultDestination() : _settings.Destination
+            };
+            _lists.Add(list);
+            _activeList = list;
+            _items = list.Items;
+            RefreshListSelector();
+        }
+        catch (Exception ex)
+        {
+            Program.Log("MF6. EnsureDefaultList EXCEPTION: " + ex.GetType().FullName + " - " + ex.Message);
+            Program.Log("MF6. EnsureDefaultList Stack: " + ex.StackTrace);
+            throw;
+        }
     }
 
     private void AddNewList(string? destination)
@@ -1543,13 +1551,39 @@ public sealed partial class MainForm : Form
         SetStatus($"Lista activa: {list.DisplayName} ({list.Items.Count} archivo(s))");
     }
 
+    private bool _refreshingSelector;
+
     private void RefreshListSelector()
     {
         if (_listSelector is null) return;
-        var current = _listSelector.SelectedItem as TransferList;
-        _listSelector.Items.Clear();
-        foreach (var list in _lists) _listSelector.Items.Add(list);
-        _listSelector.SelectedItem = _activeList ?? current;
+        if (_refreshingSelector) return; // prevenir reentrancy / bucle infinito
+        _refreshingSelector = true;
+        try
+        {
+            var current = _listSelector.SelectedItem as TransferList;
+            _listSelector.Items.Clear();
+            foreach (var list in _lists) _listSelector.Items.Add(list);
+            // No establecer SelectedItem aquí para no disparar SelectedIndexChanged
+            // que llamaría a SwitchToList → RefreshListSelector → bucle infinito.
+            if (_activeList is not null && _lists.Contains(_activeList))
+            {
+                _listSelector.SelectedItem = _activeList;
+            }
+            else if (_lists.Count > 0)
+            {
+                _listSelector.SelectedItem = _lists[0];
+                _activeList = _lists[0];
+            }
+        }
+        catch (Exception ex)
+        {
+            Program.Log("MF6. RefreshListSelector EXCEPTION: " + ex.GetType().FullName + " - " + ex.Message);
+            Program.Log("MF6. RefreshListSelector Stack: " + ex.StackTrace);
+        }
+        finally
+        {
+            _refreshingSelector = false;
+        }
     }
 
     /// <summary>
