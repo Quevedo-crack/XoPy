@@ -1273,7 +1273,8 @@ public sealed partial class MainForm : Form
                 case "conflict":
                     CaptureDialogPng(() => new PromptDialog(_palette, "Archivo ya existente",
                         "El archivo «informe.pdf» ya existe en la carpeta de destino. ¿Qué quieres hacer?",
-                        new[] { "Sobrescribir", "Omitir", "Cambiar nombre", "Cancelar" }), target);
+                        "Puedes aplicar la decisión a todos los archivos de esta transferencia.",
+                        new[] { "Sobrescribir", "Omitir", "Cambiar nombre", "Cancelar" }, null), target);
                     break;
 
                 case "history":
