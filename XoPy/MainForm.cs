@@ -1399,8 +1399,12 @@ public sealed partial class MainForm : Form
         // Se fuerza un repintado completo: al arrancar, la ventana aún no había pintado la
         // barra ni la lista y la captura salía recortada por abajo.
         // Ajuste final de columnas: si la ventana se redimensionó al abrirse, el reparto
-        // podía quedarse atrás y dejaba una franja clara a la derecha de la última columna.
+        // podía quedarse atrás y el ListView mostraba su barra de desplazamiento horizontal
+        // (una línea blanca) al pie de la lista. Se reparten y se deja repintar.
         Application.DoEvents();
+        ResizeColumns();
+        Application.DoEvents();
+        Thread.Sleep(150);
         ResizeColumns();
         Refresh();
         foreach (Control child in Controls) child.Refresh();
