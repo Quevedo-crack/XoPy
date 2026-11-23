@@ -409,6 +409,7 @@ public sealed class CopyEngine
         var relative = string.IsNullOrWhiteSpace(item.RelativePath) ? Path.GetFileName(source) : item.RelativePath;
         var copied = 0;
         var skipped = 0;
+        var failed = 0;
 
         foreach (var destination in destinations)
         {
@@ -428,7 +429,19 @@ public sealed class CopyEngine
             }
 
             await CopyWithRetryAsync(source, resolved, item, options, token).ConfigureAwait(false);
-            if (item.State is ItemState.Failed or ItemState.Skipped) return;
+            // Un fallo en UN destino no debe impedir copiar a los demás: antes, si el
+            // archivo ya existía y la política era «omitir», se abandonaban los otros
+            // destinos y la segunda copia nunca se escribía.
+            if (item.State is ItemState.Failed)
+            {
+                failed++;
+                continue;
+            }
+            if (item.State is ItemState.Skipped)
+            {
+                skipped++;
+                continue;
+            }
             item.DestinationPath = resolved;
             copied++;
         }
@@ -439,8 +452,11 @@ public sealed class CopyEngine
             item.TransferredBytes = item.SizeBytes;
             return;
         }
+        if (copied == 0 && failed > 0) return;   // el estado de error ya lo puso el motor
 
         item.TransferredBytes = item.SizeBytes;
+        // Al menos un destino se copió: el elemento no debe quedar marcado como fallido.
+        if (item.State is ItemState.Failed) item.State = ItemState.Completed;
 
         if (item.Operation == OperationType.Move)
         {
