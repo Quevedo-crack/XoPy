@@ -1695,6 +1695,16 @@ public sealed partial class MainForm : Form
 
         _uiReady = true;
         Program.Log("MF-OnShown end (UI lista)");
+
+        // Petición recibida al arrancar (--copy/--move/--to, archivos del Explorador…).
+        // Sin esto, abrir XoPy con archivos solo mostraba la ventana vacía.
+        if (_startupRequest.Paths.Count > 0 || _startupRequest.PasteFromClipboard ||
+            !string.IsNullOrWhiteSpace(_startupRequest.Destination))
+        {
+            Program.Log("MF-OnShown HandleExternalAsync(startup) start");
+            _ = HandleExternalAsync(_startupRequest, true);
+        }
+
     }
 
     public void HandleExternalRequest(StartupRequest request)
@@ -1740,11 +1750,22 @@ public sealed partial class MainForm : Form
     {
         if (!isStartup) RestoreWindow();
 
-        if (!string.IsNullOrWhiteSpace(request.Destination) && _activeList is not null)
-            _activeList.Destination = request.Destination;
+        // El destino pedido con --to se aplica a la lista y al cuadro de destino antes de
+        // añadir los archivos, para que la transferencia arranque sin preguntar nada.
+        if (!string.IsNullOrWhiteSpace(request.Destination))
+        {
+            EnsureDefaultList();
+            if (_activeList is not null) _activeList.Destination = request.Destination!;
+            if (_destination is not null) _destination.Text = request.Destination!;
+        }
 
         if (request.Paths.Count > 0)
+        {
             await HandleExternalFiles(request.Paths, request.Destination, request.Operation == OperationType.Move);
+            // --copy/--move/--test/--delete desde la línea de comandos: arrancar sola.
+            if (isStartup && request.Operation is { } operation && !_engine.IsRunning)
+                StartTransfer(operation);
+        }
         else if (!string.IsNullOrWhiteSpace(request.Destination))
         {
             _destination.Text = request.Destination!;
