@@ -1800,6 +1800,9 @@ public sealed partial class MainForm : Form
         }
         if (request.SecureDeletePasses is not null) _settings.SecureDeletePasses = Math.Clamp(request.SecureDeletePasses.Value, 0, 7);
         if (!string.IsNullOrWhiteSpace(request.CompletionScript)) _settings.CompletionScript = request.CompletionScript!;
+        FileLog.Write($"Comando: destinos extra recibidos=[{string.Join(" | ", request.ExtraDestinations)}] " +
+                      $"existen=[{string.Join(" | ", request.ExtraDestinations.Where(Directory.Exists))}] " +
+                      $"guardados=[{string.Join(" | ", _settings.ExtraDestinations)}]");
         foreach (var extra in request.ExtraDestinations.Where(Directory.Exists))
             if (!_settings.ExtraDestinations.Contains(extra, StringComparer.OrdinalIgnoreCase))
                 _settings.ExtraDestinations.Add(extra);
