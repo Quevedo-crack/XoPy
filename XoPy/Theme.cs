@@ -367,6 +367,15 @@ public static class Ui
         menu.BackColor = palette.Surface;
         menu.ForeColor = palette.Text;
         menu.Font = new Font("Segoe UI", 9f);
+
+        // El renderer profesional no colorea el texto de los menús de primer nivel y quedaba
+        // casi negro sobre negro. Se fija el color a mano en cada elemento.
+        foreach (ToolStripItem item in menu.Items)
+            item.ForeColor = palette.Text;
+        menu.ItemsAdded += (_, e) =>
+        {
+            if (e.Item is not null) e.Item.ForeColor = palette.Text;
+        };
     }
 }
 
@@ -411,6 +420,18 @@ internal sealed class DarkMenuRenderer : ToolStripProfessionalRenderer
     {
         using var brush = new SolidBrush(e.ToolStrip is MenuStrip ? _palette.Canvas : _palette.Surface);
         e.Graphics.FillRectangle(brush, e.AffectedBounds);
+    }
+
+    /// <summary>
+    /// Texto de los menús siempre en el color del tema: el renderer profesional dejaba
+    /// los menús de primer nivel casi ilegibles (oscuro sobre oscuro).
+    /// </summary>
+    protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e)
+    {
+        var color = e.Item.Enabled ? _palette.Text : _palette.Muted;
+        if (e.Item.Selected && e.Item.Enabled) color = _palette.Text;
+        e.TextColor = color;
+        base.OnRenderItemText(e);
     }
 
     protected override void OnRenderToolStripBorder(ToolStripRenderEventArgs e)

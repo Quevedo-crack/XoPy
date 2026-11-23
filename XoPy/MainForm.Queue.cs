@@ -1111,14 +1111,9 @@ public sealed partial class MainForm
                         "No se pudo usar la carpeta de destino:\n" + CopyEngine.Describe(ex) +
                         "\n\n¿Qué quieres hacer?",
                         null,
-                        new[] { "Elegir otra carpeta…", "Crear la carpeta", "Usar carpeta predeterminada", "Cancelar" });
-                    if (choice == 3) return;
-                    if (choice == 2)
-                    {
-                        destination = AppSettings.DefaultDestination();
-                        overlapConfirmed = false;
-                        continue;
-                    }
+                        // Sin «usar carpeta predeterminada»: Descargas nunca se propone sola.
+                        new[] { "Elegir otra carpeta…", "Crear la carpeta", "Cancelar" });
+                    if (choice == 2) return;
                     if (choice == 1)
                     {
                         try { Directory.CreateDirectory(destination); }
@@ -1964,6 +1959,8 @@ public sealed partial class MainForm
         _progress.FillColor = _items.Any(item => item.State == ItemState.Failed) && !_engine.IsRunning
             ? _palette.Warning
             : _palette.Accent;
+        // Sin esto, en reposo la barra se quedaba en blanco aunque hubiera porcentaje.
+        _progress.Invalidate();
 
         _summaryLabel.Text = leaves.Count == 0
             ? "Sin archivos en la lista"

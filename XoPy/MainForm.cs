@@ -426,7 +426,7 @@ public sealed partial class MainForm : Form
         var modeHost = new ToolStripControlHost(modeCombo)
         {
             AutoSize = false,
-            Margin = new Padding(2, 3, 6, 0),
+            Margin = new Padding(12, 3, 10, 0),
             Size = new Size(168, 26),
             ToolTipText = "Modo de copia: secuencial (un archivo a la vez) o multihilo con N archivos en paralelo"
         };
@@ -539,7 +539,8 @@ public sealed partial class MainForm : Form
     {
         var foreground = accent ? Color.White : _palette.Text;
         var font = new Font("Segoe UI", 8.75f, FontStyle.Bold);
-        var width = iconOnly ? 40 : TextRenderer.MeasureText(text, font).Width + 44;
+        // Más holgura: con +44 el texto quedaba pegado al borde y «Verificar» se recortaba.
+        var width = iconOnly ? 40 : TextRenderer.MeasureText(text, font).Width + 58;
         var button = new ToolStripButton(text)
         {
             Image = Icons.Glyph(glyph, foreground, 18),
@@ -552,7 +553,7 @@ public sealed partial class MainForm : Form
             AutoSize = false,
             Size = new Size(width, 36),
             Margin = new Padding(0, 0, 3, 0),
-            Padding = new Padding(6, 0, 6, 0),
+            Padding = new Padding(8, 0, 8, 0),
             TextAlign = ContentAlignment.MiddleCenter,
             AccessibleName = text,
             ToolTipText = TooltipFor(text)
@@ -1358,7 +1359,12 @@ public sealed partial class MainForm : Form
 
     private void LoadSettingsIntoUi()
     {
-        _destination.Text = _settings.Destination;
+        // El destino NUNCA se rellena solo: el usuario lo elige al añadir o al copiar.
+        // (Antes se pintaba el último destino guardado y por eso aparecía «Descargas».)
+        if (_activeList is not null && string.IsNullOrWhiteSpace(_activeList.Destination))
+            _destination.Text = string.Empty;
+        else
+            _destination.Text = _settings.Destination;
 
         // Opciones de la pantalla de Preferencias (estilo TeraCopy).
         // «Siempre visible» se aplica en el acto.
