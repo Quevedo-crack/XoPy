@@ -1721,10 +1721,26 @@ public sealed partial class MainForm
         if (_startupRequest.Screenshot) return;
 
         // ---exit: proceso de un solo uso (automatizaciones e integraciones).
-        if (_startupRequest.ExitWhenDone && !_engine.IsRunning)
+        // Se espera a que TODOS los destinos estén escritos: salir en cuanto acaba la copia
+        // principal dejaba el segundo destino a medias.
+        if (_startupRequest.ExitWhenDone)
         {
-            try { _exitRequested = true; } catch { }
-            BeginInvoke(new Action(() => { try { Application.Exit(); } catch { } Environment.Exit(0); }));
+            _ = Task.Run(async () =>
+            {
+                for (var waited = 0; waited < 120000 && _engine.IsRunning; waited += 200)
+                    await Task.Delay(200);
+                await Task.Delay(800);
+                try
+                {
+                    BeginInvoke(new Action(() =>
+                    {
+                        try { _exitRequested = true; } catch { }
+                        try { Application.Exit(); } catch { }
+                        Environment.Exit(0);
+                    }));
+                }
+                catch { Environment.Exit(0); }
+            });
             return;
         }
 
