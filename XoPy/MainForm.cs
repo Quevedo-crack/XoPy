@@ -1436,14 +1436,22 @@ public sealed partial class MainForm : Form
         dialog.StartPosition = FormStartPosition.Manual;
         dialog.Location = new Point(Location.X + 40, Location.Y + 40);
         dialog.Show(this);
-        Application.DoEvents();
-        dialog.Refresh();
-        Application.DoEvents();
+        // El diálogo se dibuja con el tema oscuro, pero tarda varios ciclos de mensajes en
+        // pintarse: sin esta espera la captura salía en blanco y a medio construir.
+        dialog.Activate();
+        for (var pass = 0; pass < 14; pass++)
+        {
+            Application.DoEvents();
+            dialog.Update();
+            Thread.Sleep(70);
+        }
         try
         {
-            using var bitmap = new Bitmap(Math.Max(1, dialog.Width), Math.Max(1, dialog.Height));
+            // Se captura también el borde y la sombra del formulario (Bounds, no Size).
+            var area = dialog.Bounds;
+            using var bitmap = new Bitmap(Math.Max(1, area.Width), Math.Max(1, area.Height));
             using (var graphics = Graphics.FromImage(bitmap))
-                graphics.CopyFromScreen(dialog.Location, Point.Empty, dialog.Size);
+                graphics.CopyFromScreen(area.Location, Point.Empty, area.Size);
             bitmap.Save(target, System.Drawing.Imaging.ImageFormat.Png);
         }
         finally
