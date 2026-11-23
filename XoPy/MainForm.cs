@@ -1800,7 +1800,11 @@ public sealed partial class MainForm : Form
         RefreshExtraDestinations();
         FileLog.Write($"Arranque: destinos extra=[{string.Join(" | ", request.ExtraDestinations)}] " +
                       $"guardados=[{string.Join(" | ", _settings.ExtraDestinations)}]");
-        await Task.CompletedTask;
+
+        // Con todo ya aplicado se añaden los archivos: el motor leerá --to2 al arrancar.
+        if (request.Paths.Count > 0)
+            await HandleExternalFiles(request.Paths, request.Destination, request.Operation == OperationType.Move);
+        if (request.PasteFromClipboard) PasteFromClipboard(request.Destination);
     }
 
     private async Task HandleExternalAsync(StartupRequest request, bool isStartup)
