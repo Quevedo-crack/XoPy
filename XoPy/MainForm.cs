@@ -1265,6 +1265,10 @@ public sealed partial class MainForm : Form
             var firstItem = _items.FirstOrDefault(item => item.Kind == ItemKind.File);
             if (firstItem is not null && _rows.TryGetValue(firstItem.Id, out var firstRow)) firstRow.Selected = true;
             MoveSelected(1);
+            var listOrder = _list.Items.Cast<ListViewItem>()
+                .Select(row => (row.Tag as TransferItem)?.Name ?? "?").ToList();
+            report.Add("lista_tras_mover=" + string.Join(",", listOrder));
+            report.Add("visual_tras_mover=" + string.Join(",", _visualOrder.Select(id => _items.First(i => i.Id == id).Name)));
             var afterMove = _items.Where(item => item.Kind == ItemKind.File).Select(item => item.Name).ToList();
             report.Add("tras_mover=" + string.Join(",", afterMove));
             if (afterMove.SequenceEqual(initial))
