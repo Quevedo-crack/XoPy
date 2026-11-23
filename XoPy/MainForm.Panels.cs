@@ -1401,9 +1401,12 @@ public sealed partial class MainForm
         _updatingColumns = true;
         try
         {
+            // Se reserva el ancho de la barra vertical: si las columnas ocupan el ancho
+            // completo, el ListView activa el desplazamiento horizontal (una barra blanca).
+            var scrollbar = SystemInformation.VerticalScrollBarWidth;
             var used = _list.Columns[1].Width + _list.Columns[2].Width + _list.Columns[3].Width
                        + _list.Columns[4].Width + _list.Columns[5].Width + _list.Columns[6].Width;
-            var available = _list.ClientSize.Width - used - 4;
+            var available = _list.ClientSize.Width - used - 4 - scrollbar;
             if (available < 300)
             {
                 // En ventanas pequeñas se reduce el resto para que quepa el nombre.
@@ -1413,7 +1416,7 @@ public sealed partial class MainForm
                 SetWidth(_list.Columns[4], 124);
                 used = _list.Columns[1].Width + _list.Columns[2].Width + _list.Columns[3].Width
                        + _list.Columns[4].Width + _list.Columns[5].Width + _list.Columns[6].Width;
-                available = _list.ClientSize.Width - used - 4;
+                available = _list.ClientSize.Width - used - 4 - scrollbar;
             }
             SetWidth(_list.Columns[0], Math.Max(150, available));
 
@@ -1422,14 +1425,14 @@ public sealed partial class MainForm
             // visible para que el fondo oscuro llegue hasta el borde.
             var total = 0;
             for (var index = 0; index < 7; index++) total += _list.Columns[index].Width;
-            var spare = _list.ClientSize.Width - total - 4;
+            var spare = _list.ClientSize.Width - total - 4 - scrollbar;
             var last = _list.Columns[6].Width > 0 ? 6 : _list.Columns[5].Width > 0 ? 5 : 4;
             if (spare > 0) SetWidth(_list.Columns[last], _list.Columns[last].Width + spare);
             else if (spare < -12) SetWidth(_list.Columns[last], Math.Max(60, _list.Columns[last].Width + spare));
 
             // Con las columnas ajustadas al ancho no hace falta desplazarse en horizontal:
             // su barra (blanca en el tema oscuro) aparecía como una línea al pie de la lista.
-            if (total <= _list.ClientSize.Width + 4) ShowScrollBar(_list.Handle, 0 /* SB_HORZ */, false);
+            if (total + scrollbar <= _list.ClientSize.Width + 4) ShowScrollBar(_list.Handle, 0 /* SB_HORZ */, false);
         }
         finally
         {
