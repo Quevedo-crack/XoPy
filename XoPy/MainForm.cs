@@ -1305,16 +1305,8 @@ public sealed partial class MainForm : Form
             Program.Log("MF16. No se pudo capturar: " + ex.Message);
         }
 
-        // Cerrar en cuanto la imagen está escrita: el proceso debe terminar solo para que
-        // el flujo de capturas pueda seguir con el paso siguiente.
-        BeginInvoke(new Action(() =>
-        {
-            try { _timer.Stop(); } catch { }
-            try { _exitRequested = true; } catch { }
-            Close();
-            Application.ExitThread();
-            Environment.Exit(0);
-        }));
+        // La imagen ya está escrita: quien llama decide cuándo cerrar (OnShown).
+        try { _timer.Stop(); } catch { }
     }
 
     private void SaveWindowPng(string target)
@@ -1695,6 +1687,9 @@ public sealed partial class MainForm : Form
                 // esperar a que termine; si no, el PNG sale a medias.
                 Program.Log("MF16. CaptureScreenshot start");
                 await WaitForEngineIdleAndCaptureAsync();
+                Program.Log("MF16. CaptureScreenshot end");
+                // Proceso de un solo uso: se termina sin pasar por el flujo de la bandeja.
+                Environment.Exit(0);
             }
         }
         catch (Exception ex)
