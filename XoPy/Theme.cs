@@ -422,17 +422,6 @@ internal sealed class DarkMenuRenderer : ToolStripProfessionalRenderer
         e.Graphics.FillRectangle(brush, e.AffectedBounds);
     }
 
-    /// <summary>
-    /// Texto de los menús siempre en el color del tema: el renderer profesional dejaba
-    /// los menús de primer nivel casi ilegibles (oscuro sobre oscuro).
-    /// </summary>
-    protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e)
-    {
-        var color = e.Item.Enabled ? _palette.Text : _palette.Muted;
-        if (e.Item.Selected && e.Item.Enabled) color = _palette.Text;
-        e.TextColor = color;
-        base.OnRenderItemText(e);
-    }
 
     protected override void OnRenderToolStripBorder(ToolStripRenderEventArgs e)
     {
