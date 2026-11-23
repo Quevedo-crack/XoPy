@@ -1433,6 +1433,12 @@ public sealed partial class MainForm
             // Con las columnas ajustadas al ancho no hace falta desplazarse en horizontal:
             // su barra (blanca en el tema oscuro) aparecía como una línea al pie de la lista.
             if (total + scrollbar <= _list.ClientSize.Width + 4) ShowScrollBar(_list.Handle, 0 /* SB_HORZ */, false);
+
+            // Con la lista vacía también aparecía el pulgar de la barra vertical, que el tema
+            // oscuro de Windows no colorea (se veía un rectángulo blanco). Se oculta mientras
+            // no haya filas: con contenido vuelve sola.
+            var needsVertical = _list.Items.Count > 0;
+            ShowScrollBar(_list.Handle, 1 /* SB_VERT */, needsVertical);
         }
         finally
         {
