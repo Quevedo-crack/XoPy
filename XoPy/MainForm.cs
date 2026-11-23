@@ -1267,7 +1267,12 @@ public sealed partial class MainForm : Form
             MoveSelected(1);
             var afterMove = _items.Where(item => item.Kind == ItemKind.File).Select(item => item.Name).ToList();
             report.Add("tras_mover=" + string.Join(",", afterMove));
-            if (afterMove.SequenceEqual(initial)) { report.Add("error=mover no cambio el orden"); ok = false; }
+            if (afterMove.SequenceEqual(initial))
+            {
+                report.Add("error=mover no cambio el orden | items=" + string.Join(",", _items.Select(i => i.Name))
+                    + " | visual=" + string.Join(",", _visualOrder.Select(id => _items.First(i => i.Id == id).Name)));
+                ok = false;
+            }
 
             SortAllFilesBySize(invert: true);
             var afterSort = _items.Where(item => item.Kind == ItemKind.File).Select(item => item.Name).ToList();
