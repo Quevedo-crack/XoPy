@@ -147,61 +147,30 @@ public sealed partial class MainForm : Form
         _history = _store.LoadHistory();
         _palette = Palette.For(_settings.DarkTheme);
 
-        try
+        BuildUi();
+        LoadSettingsIntoUi();
+        ApplyCompactView(_settings.CompactView, persist: false);
+        ApplyJobsCollapsed(_settings.CollapseJobs);
+        WireEngine();
+        EnsureDefaultList();
+        ApplyWindowGeometry();
+
+        if (_settings.ExplorerIntegration)
         {
-            Program.Log("MF1. BuildUi");
-            BuildUi();
-
-            Program.Log("MF2. LoadSettingsIntoUi");
-            LoadSettingsIntoUi();
-
-            Program.Log("MF3. ApplyCompactView");
-            ApplyCompactView(_settings.CompactView, persist: false);
-
-            Program.Log("MF4. ApplyJobsCollapsed");
-            ApplyJobsCollapsed(_settings.CollapseJobs);
-
-            Program.Log("MF5. WireEngine");
-            WireEngine();
-
-            Program.Log("MF6. EnsureDefaultList");
-            EnsureDefaultList();
-
-            Program.Log("MF7. ApplyWindowGeometry");
-            ApplyWindowGeometry();
-
-            if (_settings.ExplorerIntegration)
-            {
-                _settings.ExplorerIntegration = false;
-                _store.Save(_settings);
-            }
-
-            Program.Log("MF8. Timer start");
-            _timer.Tick += (_, _) => TimerTick();
-            _timer.Start();
-
-            Program.Log("MF9. UpdateButtons");
-            UpdateButtons();
-
-            Program.Log("MF10. UpdateFooter");
-            UpdateFooter();
-
-            Program.Log("MF11. UpdateHashColumns");
-            UpdateHashColumns();
-
-            Program.Log("MF12. UpdateJobs");
-            UpdateJobs();
-
-            // BuildTray y ApplyCopierReplacement desactivados temporalmente para
-            // descartar reentrancy del shell durante el arranque.
-            Program.Log("MF-ctor end");
+            _settings.ExplorerIntegration = false;
+            _store.Save(_settings);
         }
-        catch (Exception ex)
-        {
-            Program.Log($"MF-FATAL: {ex.GetType().FullName} - {ex.Message}");
-            Program.Log($"MF-FATAL Stack: {ex.StackTrace}");
-            throw;
-        }
+
+        _timer.Tick += (_, _) => TimerTick();
+        _timer.Start();
+
+        UpdateButtons();
+        UpdateFooter();
+        UpdateHashColumns();
+        UpdateJobs();
+
+        // BuildTray y ApplyCopierReplacement desactivados temporalmente para
+        // descartar reentrancy del shell durante el arranque.
     }
 
     // ---------------------------------------------------------------- interfaz
