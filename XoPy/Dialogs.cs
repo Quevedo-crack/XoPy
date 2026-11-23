@@ -537,7 +537,8 @@ internal sealed class OptionsDialog : Form
         // texto se reparta en varias líneas sin huecos ni cortes.
         page.Resize += (_, _) =>
         {
-            var available = Math.Max(280, page.ClientSize.Width - layout.ColumnStyles[0].Width - 40);
+            // ColumnStyle.Width es float: sin el cast, WinForms no puede restar int - float.
+            var available = Math.Max(280, page.ClientSize.Width - (int)layout.ColumnStyles[0].Width - 40);
             foreach (var description in descriptions) description.MaximumSize = new Size(available, 0);
         };
 

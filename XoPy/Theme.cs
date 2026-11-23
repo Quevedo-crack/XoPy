@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Diagnostics.CodeAnalysis;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Text;
@@ -568,6 +569,7 @@ internal sealed class PillLabel : Control
         Height = 22;
     }
 
+    [AllowNull]
     public override string Text
     {
         get => _text;
@@ -581,6 +583,12 @@ internal sealed class PillLabel : Control
     }
 
     /// <summary>Color de acento de la píldora (por defecto, gris del tema).</summary>
+    /// <remarks>
+    /// El diseñador de WinForms exige declarar explícitamente cómo se serializa una
+    /// propiedad propia en un control (WFO1000); se oculta porque no se edita en el diseñador.
+    /// </remarks>
+    [Browsable(false)]
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public Color Accent { get; set; } = Color.Empty;
 
     protected override void OnPaint(PaintEventArgs e)
