@@ -102,6 +102,7 @@ public static class Icons
     public const string Down = "\uE70D";
     public const string Refresh = "\uE72C";
     public const string Expand = "\uE710";
+    public const string SortAsc = "\uE8CB";   // flechas arriba/abajo: ordenar
 
     public static Image Glyph(string glyph, Color color, int size = 20)
     {

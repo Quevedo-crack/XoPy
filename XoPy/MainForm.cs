@@ -1007,7 +1007,9 @@ public sealed partial class MainForm : Form
             BackColor = _palette.SurfaceAlt,
             Padding = new Padding(0, 2, 4, 0)
         };
-        _sortButton = Ui.IconButton("\u21C5", _palette, "Ordenar la cola por nombre, tamaño, tipo o carpeta de destino");
+        // Icono nativo de «Segoe MDL2 Assets»: U+21C5 no existe en esa fuente y salía
+        // rasterizado como un amasijo de puntos.
+        _sortButton = Ui.IconButton(Icons.SortAsc, _palette, "Ordenar la cola por nombre, tamaño, tipo o carpeta de destino");
         _sortButton.Click += (_, _) => ShowSortMenu(_sortButton);
 
         _collapseButton = Ui.IconButton("\u00AB", _palette, "Mostrar u ocultar la columna de trabajos");
