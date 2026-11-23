@@ -230,6 +230,9 @@ public sealed class StartupRequest
 
     /// <summary>Cerrar al terminar la transferencia pedida por línea de comandos (--exit).</summary>
     public bool ExitWhenDone { get; set; }
+
+    /// <summary>Prueba automática de la cola (--self-test-queue); no abre la ventana.</summary>
+    public bool SelfTestQueue { get; set; }
     public ConflictPolicy? Conflict { get; set; }
     public VerifyAlgorithm? VerifyAlgorithm { get; set; }
     public bool VerifyAfterCopy { get; set; }
@@ -257,6 +260,11 @@ public sealed class StartupRequest
                 case "--no-shell-hook": request.NoShellHook = true; break;
                 case "--tray": request.StartMinimized = true; break;
                 case "--exit": request.ExitWhenDone = true; break;
+                case "--self-test-queue":
+                    request.SelfTestQueue = true;
+                    if (i + 1 < args.Length && !args[i + 1].StartsWith("-", StringComparison.Ordinal))
+                        request.ScreenshotPath = Normalize(args[++i]);
+                    break;
                 case "--ask-destination": request.AskDestination = true; break;
                 case "--locked": request.CopyLockedFiles = true; break;
                 case "--no-resume": request.ResumePartials = false; break;

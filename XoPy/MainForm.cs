@@ -1233,6 +1233,65 @@ public sealed partial class MainForm : Form
     /// Genera un PNG con el aspecto real de la ventana y cierra la aplicación. Se usa desde
     /// el workflow «UI preview» para revisar la interfaz en Windows sin tocar el equipo.
     /// </summary>
+    /// <summary>
+    /// Comprueba el reordenamiento de la cola sin intervención humana: añade tres archivos
+    /// de tamaños distintos, los mueve, ordena por tamaño y los quita. Deja el resultado en
+    /// el archivo indicado y devuelve true si todo fue bien.
+    /// </summary>
+    private bool RunQueueSelfTest(string reportPath)
+    {
+        var report = new List<string>();
+        var ok = true;
+        var folder = Path.Combine(Path.GetTempPath(), "xopy-colatest");
+        try
+        {
+            Directory.CreateDirectory(folder);
+            for (var i = 1; i <= 3; i++)
+                File.WriteAllBytes(Path.Combine(folder, $"archivo{i}.bin"), new byte[i * 1024]);
+
+            EnsureDefaultList();
+            _settings.Destination = Path.Combine(folder, "destino");
+            Directory.CreateDirectory(_settings.Destination);
+            _destination.Text = _settings.Destination;
+
+            var paths = Enumerable.Range(1, 3).Select(i => Path.Combine(folder, $"archivo{i}.bin")).ToList();
+            AddPathsAsync(paths, askDestination: false).GetAwaiter().GetResult();
+
+            var initial = _items.Where(item => item.Kind == ItemKind.File).Select(item => item.Name).ToList();
+            report.Add("inicial=" + string.Join(",", initial));
+            if (initial.Count != 3) { report.Add("error=se esperaban 3 archivos"); ok = false; }
+
+            _list.SelectedItems.Clear();
+            var firstItem = _items.FirstOrDefault(item => item.Kind == ItemKind.File);
+            if (firstItem is not null && _rows.TryGetValue(firstItem.Id, out var firstRow)) firstRow.Selected = true;
+            MoveSelected(1);
+            var afterMove = _items.Where(item => item.Kind == ItemKind.File).Select(item => item.Name).ToList();
+            report.Add("tras_mover=" + string.Join(",", afterMove));
+            if (afterMove.SequenceEqual(initial)) { report.Add("error=mover no cambio el orden"); ok = false; }
+
+            SortAllFilesBySize(invert: true);
+            var afterSort = _items.Where(item => item.Kind == ItemKind.File).Select(item => item.Name).ToList();
+            report.Add("tras_ordenar=" + string.Join(",", afterSort));
+            if (afterSort.Count > 0 && afterSort[afterSort.Count - 1] != "archivo3.bin")
+            { report.Add("error=el orden por tamano no dejo al mayor al final"); ok = false; }
+
+            var before = _items.Count(item => item.Kind == ItemKind.File);
+            RemoveItems(_items.Where(item => item.Kind == ItemKind.File).ToList());
+            var after = _items.Count(item => item.Kind == ItemKind.File);
+            report.Add($"quitados={before - after}");
+            if (before - after != before) { report.Add("error=no se quitaron todos"); ok = false; }
+        }
+        catch (Exception ex)
+        {
+            report.Add("excepcion=" + ex.GetType().Name + ": " + ex.Message);
+            ok = false;
+        }
+
+        report.Add(ok ? "resultado=OK" : "resultado=FALLO");
+        try { File.WriteAllLines(reportPath, report); } catch { }
+        return ok;
+    }
+
     /// <summary>Espera a que no haya transferencia en curso y guarda la captura.</summary>
     private async Task WaitForEngineIdleAndCaptureAsync()
     {
@@ -1678,6 +1737,16 @@ public sealed partial class MainForm : Form
             Program.Log("MF15. InstallShellHookIfNeeded start");
             try { InstallShellHookIfNeeded(); Program.Log("MF15. InstallShellHookIfNeeded done"); }
             catch (Exception ex) { Program.Log("MF15. InstallShellHookIfNeeded FATAL: " + ex.GetType().FullName + " - " + ex.Message); }
+
+            // Prueba automática de la cola: reordenar, ordenar por tamaño y quitar.
+            if (_startupRequest.SelfTestQueue)
+            {
+                var reportPath = _startupRequest.ScreenshotPath
+                    ?? Path.Combine(Path.GetTempPath(), "cola.txt");
+                var ok = RunQueueSelfTest(reportPath);
+                Environment.Exit(ok ? 0 : 1);
+                return;
+            }
 
             // Modo captura (solo CI): guarda la ventana como PNG y cierra. Se hace al final
             // del arranque para que la imagen muestre la interfaz ya completa.
