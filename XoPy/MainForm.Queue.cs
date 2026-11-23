@@ -1159,7 +1159,9 @@ public sealed partial class MainForm
         }
 
         var required = leaves.Sum(item => Math.Max(0, item.SizeBytes));
-        if (operation is OperationType.Copy or OperationType.Move && required > 0 && !ConfirmFreeSpace(destination, required)) return;
+        // La comprobación de espacio se puede desactivar en Preferencias (como en TeraCopy).
+        if (_settings.CheckFreeSpace && operation is OperationType.Copy or OperationType.Move
+            && required > 0 && !ConfirmFreeSpace(destination, required)) return;
 
         foreach (var leaf in leaves)
         {

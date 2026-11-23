@@ -1359,6 +1359,10 @@ public sealed partial class MainForm : Form
     {
         _destination.Text = _settings.Destination;
 
+        // Opciones de la pantalla de Preferencias (estilo TeraCopy).
+        // «Siempre visible» se aplica en el acto.
+        try { TopMost = _settings.AlwaysOnTop; } catch { }
+
         // El selector de modo refleja lo guardado en Preferencias sin volver a guardar.
         if (_copyMode is not null)
         {

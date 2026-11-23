@@ -180,6 +180,16 @@ public sealed class AppSettings
     public bool AskWhenBusy { get; set; } = true;
     public List<string> Favorites { get; set; } = new();
 
+    // Opciones con equivalente en TeraCopy (todas se aplican de forma conservadora).
+    public bool ConfirmDragDrop { get; set; }
+    public bool OnlyWhenScrollLockOff { get; set; }
+    public bool AlwaysOnTop { get; set; }
+    public bool CheckFreeSpace { get; set; } = true;
+    public bool UseSystemWriteCache { get; set; } = true;
+    public string FastDevices { get; set; } = string.Empty;
+    public string SlowDevices { get; set; } = string.Empty;
+    public string Language { get; set; } = "es";
+
     public static string DefaultDestination()
     {
         var downloads = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
