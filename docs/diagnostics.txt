@@ -1,5 +1,5 @@
   Determining projects to restore...
-  Restored D:\a\XoPy\XoPy\XoPy\XoPy.csproj (in 24 ms).
+  Restored D:\a\XoPy\XoPy\XoPy\XoPy.csproj (in 28 ms).
 D:\a\XoPy\XoPy\XoPy\MainForm.cs(1595,9): warning WFDEV004: 'Form.Closed' is obsolete: 'Form.OnClosing, Form.OnClosed and the corresponding events are obsolete. Use Form.OnFormClosing, Form.OnFormClosed, Form.FormClosing and Form.FormClosed instead.' (https://aka.ms/winforms-warnings/WFDEV004) [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
 D:\a\XoPy\XoPy\XoPy\MainForm.cs(1789,13): warning CS8602: Dereference of a possibly null reference. [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
 D:\a\XoPy\XoPy\XoPy\MainForm.cs(1815,74): warning CS8602: Dereference of a possibly null reference. [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
@@ -17,7 +17,7 @@ CSC : warning WFO0003: Remove high DPI settings from D:\a\XoPy\XoPy\XoPy\app.man
     5 Warning(s)
     0 Error(s)
 
-Time Elapsed 00:00:02.04
+Time Elapsed 00:00:03.38
 FILE: carpeta (1 bytes)
 FILE: dest-rbcopy (1 bytes)
 FILE: dest3 (1 bytes)
@@ -25,21 +25,21 @@ FILE: dest4 (1 bytes)
 FILE: destino (1 bytes)
 FILE: destino2 (1 bytes)
 FILE: jerarquia (1 bytes)
-FILE: conflict.png (21263 bytes)
+FILE: conflict.png (10771 bytes)
 FILE: conflictotest.txt (70 bytes)
 FILE: copiatest.txt (83 bytes)
 FILE: exitcode.txt (24 bytes)
-FILE: history.png (116368 bytes)
+FILE: history.png (23985 bytes)
 FILE: informe.pdf (10242 bytes)
 FILE: jerarquiatest.txt (112 bytes)
 FILE: menu-context.png (5704 bytes)
-FILE: menu-menu.png (14900 bytes)
+FILE: menu-menu.png (14695 bytes)
 FILE: movetest.txt (88 bytes)
-FILE: options.png (43166 bytes)
+FILE: options.png (43806 bytes)
 FILE: rbcopy.bin (200002 bytes)
 FILE: robocopytest.txt (49 bytes)
-FILE: shot.png (14900 bytes)
-FILE: verify.png (14956 bytes)
+FILE: shot.png (14695 bytes)
+FILE: verify.png (14754 bytes)
 FILE: video.mp4 (20482 bytes)
 --- C:\xopytest\exitcode.txt
 exitcode=0 exited=True
