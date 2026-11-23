@@ -1269,7 +1269,10 @@ public sealed partial class MainForm : Form
                 .Select(row => (row.Tag as TransferItem)?.Name ?? "?").ToList();
             report.Add("lista_tras_mover=" + string.Join(",", listOrder));
             report.Add("visual_tras_mover=" + string.Join(",", _visualOrder.Select(id => _items.First(i => i.Id == id).Name)));
-            var afterMove = _items.Where(item => item.Kind == ItemKind.File).Select(item => item.Name).ToList();
+            // Lo que importa es el orden VISUAL (lo que copia la cola), no _items.
+            var afterMove = _list.Items.Cast<ListViewItem>()
+                .Select(row => (row.Tag as TransferItem)?.Name ?? "?")
+                .Where(name => name.EndsWith(".bin", StringComparison.OrdinalIgnoreCase)).ToList();
             report.Add("tras_mover=" + string.Join(",", afterMove));
             if (afterMove.SequenceEqual(initial))
             {
@@ -1279,7 +1282,9 @@ public sealed partial class MainForm : Form
             }
 
             SortAllFilesBySize(invert: true);
-            var afterSort = _items.Where(item => item.Kind == ItemKind.File).Select(item => item.Name).ToList();
+            var afterSort = _list.Items.Cast<ListViewItem>()
+                .Select(row => (row.Tag as TransferItem)?.Name ?? "?")
+                .Where(name => name.EndsWith(".bin", StringComparison.OrdinalIgnoreCase)).ToList();
             report.Add("tras_ordenar=" + string.Join(",", afterSort));
             if (afterSort.Count > 0 && afterSort[afterSort.Count - 1] != "archivo3.bin")
             { report.Add("error=el orden por tamano no dejo al mayor al final"); ok = false; }
