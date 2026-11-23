@@ -1053,6 +1053,17 @@ public sealed partial class MainForm : Form
         _list.Columns.Add("Hash origen", 0);
         _list.Columns.Add("Hash destino", 0);
 
+        // La esquina entre las dos barras de desplazamiento nativas se pinta con el color del
+        // sistema (blanco) y SetWindowTheme no la toca: se repinta con el fondo oscuro.
+        _list.Paint += (_, e) =>
+        {
+            var size = SystemInformation.VerticalScrollBarWidth;
+            var right = _list.ClientSize.Width - size;
+            if (right <= 0) return;
+            using var brush = new SolidBrush(_palette.Surface);
+            e.Graphics.FillRectangle(brush, new Rectangle(right, 0, size, _list.ClientSize.Height));
+        };
+
         _list.DrawColumnHeader += ListDrawColumnHeader;
         _list.DrawItem += (_, e) => { if (_list.View != View.Details) e.DrawDefault = true; };
         _list.DrawSubItem += ListDrawSubItem;
