@@ -276,6 +276,10 @@ jobs:
           $process = Start-Process -FilePath $exe -ArgumentList @('--self-test-queue', 'C:\xopytest\cola.txt') -PassThru
           if (-not $process.WaitForExit(60000)) { $process.Kill(); throw 'La prueba de la cola no terminó' }
           Get-Content C:\xopytest\cola.txt
+          # Se publica como anotación: los logs del run no son accesibles desde la API.
+          $report = (Get-Content C:\xopytest\cola.txt) -join ' | '
+          $report = $report -replace '%','%25' -replace '\r','' -replace '\n','%0A'
+          Write-Host "::notice title=Prueba de cola::$report"
           if ($process.ExitCode -ne 0) {
             Write-Host "::error::La prueba de la cola falló"
             throw "La prueba de la cola falló: $(Get-Content C:\xopytest\cola.txt)"
