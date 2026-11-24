@@ -118,6 +118,18 @@ XoPy.exe --multi --copy --to "D:\Copias" "C:\Datos\informe.pdf"
 - En la barra de copia se puede alternar entre modo secuencial y multihilo, también durante una transferencia; un archivo se puede pausar/reanudar individualmente desde el menú contextual de la lista. La lista admite reordenado por arrastre; las carpetas se muestran contraídas al añadirse y se pueden desplegar con la flecha o desde el menú. La columna de trabajos también empieza plegada y puede expandirse.
 - El instalador limpia las antiguas claves del menú contextual antes de iniciar la aplicación.
 
+## Novedades de la versión 2.5.4
+
+- **Instalador arreglado**: ya no falla con «DeleteFile falló; código 5». Antes de copiar archivos se desregistra la extensión y se libera la DLL del Explorador (reiniciándolo solo si sigue bloqueada), y XoPy se cierra solo durante la instalación.
+- **«Pegar» en todos los contextos**: fondo de carpeta, sobre una carpeta **y escritorio**. Antes solo estaba en el fondo de carpeta, por eso al pegar en el escritorio seguía copiando Windows. El registro se completa siempre y se avisa al shell.
+- **Lista plana, como TeraCopy**: una fila por archivo, venga de la carpeta que venga, siempre con su **ruta completa (raíz incluida)**. Se reordena archivo a archivo con los botones ↑/↓ y la ruta de destino no cambia.
+- **Reordenar con los botones funciona de verdad**: antes solo se intercambiaban archivos de la misma carpeta y casi siempre respondía «ya está en el extremo».
+- **Icono de la bandeja → ventana al frente**: se usa `AttachThreadInput`, que sí funciona aunque el clic lo haya recibido el área de notificación.
+- **Una sola ventana**: una segunda instancia ya no abre otra ventana; se reenvía a la que está abierta y, si no responde, se sale.
+- **Maximizado se conserva** al reabrir desde la bandeja.
+- **Cerrar con la X deja XoPy en la bandeja** mientras sustituye al copiador, avisando la primera vez (para cerrarlo del todo: icono → Salir).
+- **Pruebas automáticas**: copia real de 200 MB (81,6 MB/s con hash correcto) y 300 archivos (81 archivos/s), reordenación entre raíces distintas, botones ↑/↓ reales y edición de la lista.
+
 ## Novedades de la versión 2.5.3
 
 - **Integración real con el Explorador**: la DLL registra ahora su servidor COM (`DllRegisterServer`/`DllUnregisterServer`), de modo que «Pegar» sustituye de verdad al copiador de Windows.

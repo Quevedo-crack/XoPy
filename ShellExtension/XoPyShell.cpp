@@ -67,8 +67,20 @@ public:
     HRESULT STDMETHODCALLTYPE Initialize(PCIDLIST_ABSOLUTE folder, IDataObject* selection, HKEY) override
     {
         wchar_t path[MAX_PATH] = {};
-        if (!folder || !SHGetPathFromIDListW(folder, path) || !path[0]) { destination_.clear(); return E_INVALIDARG; }
-        destination_ = path;
+        if (!folder || !path[0]) { destination_.clear(); return E_INVALIDARG; }
+
+        // El escritorio no es una ruta normal: su carpeta de sistema es la de escritorio del
+        // usuario. Sin esto, pegar en el escritorio no mostraba «Pegar» y seguía copiando Windows.
+        if (!SHGetPathFromIDListW(folder, path) || !path[0])
+        {
+            if (SHGetSpecialFolderPathW(nullptr, path, CSIDL_DESKTOPDIRECTORY, FALSE) && path[0])
+                destination_ = path;
+            else { destination_.clear(); return E_INVALIDARG; }
+        }
+        else
+        {
+            destination_ = path;
+        }
         // For a selected directory, mirror Explorer's drop-target semantics and paste into it.
         if (selection)
         {

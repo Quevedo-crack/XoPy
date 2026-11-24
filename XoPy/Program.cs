@@ -75,13 +75,26 @@ internal static class Program
             if (!isFirstInstance)
             {
                 Log("11. No es primera instancia, intentar IPC");
-                if (IpcClient.Send(request))
+                // Se espera un poco al servidor: si la primera instancia aún está arrancando,
+                // el envío inmediato fallaba y esta segunda instancia abría OTRA ventana. Eso
+                // es lo que hacía que la ventana «volviera a abrirse» tras cerrarla: al pulsar
+                // el icono o al reabrir se lanzaba un segundo proceso con su propia ventana.
+                for (var attempt = 0; attempt < 12; attempt++)
                 {
-                    Log("12. IPC enviado, salir");
-                    mutex.Dispose();
-                    return;
+                    if (IpcClient.Send(request))
+                    {
+                        Log("12. IPC enviado, salir");
+                        try { mutex.Dispose(); } catch { }
+                        return;
+                    }
+                    Thread.Sleep(250);
                 }
+
+                // No se pudo hablar con la primera instancia: NO se abre una segunda ventana
+                // (quedarían dos iconos de bandeja y dos ventanas). Se sale sin más.
+                Log("12b. IPC sin respuesta: se sale sin abrir una segunda ventana");
                 try { mutex.Dispose(); } catch { }
+                return;
             }
 
             Log("13. Crear MainForm");

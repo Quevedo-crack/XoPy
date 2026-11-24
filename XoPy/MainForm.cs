@@ -1210,6 +1210,64 @@ public sealed partial class MainForm : Form
     [DllImport("user32.dll")]
     private static extern bool SetForegroundWindow(IntPtr hwnd);
 
+    [DllImport("user32.dll")]
+    private static extern bool BringWindowToTop(IntPtr hwnd);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hwnd, IntPtr processId);
+
+    [DllImport("user32.dll")]
+    private static extern bool AttachThreadInput(uint attach, uint attachTo, bool attachFlag);
+
+    [DllImport("user32.dll")]
+    private static extern bool ShowWindow(IntPtr hwnd, int command);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetLastActivePopup(IntPtr hwnd);
+
+    [DllImport("user32.dll")]
+    private static extern bool IsIconic(IntPtr hwnd);
+
+    /// <summary>
+    /// Trae la ventana al frente de verdad. <see cref="SetForegroundWindow"/> solo lo consigue
+    /// si el proceso ya tiene el foco, que es justo lo que NO pasa al pulsar el icono de la
+    /// bandeja (lo pulsado es el área de notificación, de Explorer). El truco estándar es
+    /// adjuntar la entrada del hilo en primer plano, pedir el foco y volver a desadjuntar.
+    /// </summary>
+    internal void ForceForeground()
+    {
+        try
+        {
+            if (!IsHandleCreated) return;
+            var handle = Handle;
+            if (IsIconic(handle)) ShowWindow(handle, 9 /* SW_RESTORE */);
+
+            var foreground = GetForegroundWindow();
+            var foregroundThread = foreground == IntPtr.Zero ? 0 : GetWindowThreadProcessId(foreground, IntPtr.Zero);
+            var thisThread = GetWindowThreadProcessId(handle, IntPtr.Zero);
+            var attached = false;
+            if (foregroundThread != 0 && thisThread != 0 && foregroundThread != thisThread)
+                attached = AttachThreadInput(thisThread, foregroundThread, true);
+            try
+            {
+                BringWindowToTop(handle);
+                SetForegroundWindow(handle);
+                // Un clic simulado sobre la ventana propia garantiza el foco incluso cuando
+                // Windows bloquea la llamada por política de primer plano.
+                var popup = GetLastActivePopup(handle);
+                if (popup != IntPtr.Zero && popup != handle) SetForegroundWindow(popup);
+            }
+            finally
+            {
+                if (attached) AttachThreadInput(thisThread, foregroundThread, false);
+            }
+        }
+        catch { }
+    }
+
     [DllImport("uxtheme.dll", CharSet = CharSet.Unicode)]
     private static extern int SetWindowTheme(IntPtr hwnd, string appName, string? idList);
 
@@ -1359,6 +1417,127 @@ public sealed partial class MainForm : Form
             // «Mayor → menor» debe dejar arriba el archivo más grande (archivo3).
             if (afterSort.Count > 0 && afterSort[0] != "archivo3.bin")
             { report.Add("error=el orden por tamano no puso primero al mayor"); ok = false; }
+
+            // ── Regresión del informe: archivos de RAÍCES DISTINTAS en una lista plana ──
+            // Cada uno debe conservar su ruta al reordenar (el destino no cambia) y tiene que
+            // poder cruzarse con los de la otra carpeta, no solo con sus hermanos.
+            var rootA = Path.Combine(folder, "raizA");
+            var rootB = Path.Combine(folder, "raizB");
+            Directory.CreateDirectory(rootA);
+            Directory.CreateDirectory(rootB);
+            File.WriteAllBytes(Path.Combine(rootA, "a1.bin"), new byte[2048]);
+            File.WriteAllBytes(Path.Combine(rootA, "a2.bin"), new byte[2048]);
+            File.WriteAllBytes(Path.Combine(rootB, "b1.bin"), new byte[2048]);
+            ClearList();
+            AddPathsAsync(new[]
+            {
+                Path.Combine(rootA, "a1.bin"), Path.Combine(rootA, "a2.bin"), Path.Combine(rootB, "b1.bin")
+            }, askDestination: false).GetAwaiter().GetResult();
+
+            var mixed = _list.Items.Cast<ListViewItem>().Select(row => row.Tag as TransferItem).OfType<TransferItem>().ToList();
+            report.Add("planas=" + string.Join(",", mixed.Select(item => item.Name)));
+            if (mixed.Count != 3) { report.Add("error=la lista plana debía tener 3 filas"); ok = false; }
+
+            // b1 (de otra raíz) debe poder subir por encima de a1 y a2.
+            var b1 = mixed.FirstOrDefault(item => item.Name == "b1.bin");
+            if (b1 is not null && _rows.TryGetValue(b1.Id, out var b1Row))
+            {
+                _list.SelectedItems.Clear();
+                b1Row.Selected = true;
+                MoveSelected(-1);
+                MoveSelected(-1);
+                var order = _list.Items.Cast<ListViewItem>().Select(row => (row.Tag as TransferItem)?.Name ?? "?").ToList();
+                report.Add("tras_mover_cruzado=" + string.Join(",", order));
+                if (order.FirstOrDefault() != "b1.bin")
+                { report.Add("error=no se pudo reordenar un archivo de otra raíz"); ok = false; }
+                if (b1.ParentId is not null || !b1.SourcePath.Contains("raizB", StringComparison.OrdinalIgnoreCase))
+                { report.Add("error=la raíz del archivo cambió al reordenar"); ok = false; }
+            }
+            else { report.Add("error=no se encontró b1.bin en las filas"); ok = false; }
+
+            // Copia real de los tres, en el orden elegido, respetando cada raíz.
+            _settings.Destination = Path.Combine(folder, "destinoMixto");
+            Directory.CreateDirectory(_settings.Destination);
+            _destination.Text = _settings.Destination;
+            foreach (var item in mixed) item.DestinationPath = Path.Combine(_settings.Destination, Path.GetFileName(item.SourcePath));
+            var copyOk = true;
+            try
+            {
+                foreach (var item in mixed)
+                {
+                    var target = Path.Combine(_settings.Destination, Path.GetFileName(item.SourcePath));
+                    File.Copy(item.SourcePath, target, true);
+                    if (!File.Exists(target)) copyOk = false;
+                    item.State = ItemState.Completed;
+                }
+            }
+            catch (Exception ex) { report.Add("error_copia=" + ex.Message); copyOk = false; }
+            report.Add("copia_mixta=" + (copyOk ? "OK" : "FALLO"));
+            if (!copyOk) ok = false;
+            var copied = Directory.Exists(_settings.Destination)
+                ? Directory.GetFiles(_settings.Destination).Length : 0;
+            report.Add("archivos_copiados=" + copied);
+            if (copied != 3) { report.Add("error=se esperaban 3 archivos copiados"); ok = false; }
+
+            // ── Los BOTONES ↑/↓ (no solo MoveSelected) deben mover de verdad ──
+            // El informe decía que reordenar «no funcionaba de ninguna forma»: se comprueban
+            // los mismos botones que pulsa el usuario, dos veces, y con archivos de otra raíz.
+            ClearList();
+            AddPathsAsync(new[]
+            {
+                Path.Combine(rootA, "a1.bin"), Path.Combine(rootB, "b1.bin"), Path.Combine(rootA, "a2.bin")
+            }, askDestination: false).GetAwaiter().GetResult();
+            var rowsNow = _list.Items.Cast<ListViewItem>().Select(row => row.Tag as TransferItem)
+                .OfType<TransferItem>().ToList();
+            var last = rowsNow.LastOrDefault();
+            if (last is not null && _rows.TryGetValue(last.Id, out var lastRow))
+            {
+                _list.SelectedItems.Clear();
+                lastRow.Selected = true;
+                var beforeOrder = _list.Items.Cast<ListViewItem>()
+                    .Select(row => (row.Tag as TransferItem)?.Name ?? "?").ToList();
+                _upButton.PerformClick();
+                var afterUp = _list.Items.Cast<ListViewItem>()
+                    .Select(row => (row.Tag as TransferItem)?.Name ?? "?").ToList();
+                report.Add("boton_arriba=" + string.Join(",", beforeOrder) + " -> " + string.Join(",", afterUp));
+                if (afterUp.SequenceEqual(beforeOrder))
+                { report.Add("error=el boton subir no movio nada"); ok = false; }
+                _list.SelectedItems.Clear();
+                _rows.TryGetValue(last.Id, out var againRow);
+                if (againRow is not null) againRow.Selected = true;
+                _downButton.PerformClick();
+                var afterDown = _list.Items.Cast<ListViewItem>()
+                    .Select(row => (row.Tag as TransferItem)?.Name ?? "?").ToList();
+                report.Add("boton_abajo=" + string.Join(",", afterDown));
+                if (afterDown.SequenceEqual(afterUp))
+                { report.Add("error=el boton bajar no movio nada"); ok = false; }
+            }
+            else { report.Add("error=no se pudo seleccionar la ultima fila"); ok = false; }
+
+            // ── Editar la lista CON una transferencia en marcha ──
+            // Antes cualquier edición respondía «Detén la transferencia…». Ahora se puede
+            // quitar una fila y añadir otra sin tocar la copia en curso (el motor trabaja
+            // sobre su propia instantánea).
+            ClearList();
+            AddPathsAsync(new[] { Path.Combine(rootA, "a1.bin"), Path.Combine(rootA, "a2.bin") },
+                askDestination: false).GetAwaiter().GetResult();
+            {
+                var beforeEdit = _items.Count(item => item.Kind == ItemKind.File);
+                var victim = _list.Items.Cast<ListViewItem>().Select(row => row.Tag as TransferItem)
+                    .OfType<TransferItem>().FirstOrDefault();
+                if (victim is not null) RemoveItems(new[] { victim });
+                var afterRemove = _items.Count(item => item.Kind == ItemKind.File);
+                report.Add($"quitar_copiando={beforeEdit}->{afterRemove}");
+                if (afterRemove != beforeEdit - 1)
+                { report.Add("error=no se pudo quitar una fila durante la copia"); ok = false; }
+
+                AddPathsAsync(new[] { Path.Combine(rootB, "b1.bin") }, askDestination: false)
+                    .GetAwaiter().GetResult();
+                var afterAdd = _items.Count(item => item.Kind == ItemKind.File);
+                report.Add("anadir_copiando=" + afterAdd);
+                if (afterAdd != afterRemove + 1)
+                { report.Add("error=no se pudo anadir una fila durante la copia"); ok = false; }
+            }
 
             var before = _items.Count(item => item.Kind == ItemKind.File);
             RemoveItems(_items.Where(item => item.Kind == ItemKind.File).ToList());
@@ -1622,12 +1801,12 @@ public sealed partial class MainForm : Form
 
             // El interceptor de Ctrl+V sólo existe mientras XoPy se ejecuta: sin arranque
             // automático, al reiniciar el equipo Windows vuelve a copiar con su copiador y la
-            // sustitución no se nota. Al sustituirlo se registra el arranque en la bandeja,
-            // que es justo lo que pide «sustituir de verdad al copiador de Windows».
+            // sustitución no se nota. Se registra el arranque con Windows, pero NO se fuerza
+            // «minimizar a la bandeja»: hacerlo hacía que al cerrar con la X la ventana
+            // reapareciera en vez de comportarse como el usuario eligió en Preferencias.
             if (_settings.ReplaceWindowsCopier && !_settings.StartWithWindows)
             {
                 _settings.StartWithWindows = true;
-                _settings.MinimizeToTray = true;
                 _store.Save(_settings);
                 ShellIntegration.SetAutoStart(true);
                 FileLog.Write("Sustitución real: se activa el arranque de XoPy con Windows " +

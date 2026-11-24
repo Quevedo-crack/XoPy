@@ -18,14 +18,14 @@ public sealed partial class MainForm
 
     private void AddFiles()
     {
-        if (_engine.IsRunning) { SetStatus("Detén la transferencia antes de añadir archivos."); return; }
+        // Añadir con la copia en marcha está permitido: los nuevos se suman a la cola como
+        // pendientes y se copian después; no se toca el archivo que se está escribiendo.
         if (_openFiles.ShowDialog(this) != DialogResult.OK) return;
         _ = AddPathsAsync(_openFiles.FileNames);
     }
 
     private void AddFolder()
     {
-        if (_engine.IsRunning) { SetStatus("Detén la transferencia antes de añadir carpetas."); return; }
         if (_pickFolder.ShowDialog(this) != DialogResult.OK) return;
         _ = AddPathsAsync(new[] { _pickFolder.SelectedPath });
     }
@@ -471,9 +471,14 @@ public sealed partial class MainForm
         {
             _list.Items.Clear();
             _rows.Clear();
+            // Lista PLANA, como TeraCopy: una fila por archivo, venga de la carpeta que venga.
+            // La carpeta no ocupa fila (por eso antes había que desplegarla para ver el
+            // contenido), y así se puede reordenar archivo a archivo conservando su raíz, que
+            // se muestra en la propia fila. La ruta de destino sigue saliendo de RelativePath,
+            // que no se toca al reordenar.
             foreach (var item in VisualItems())
             {
-                if (!IsVisibleRow(item)) continue;
+                if (item.Kind == ItemKind.Folder) continue;
                 var row = new ListViewItem(new[] { item.Name, DestinationText(item), item.SizeText, item.StateText, string.Empty, string.Empty, string.Empty })
                 {
                     Tag = item,
@@ -685,54 +690,39 @@ public sealed partial class MainForm
         SetStatus("Orden de la cola actualizado.");
     }
 
+    /// <summary>
+    /// Reordena un elemento una posición arriba o abajo. Los ARCHIVOS se mueven siempre
+    /// dentro de la lista plana de archivos, sin importar de qué carpeta vengan: es lo que
+    /// pide poder ordenar archivo a archivo aunque estén en raíces distintas. Las carpetas
+    /// conservan su propia posición y se reordenan solo entre carpetas.
+    /// </summary>
     private bool MoveBlock(TransferItem item, int delta)
     {
-        // Los archivos son solo filas visuales: se cambia su posición en la secuencia
-        // visual, nunca el ParentId, RelativePath ni Depth. Además solo se intercambian
-        // con archivos del MISMO padre: un archivo no puede «saltar» a otra carpeta.
-        if (item.Kind == ItemKind.File)
+        if (item.Kind == ItemKind.Folder)
         {
-            // Solo archivos hermanos (mismo ParentId): el orden real de _items no se toca.
-            var files = VisualItems()
-                .Where(candidate => candidate.Kind == ItemKind.File && candidate.ParentId == item.ParentId)
-                .ToList();
-            var fileIndex = files.IndexOf(item);
-            var fileTarget = fileIndex + delta;
-            if (fileIndex < 0 || fileTarget < 0 || fileTarget >= files.Count) return false;
-            var first = _visualOrder.IndexOf(files[fileIndex].Id);
-            var second = _visualOrder.IndexOf(files[fileTarget].Id);
-            if (first < 0 || second < 0) return false;
-            (_visualOrder[first], _visualOrder[second]) = (_visualOrder[second], _visualOrder[first]);
-            return true;
+            var folders = VisualItems().Where(candidate => candidate.Kind == ItemKind.Folder).ToList();
+            return SwapInVisualOrder(folders, item, delta);
         }
 
-        var parent = item.ParentId is null ? null : _items.FirstOrDefault(candidate => candidate.Id == item.ParentId.Value);
-        var siblings = parent is null ? RootItems() : Children(parent);
-        var index = siblings.IndexOf(item);
+        // Archivos (y carpetas vacías, que son un archivo-índice): una sola secuencia plana.
+        // No se toca ParentId, RelativePath ni Depth: la ruta de destino al copiar no cambia.
+        var files = VisualItems()
+            .Where(candidate => candidate.Kind != ItemKind.Folder)
+            .ToList();
+        return SwapInVisualOrder(files, item, delta);
+    }
+
+    private bool SwapInVisualOrder(List<TransferItem> sequence, TransferItem item, int delta)
+    {
+        var index = sequence.IndexOf(item);
+        if (index < 0) return false;
         var target = index + delta;
-        if (index < 0 || target < 0 || target >= siblings.Count) return false;
+        if (target < 0 || target >= sequence.Count) return false;
 
-        (siblings[index], siblings[target]) = (siblings[target], siblings[index]);
-
-        var rebuilt = new List<TransferItem>();
-        void AddNode(TransferItem node)
-        {
-            rebuilt.Add(node);
-            var children = ReferenceEquals(node, parent) ? siblings : Children(node);
-            foreach (var child in children) AddNode(child);
-        }
-        if (parent is null)
-        {
-            foreach (var root in siblings) AddNode(root);
-        }
-        else
-        {
-            foreach (var root in RootItems()) AddNode(root);
-        }
-
-        _items.Clear();
-        _items.AddRange(rebuilt);
-        ResetVisualOrder();
+        var first = _visualOrder.IndexOf(sequence[index].Id);
+        var second = _visualOrder.IndexOf(sequence[target].Id);
+        if (first < 0 || second < 0) return false;
+        (_visualOrder[first], _visualOrder[second]) = (_visualOrder[second], _visualOrder[first]);
         return true;
     }
 
@@ -740,7 +730,8 @@ public sealed partial class MainForm
 
     private void RemoveItems(IReadOnlyCollection<TransferItem> selected)
     {
-        if (_engine.IsRunning) { SetStatus("Detén la transferencia antes de modificar la lista."); return; }
+        // Se puede quitar de la lista con la copia en marcha: el motor trabaja sobre su
+        // propia instantánea, así que quitar una fila no cancela ni corrompe la transferencia.
         if (selected.Count == 0) { SetStatus("Selecciona uno o varios elementos."); return; }
 
         var remove = new HashSet<Guid>();
@@ -761,7 +752,7 @@ public sealed partial class MainForm
 
     private void ClearList()
     {
-        if (_engine.IsRunning) { SetStatus("Detén la transferencia antes de limpiar la lista."); return; }
+        // Igual que al quitar filas: vaciar la lista no toca la transferencia en curso.
         _items.Clear();
         _rows.Clear();
         _list.Items.Clear();
@@ -879,21 +870,14 @@ public sealed partial class MainForm
             _list.SelectedItems.Clear();
             info.Item.Selected = true;
         }
-        if (e.Button != MouseButtons.Left || info.Item?.Tag is not TransferItem item || item.Kind != ItemKind.Folder) return;
-        var indent = 8 + item.Depth * 18;
-        if (e.X < info.Item.Bounds.Left + indent + 18 && e.X >= info.Item.Bounds.Left + indent - 2)
-            ToggleExpand(item);
+        // La lista es plana (una fila por archivo): no hay carpetas que desplegar.
+        _ = e;
     }
 
     private void ListDoubleClick(object? sender, EventArgs e)
     {
         if (_list.SelectedItems.Count != 1) return;
         if (_list.SelectedItems[0].Tag is not TransferItem item) return;
-        if (item.Kind == ItemKind.Folder && Children(item).Count > 0)
-        {
-            ToggleExpand(item);
-            return;
-        }
         OpenItem(item);
     }
 
@@ -2919,17 +2903,24 @@ public sealed partial class MainForm
             EnsureTrayIcon();
             ShowInTaskbar = true;
             // Restaurar SIEMPRE al frente: antes, con el proceso ya minimizado, la ventana
-            // volvía en estado minimizado en la barra de tareas.
-            WindowState = FormWindowState.Normal;
+            // volvía en estado minimizado en la barra de tareas. Pero si estaba maximizada,
+            // se devuelve maximizada: al pasar por Normal se perdía el maximizado y la
+            // ventana volvía más pequeña de lo que el usuario la tenía.
+            var wasMaximized = WindowState == FormWindowState.Maximized || _settings.WindowMaximized;
+            if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
             if (!Visible) Show();
             Show();
+            if (wasMaximized) WindowState = FormWindowState.Maximized;
             Activate();
             BringToFront();
             // Windows solo concede SetForegroundWindow a procesos con permiso del usuario.
             // TopMost temporal ayuda a sacar la ventana cuando está minimizada u ocultada en bandeja.
             TopMost = true;
             TopMost = false;
-            try { SetForegroundWindow(Handle); } catch { }
+            // El clic se ha producido en el área de notificación (de Explorer), así que este
+            // proceso NO tiene el foco y SetForegroundWindow se ignora. ForceForeground usa
+            // AttachThreadInput, que sí funciona en ese caso.
+            ForceForeground();
             UpdateFooter();
             UpdateButtons();
         }
@@ -2992,10 +2983,27 @@ public sealed partial class MainForm
         SaveWindowGeometry();
         if (_items.Count > 0) SaveQueueFile(_store.LastQueueFile, silent: true);
 
-        if (!_exitRequested && _settings.MinimizeToTray && e.CloseReason == CloseReason.UserClosing)
+        // Mientras XoPy sustituye al copiador de Windows debe seguir vivo: si se cerrara con
+        // la X, el Ctrl+V del Explorador volvería a copiar con Windows y parecería que la
+        // sustitución «no funciona». Se queda en la bandeja y se avisa la primera vez; el
+        // cierre definitivo es «Archivo → Salir» o el menú del icono.
+        var mustStayResident = _settings.ReplaceWindowsCopier || _settings.MinimizeToTray;
+        if (!_exitRequested && mustStayResident && e.CloseReason == CloseReason.UserClosing)
         {
             e.Cancel = true;
             MinimizeToTray();
+            if (_settings.ReplaceWindowsCopier && !_settings.TrayHintShown)
+            {
+                _settings.TrayHintShown = true;
+                _store.Save(_settings);
+                try
+                {
+                    _tray.ShowBalloonTip(4000, "XoPy sigue activo",
+                        "Se queda en el área de notificación para seguir sustituyendo al copiador de Windows. " +
+                        "Para cerrarlo del todo: clic derecho en el icono → Salir.", ToolTipIcon.Info);
+                }
+                catch { }
+            }
             return;
         }
 

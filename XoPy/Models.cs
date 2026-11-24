@@ -171,6 +171,9 @@ public sealed class AppSettings
     public bool PreserveTimestamps { get; set; } = true;
     public bool UseRecycleBin { get; set; } = true;
     public bool MinimizeToTray { get; set; }
+
+    /// <summary>Ya se explicó una vez que XoPy queda en la bandeja al cerrar.</summary>
+    public bool TrayHintShown { get; set; }
     public bool StartWithWindows { get; set; }
     public bool StartMinimized { get; set; }
     public bool PlaySoundWhenDone { get; set; }
