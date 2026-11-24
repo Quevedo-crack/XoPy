@@ -82,11 +82,12 @@ Filename: "{app}\XoPy.exe"; Description: "Iniciar XoPy"; Flags: postinstall nowa
 // El Explorador mantiene cargada XoPyShell.dll mientras la extensión «Pegar» está
 // registrada. Windows no permite reemplazar un archivo en uso: de ahí el error
 // «DeleteFile falló; código 5. Acceso denegado» al instalar encima de otra versión.
-// Solución: desregistrar y descargar la DLL del Explorador ANTES de copiar archivos,
-// y solo si aun así queda bloqueada, reiniciar el Explorador.
+// Orden: desregistrar la extensión → cerrar XoPy → si la DLL sigue bloqueada por el
+// Explorador, reiniciarlo → copiar archivos → volver a registrar (lo hace [Registry]).
 // ─────────────────────────────────────────────────────────────────────────────
 const
   CLSID_XoPy = '{3B1E92A7-7AD6-4E71-A218-75449CE13061}';
+  MutexXoPy = 'Local\XoPy.SingleInstance.5C1A93';
 
 procedure UnregisterShellExtension();
 var
@@ -94,24 +95,68 @@ var
   DllPath: String;
 begin
   DllPath := ExpandConstant('{app}\XoPyShell.dll');
-  if not FileExists(DllPath) then exit;
-  // Las exportaciones DllRegisterServer/DllUnregisterServer registran en HKCU, así que
-  // basta con invocarlas sobre la DLL que se va a reemplazar.
-  Exec(ExpandConstant('{sys}\regsvr32.exe'), '/u /s "' + DllPath + '"', '',
-       SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  // Además, se quitan las claves a mano: si regsvr32 no puede cargarla (DLL ya bloqueada),
+  if FileExists(DllPath) then
+  begin
+    // Las exportaciones DllRegisterServer/DllUnregisterServer registran en HKCU, así que
+    // basta con invocarlas sobre la DLL que se va a reemplazar.
+    Exec(ExpandConstant('{sys}\regsvr32.exe'), '/u /s "' + DllPath + '"', '',
+         SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  end;
+  // Se quitan las claves igualmente: si regsvr32 no puede cargarla (DLL ya bloqueada),
   // el Explorador deja de pedirla en el siguiente arranque.
   RegDeleteKeyIncludingSubkeys(HKCU, 'Software\Classes\CLSID\' + CLSID_XoPy);
   RegDeleteKeyIncludingSubkeys(HKCU,
     'Software\Classes\Directory\Background\shellex\ContextMenuHandlers\XoPyPaste');
+  RegDeleteKeyIncludingSubkeys(HKCU,
+    'Software\Classes\Directory\shellex\ContextMenuHandlers\XoPyPaste');
+  RegDeleteKeyIncludingSubkeys(HKCU,
+    'Software\Classes\DesktopBackground\shellex\ContextMenuHandlers\XoPyPaste');
+end;
+
+// Si el Explorador conserva la DLL cargada, se reinicia ANTES de copiar archivos.
+// Renombrarla es la prueba fiable: si se puede renombrar, no está bloqueada.
+procedure RestartExplorerIfNeeded();
+var
+  ResultCode: Integer;
+  DllPath, ProbePath: String;
+begin
+  DllPath := ExpandConstant('{app}\XoPyShell.dll');
+  if not FileExists(DllPath) then exit;
+  ProbePath := DllPath + '.probe';
+  if RenameFile(DllPath, ProbePath) then
+  begin
+    RenameFile(ProbePath, DllPath);
+    exit;
+  end;
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM explorer.exe /F', '', SW_HIDE,
+       ewWaitUntilTerminated, ResultCode);
+  Sleep(1500);
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  ResultCode: Integer;
+begin
+  if CurStep = ssInstall then
+  begin
+    // Se desregistra y se libera la DLL antes de que se copien los archivos nuevos.
+    UnregisterShellExtension();
+    RestartExplorerIfNeeded();
+  end;
+  if CurStep = ssPostInstall then
+  begin
+    // El Explorador vuelve solo; se relanza ya para que «Pegar» esté disponible al terminar.
+    Exec(ExpandConstant('{sys}\explorer.exe'), '', '', SW_SHOWNORMAL, ewNoWait, ResultCode);
+  end;
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  KillCode: Integer;
 begin
   UnregisterShellExtension();
-  // Cierra XoPy si estaba abierto (CloseApplications lo hace, pero aquí se fuerza antes).
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM XoPy.exe /F', '', SW_HIDE,
-       ewWaitUntilTerminated, Result);
+       ewWaitUntilTerminated, KillCode);
   Result := '';
 end;
 
