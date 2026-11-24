@@ -450,7 +450,7 @@ public sealed partial class MainForm : Form
             Font = new Font("Segoe UI", 8.75f),
             BackColor = _palette.Raised,
             ForeColor = _palette.Text,
-            Width = 168,
+            Width = 150,
             Height = 26,
             IntegralHeight = false,
             MaxDropDownItems = 8
@@ -467,8 +467,8 @@ public sealed partial class MainForm : Form
         var modeHost = new ToolStripControlHost(modeCombo)
         {
             AutoSize = false,
-            Margin = new Padding(12, 3, 10, 0),
-            Size = new Size(168, 26),
+            Margin = new Padding(2, 3, 8, 0),
+            Size = new Size(150, 26),
             ToolTipText = "Modo de copia: secuencial (un archivo a la vez) o multihilo con N archivos en paralelo"
         };
         _copyMode = modeCombo;
@@ -553,8 +553,9 @@ public sealed partial class MainForm : Form
         // botones desaparecían; así solo se recoge lo que de verdad no quepa.
         left.Items.AddRange(new ToolStripItem[]
         {
-            new ToolStripLabel("Modo:"), modeHost,
-            new ToolStripControlHost(_verifyCheck) { Margin = new Padding(2, 2, 4, 0), AutoSize = true },
+            // «Verificar» ya está en la pestaña Opciones; en la barra se gana el ancho que
+            // necesitan Detener, Mostrar y Preferencias para no irse al desplegable.
+            modeHost,
             new ToolStripSeparator(),
             _pauseButton, _skipButton, _stopButton,
             new ToolStripSeparator(),
