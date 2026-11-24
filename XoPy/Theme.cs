@@ -77,6 +77,8 @@ public static class Icons
     public const string Move = "\uE8C6";
     public const string Delete = "\uE74D";
     public const string Verify = "\uE73E";
+    // Rayo: indica el modo multihilo (varios archivos a la vez).
+    public const string Lightning = "\uE945";
     public const string Pause = "\uE769";
     public const string Play = "\uE768";
     public const string Stop = "\uE71A";

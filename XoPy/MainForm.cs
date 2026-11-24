@@ -41,7 +41,6 @@ public sealed partial class MainForm : Form
     private ToolStripButton _stopButton = null!;
     private ToolStripButton _optionsButton = null!;
     private ToolStripButton _menuButton = null!;
-    private ComboBox? _copyMode;
     private ToolStripButton _multiThreadButton = null!;
     private Button _removeButton = null!;
     private Button _clearButton = null!;
