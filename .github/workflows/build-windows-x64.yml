@@ -125,7 +125,13 @@ jobs:
               }
             }
           '@
-            $comResult = [XoPyComSmoke]::Check()
+            $comResult = 1
+            for ($try = 1; $try -le 5; $try++) {
+              $comResult = [XoPyComSmoke]::Check()
+              if ($comResult -eq 0) { break }
+              "com_activation_intento_${try}=0x$('{0:X8}' -f $comResult)" | Add-Content $log
+              Start-Sleep -Seconds 3
+            }
             "com_activation=0x$('{0:X8}' -f $comResult)" | Add-Content $log
             if ($comResult -ne 0) { throw "No se pudo cargar la extensión COM (HRESULT $comResult)" }
 
@@ -147,6 +153,10 @@ jobs:
           } catch {
             "ERROR: $_" | Add-Content $log
             Get-Content $log | Write-Host
+            # El log se publica como anotación: es la vía fiable para verlo desde fuera.
+            $detail = (Get-Content $log -ErrorAction SilentlyContinue) -join ' | '
+            if ($detail.Length -gt 3800) { $detail = $detail.Substring(0, 3800) }
+            Write-Host "::error title=Prueba del instalador::$detail"
             throw
           }
           Get-Content $log | Write-Host
