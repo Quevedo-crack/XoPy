@@ -26,6 +26,8 @@ MinVersion=10.0
 ; instalación falla («DeleteFile falló; código 5»).
 CloseApplications=yes
 RestartApplications=no
+; Necesario para que «restartreplace» (DLL en uso) programe la sustitución al reiniciar.
+RestartIfNeededByRun=yes
 AppMutex=Local\\XoPy.SingleInstance.5C1A93
 AllowNoIcons=yes
 VersionInfoVersion=2.5.5.0
