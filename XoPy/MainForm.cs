@@ -576,6 +576,18 @@ public sealed partial class MainForm : Form
 
         bar.Controls.Add(left, 0, 0);
         bar.Controls.Add(right, 1, 0);
+        // El reparto se rehace cuando la barra ya tiene ancho: con AutoSize en la columna
+        // derecha, si no se fuerza, la izquierda se queda a 0 y los botones no se ven.
+        bar.Layout += (_, _) =>
+        {
+            var needed = right.GetPreferredSize(Size.Empty).Width;
+            var style = bar.ColumnStyles[1];
+            if (style.SizeType == SizeType.AutoSize && Math.Abs(style.Width - needed) > 2)
+            {
+                style.SizeType = SizeType.Absolute;
+                style.Width = needed;
+            }
+        };
         bar.Paint += (_, e) =>
         {
             using var pen = new Pen(_palette.Border);
