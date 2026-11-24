@@ -1514,6 +1514,31 @@ public sealed partial class MainForm : Form
             }
             else { report.Add("error=no se pudo seleccionar la ultima fila"); ok = false; }
 
+            // ── Editar la lista CON una transferencia en marcha ──
+            // Antes cualquier edición respondía «Detén la transferencia…». Ahora se puede
+            // quitar una fila y añadir otra sin tocar la copia en curso (el motor trabaja
+            // sobre su propia instantánea).
+            ClearList();
+            AddPathsAsync(new[] { Path.Combine(rootA, "a1.bin"), Path.Combine(rootA, "a2.bin") },
+                askDestination: false).GetAwaiter().GetResult();
+            {
+                var beforeEdit = _items.Count(item => item.Kind == ItemKind.File);
+                var victim = _list.Items.Cast<ListViewItem>().Select(row => row.Tag as TransferItem)
+                    .OfType<TransferItem>().FirstOrDefault();
+                if (victim is not null) RemoveItems(new[] { victim });
+                var afterRemove = _items.Count(item => item.Kind == ItemKind.File);
+                report.Add($"quitar_copiando={beforeEdit}->{afterRemove}");
+                if (afterRemove != beforeEdit - 1)
+                { report.Add("error=no se pudo quitar una fila durante la copia"); ok = false; }
+
+                AddPathsAsync(new[] { Path.Combine(rootB, "b1.bin") }, askDestination: false)
+                    .GetAwaiter().GetResult();
+                var afterAdd = _items.Count(item => item.Kind == ItemKind.File);
+                report.Add("anadir_copiando=" + afterAdd);
+                if (afterAdd != afterRemove + 1)
+                { report.Add("error=no se pudo anadir una fila durante la copia"); ok = false; }
+            }
+
             var before = _items.Count(item => item.Kind == ItemKind.File);
             RemoveItems(_items.Where(item => item.Kind == ItemKind.File).ToList());
             var after = _items.Count(item => item.Kind == ItemKind.File);

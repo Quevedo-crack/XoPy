@@ -18,14 +18,14 @@ public sealed partial class MainForm
 
     private void AddFiles()
     {
-        if (_engine.IsRunning) { SetStatus("Detén la transferencia antes de añadir archivos."); return; }
+        // Añadir con la copia en marcha está permitido: los nuevos se suman a la cola como
+        // pendientes y se copian después; no se toca el archivo que se está escribiendo.
         if (_openFiles.ShowDialog(this) != DialogResult.OK) return;
         _ = AddPathsAsync(_openFiles.FileNames);
     }
 
     private void AddFolder()
     {
-        if (_engine.IsRunning) { SetStatus("Detén la transferencia antes de añadir carpetas."); return; }
         if (_pickFolder.ShowDialog(this) != DialogResult.OK) return;
         _ = AddPathsAsync(new[] { _pickFolder.SelectedPath });
     }
@@ -730,7 +730,8 @@ public sealed partial class MainForm
 
     private void RemoveItems(IReadOnlyCollection<TransferItem> selected)
     {
-        if (_engine.IsRunning) { SetStatus("Detén la transferencia antes de modificar la lista."); return; }
+        // Se puede quitar de la lista con la copia en marcha: el motor trabaja sobre su
+        // propia instantánea, así que quitar una fila no cancela ni corrompe la transferencia.
         if (selected.Count == 0) { SetStatus("Selecciona uno o varios elementos."); return; }
 
         var remove = new HashSet<Guid>();
@@ -751,7 +752,7 @@ public sealed partial class MainForm
 
     private void ClearList()
     {
-        if (_engine.IsRunning) { SetStatus("Detén la transferencia antes de limpiar la lista."); return; }
+        // Igual que al quitar filas: vaciar la lista no toca la transferencia en curso.
         _items.Clear();
         _rows.Clear();
         _list.Items.Clear();
