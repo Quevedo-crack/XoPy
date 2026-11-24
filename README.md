@@ -18,7 +18,7 @@ Windows x64 y funciona en Windows 11 (AMD Ryzen, Intel, etc.) sin requisitos adi
 
 Preferencias e integración con el Explorador:
 
-![Preferencias de XoPy](docs/xopy-options-0.png)
+![Preferencias de XoPy](docs/xopy-options.png)
 
 Así se ve una verificación correcta (SHA-256 comparado con el original):
 
@@ -117,6 +117,22 @@ XoPy.exe --multi --copy --to "D:\Copias" "C:\Datos\informe.pdf"
 - Si una transferencia encuentra un destino no válido, se puede elegir otra carpeta, crearla, usar la carpeta predeterminada o cancelar.
 - En la barra de copia se puede alternar entre modo secuencial y multihilo, también durante una transferencia; un archivo se puede pausar/reanudar individualmente desde el menú contextual de la lista. La lista admite reordenado por arrastre; las carpetas se muestran contraídas al añadirse y se pueden desplegar con la flecha o desde el menú. La columna de trabajos también empieza plegada y puede expandirse.
 - El instalador limpia las antiguas claves del menú contextual antes de iniciar la aplicación.
+
+## Novedades de la versión 2.5.1
+
+- **Preferencias estilo TeraCopy 4**: una sola pantalla en dos columnas, con las secciones
+  *Integración con el Explorador*, *Cola*, *Ventana*, *Al finalizar* y *Comportamiento*, y los
+  botones **Guardar/Cancelar** abajo a la derecha. Todo el texto está en español.
+- **La ventana abre con la lista visible** a 940×600 (antes arrancaba recortada) y la columna
+  de archivos se reparte al ancho real, sin franjas claras.
+- **Reordenar mientras copia**: se puede mover, arrastrar entre subcarpetas y ordenar la cola
+  (incluido el orden global por tamaño) con la transferencia en marcha o en pausa.
+- **El destino nunca viene prefijado**: al añadir archivos se pregunta siempre la carpeta.
+- **Varios destinos a la vez** (`--to2`): un fallo en un destino ya no cancela los demás, y
+  `--exit` espera a que terminen todos antes de cerrar.
+- **Comprobaciones automáticas en CI**: el workflow *UI preview* ejecuta copia, conflicto,
+  verificación, movimiento, Robocopy, jerarquía con varios destinos, reanudación y una prueba
+  de la cola (`--self-test-queue`), y regenera las capturas de esta página.
 
 ## Novedades de la versión 2.4.0
 
