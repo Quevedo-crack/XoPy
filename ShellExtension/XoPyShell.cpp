@@ -198,26 +198,26 @@ static std::wstring ModulePath()
 
 STDAPI DllRegisterServer()
 {
-    const std::wstring clsidKey = std::wstring(L"Software\Classes\CLSID\") + kClsidText;
+    const std::wstring clsidKey = std::wstring(L"Software\\Classes\\CLSID\\") + kClsidText;
     HRESULT hr = WriteKey(HKEY_CURRENT_USER, clsidKey, nullptr, L"XoPy Shell Extension");
     if (FAILED(hr)) return hr;
-    hr = WriteKey(HKEY_CURRENT_USER, clsidKey + L"\InprocServer32", nullptr, ModulePath());
+    hr = WriteKey(HKEY_CURRENT_USER, clsidKey + L"\\InprocServer32", nullptr, ModulePath());
     if (FAILED(hr)) return hr;
-    hr = WriteKey(HKEY_CURRENT_USER, clsidKey + L"\InprocServer32", L"ThreadingModel", L"Apartment");
+    hr = WriteKey(HKEY_CURRENT_USER, clsidKey + L"\\InprocServer32", L"ThreadingModel", L"Apartment");
     if (FAILED(hr)) return hr;
-    hr = WriteKey(HKEY_CURRENT_USER, L"Software\Classes\Directory\Background\shellex\ContextMenuHandlers\XoPyPaste",
+    hr = WriteKey(HKEY_CURRENT_USER, L"Software\\Classes\\Directory\\Background\\shellex\\ContextMenuHandlers\\XoPyPaste",
                   nullptr, kClsidText);
     if (FAILED(hr)) return hr;
-    WriteKey(HKEY_CURRENT_USER, L"Software\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved",
+    WriteKey(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Shell Extensions\\Approved",
              kClsidText, L"XoPy Pegar");
     return S_OK;
 }
 
 STDAPI DllUnregisterServer()
 {
-    RegDeleteKeyW(HKEY_CURRENT_USER, (std::wstring(L"Software\Classes\CLSID\") + kClsidText).c_str());
-    RegDeleteKeyW(HKEY_CURRENT_USER, (std::wstring(L"Software\Classes\CLSID\") + kClsidText + L"\InprocServer32").c_str());
-    RegDeleteKeyW(HKEY_CURRENT_USER, L"Software\Classes\Directory\Background\shellex\ContextMenuHandlers\XoPyPaste");
+    RegDeleteKeyW(HKEY_CURRENT_USER, (std::wstring(L"Software\\Classes\\CLSID\\") + kClsidText).c_str());
+    RegDeleteKeyW(HKEY_CURRENT_USER, (std::wstring(L"Software\\Classes\\CLSID\\") + kClsidText + L"\\InprocServer32").c_str());
+    RegDeleteKeyW(HKEY_CURRENT_USER, L"Software\\Classes\\Directory\\Background\\shellex\\ContextMenuHandlers\\XoPyPaste");
     return S_OK;
 }
 
