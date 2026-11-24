@@ -1337,44 +1337,30 @@ public sealed partial class MainForm
         return list;
     }
 
-    private void ChangeCopyMode()
+    private string MultiThreadLabel() =>
+        _settings.MultiThreadCopy ? $"Multihilo · {_settings.Parallelism}" : "Un archivo a la vez";
+
+    private string MultiThreadTooltip() => _settings.MultiThreadCopy
+        ? $"Multihilo activado: {_settings.Parallelism} archivos copiándose a la vez. Pulsa para copiar de uno en uno (el número de hilos se ajusta en Preferencias)."
+        : "Un archivo a la vez. Pulsa para activar el multihilo (el número de hilos se ajusta en Preferencias).";
+
+    /// <summary>Activa o desactiva el multihilo con un solo clic y refleja el cambio.</summary>
+    private void ToggleMultiThread()
     {
-        if (_copyMode is null || _copyMode.SelectedIndex < 0) return;
-        // Al reflejar los ajustes guardados no se debe reiniciar el motor ni escribir el estado.
-        if (_loadingUi) return;
-        // Índice 0 = secuencial; 1..N = multihilo con ese número de transferencias a la vez.
-        _settings.MultiThreadCopy = _copyMode.SelectedIndex > 0;
-        if (_settings.MultiThreadCopy)
-        {
-            var threads = _copyMode.SelectedIndex switch
-            {
-                1 => 2, 2 => 4, 3 => 6, 4 => 8, 5 => 12, _ => 16
-            };
-            _settings.Parallelism = Math.Clamp(threads, 1, 16);
-        }
+        _settings.MultiThreadCopy = !_settings.MultiThreadCopy;
         _store.Save(_settings);
-        var parallelism = _settings.MultiThreadCopy ? _settings.Parallelism : 1;
-        if (_copyMode is not null)
+        if (_multiThreadButton is not null)
         {
-            // Se reetiqueta la opción elegida con el número real de hilos (2, 4, 6…).
-            var label = ModeLabel(_settings.MultiThreadCopy, parallelism);
-            var index = _copyMode.SelectedIndex;
-            if (index >= 0 && !string.Equals(_copyMode.Items[index] as string, label, StringComparison.Ordinal))
-                _copyMode.Items[index] = label;
+            _multiThreadButton.Text = MultiThreadLabel();
+            _multiThreadButton.ForeColor = _settings.MultiThreadCopy ? _palette.Accent : _palette.Muted;
+            _multiThreadButton.ToolTipText = MultiThreadTooltip();
         }
-        if (_engine.IsRunning)
-        {
-            _engine.SetParallelism(parallelism);
-            SetStatus(_settings.MultiThreadCopy
-                ? $"Modo multihilo activado ({parallelism} transferencias simultáneas)."
-                : "Modo secuencial activado; los archivos en curso terminarán uno por uno.");
-        }
-        else
-        {
-            SetStatus(_settings.MultiThreadCopy ? "Modo multihilo seleccionado." : "Modo secuencial seleccionado.");
-        }
-        UpdateFooter();
+        SetStatus(_settings.MultiThreadCopy
+            ? $"Multihilo activado ({_settings.Parallelism} archivos a la vez)."
+            : "Modo secuencial: un archivo a la vez.");
     }
+
+
 
     private void ToggleSelectedFilePause()
     {
@@ -1645,6 +1631,23 @@ public sealed partial class MainForm
     private ConflictChoice ResolveConflict(ConflictPrompt prompt)
     {
         if (!IsHandleCreated || IsDisposed) return ConflictChoice.Rename;
+
+        // Si el usuario (o un script) fijó una política explícita —«--rename», «--overwrite»,
+        // «--skip»— se aplica sin preguntar. Antes, al pegar en la misma carpeta salía un
+        // diálogo modal aunque se hubiera pedido «renombrar»: en modo desatendido se quedaba
+        // esperando para siempre y en el Explorador parecía que no hacía nada.
+        var samePath = string.Equals(Path.GetFullPath(prompt.SourcePath), Path.GetFullPath(prompt.TargetPath),
+            StringComparison.OrdinalIgnoreCase);
+        if (samePath && _settings.Conflict != ConflictPolicy.Ask)
+        {
+            return _settings.Conflict switch
+            {
+                ConflictPolicy.Rename => ConflictChoice.Rename,
+                ConflictPolicy.Skip => ConflictChoice.Skip,
+                ConflictPolicy.Overwrite => ConflictChoice.Rename, // nunca sobrescribir el origen
+                _ => ConflictChoice.Rename
+            };
+        }
         try
         {
             return (ConflictChoice)Invoke(new Func<ConflictChoice>(() => AskConflict(prompt)));
@@ -1659,19 +1662,11 @@ public sealed partial class MainForm
     {
         var detail = $"Origen: {prompt.SourcePath} ({Format.Bytes(prompt.SourceSize)}, {prompt.SourceModified:g})\n" +
                      $"Destino: {prompt.TargetPath} ({Format.Bytes(prompt.TargetSize)}, {prompt.TargetModified:g})";
-        var samePath = string.Equals(Path.GetFullPath(prompt.SourcePath), Path.GetFullPath(prompt.TargetPath), StringComparison.OrdinalIgnoreCase);
-        if (samePath)
-        {
-            var sameChoice = PromptDialog.Ask(this, _palette, "Origen y destino son el mismo archivo",
-                "El archivo ya está en la carpeta elegida. Puedes dejarlo sin cambios o crear otra copia con un nombre distinto.",
-                detail, new[] { "Dejar sin cambios", "Crear copia renombrada", "Cancelar" });
-            return sameChoice switch
-            {
-                1 => ConflictChoice.Rename,
-                2 => ConflictChoice.Cancel,
-                _ => ConflictChoice.Skip
-            };
-        }
+        // Como el Explorador de Windows: pegar donde ya está el archivo crea una copia con otro
+        // nombre, sin preguntar y sin tocar el original. Antes salía un diálogo por cada archivo.
+        var samePath = string.Equals(Path.GetFullPath(prompt.SourcePath), Path.GetFullPath(prompt.TargetPath),
+            StringComparison.OrdinalIgnoreCase);
+        if (samePath) return ConflictChoice.Rename;
 
         var choice = PromptDialog.Ask(this, _palette, "Ya existe un archivo",
             "El archivo de destino ya existe. ¿Qué quieres hacer con \"" + Path.GetFileName(prompt.TargetPath) + "\"?",
@@ -2007,7 +2002,6 @@ public sealed partial class MainForm
         _addFolderButton.Enabled = !running;
         _copyButton.Enabled = !running && _items.Count > 0;
         _moveButton.Enabled = !running && _items.Count > 0;
-        _deleteButton.Enabled = !running && _items.Count > 0;
         _testButton.Enabled = !running && _items.Count > 0;
         _pauseButton.Enabled = running;
         _skipButton.Enabled = running;
@@ -2030,10 +2024,12 @@ public sealed partial class MainForm
         if (_metaFilter is null) return;
 
         var files = leaves.Count(item => item.Kind == ItemKind.File);
-        _metaFilter.Text = "Todos los archivos";
+        _metaFilter.Text = files == 0
+            ? "Ninguno"
+            : files == 1 ? "1 archivo listo para copiar" : $"{files} archivos listos para copiar";
         _metaCount.Text = done > 0
-            ? $"{files} archivo(s) · {Format.Bytes(done)} / {Format.Bytes(total)}"
-            : $"{files} archivo(s)";
+            ? $"{Format.Bytes(done)} / {Format.Bytes(total)}"
+            : Format.Bytes(total);
 
         // Origen: la carpeta común de los elementos añadidos (o el origen del archivo actual).
         var roots = RootItems().Select(item => item.SourcePath).Where(path => !string.IsNullOrWhiteSpace(path)).ToList();
@@ -2279,6 +2275,7 @@ public sealed partial class MainForm
         catch { }
 
         LoadSettingsIntoUi();
+        ApplyMenuBarSetting();
         ApplyCopierReplacement();
         ApplyJobsCollapsed(_settings.CollapseJobs);
         UpdateHashColumns();

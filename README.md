@@ -118,6 +118,20 @@ XoPy.exe --multi --copy --to "D:\Copias" "C:\Datos\informe.pdf"
 - En la barra de copia se puede alternar entre modo secuencial y multihilo, también durante una transferencia; un archivo se puede pausar/reanudar individualmente desde el menú contextual de la lista. La lista admite reordenado por arrastre; las carpetas se muestran contraídas al añadirse y se pueden desplegar con la flecha o desde el menú. La columna de trabajos también empieza plegada y puede expandirse.
 - El instalador limpia las antiguas claves del menú contextual antes de iniciar la aplicación.
 
+## Novedades de la versión 2.5.5
+
+- **Instalador**: ya no aparece «DeleteFile falló; código 5». El instalador cierra XoPy, desregistra la extensión, libera la DLL del Explorador (reiniciándolo solo si sigue bloqueada, con reintentos) y, si aun así no puede, la sustituye al reiniciar en vez de abortar.
+- **Opciones avanzadas**: ya no da «No se puede agregar 'Button' a 'TabControl'». El botón «← Volver» va donde corresponde.
+- **Pegar en el escritorio**: el destino es el escritorio, no la carpeta de origen. Antes salía «origen y destino son el mismo archivo» y usaba la carpeta de copia como destino.
+- **Pegar sobre el mismo archivo**: crea una copia con otro nombre (`archivo (1).txt`), sin preguntar y sin tocar el original, como Windows. Antes abría un diálogo por archivo.
+- **Multihilo con un solo botón** (icono de rayo): activa o desactiva. El número de hilos se ajusta en Preferencias → Transferencia.
+- **Barra de menús oculta** por defecto (opcional en Preferencias): ocupaba una fila entera y todo estaba ya en la barra de iconos.
+- **Sin «Eliminar del disco»**: XoPy copia y mueve; para borrar está el Explorador. (La lista se puede vaciar, que no borra archivos.)
+- **Barra de progreso visible**: general y de destino, de 16 px y con relleno claro, también en la vista reducida.
+- **Resumen sin duplicados**: se quitaron las filas «Origen»/«Destino» repetidas y el «Filtro · Todos los archivos», que no hacía nada.
+- **Guarda tamaño y posición** de la ventana (antes se recortaba a 1080×660) y conserva el maximizado.
+- **Lista con la ruta completa**: al arrastrar una carpeta se añade cada archivo con su raíz y subcarpetas, y se reordena sin perder la ruta.
+
 ## Novedades de la versión 2.5.4
 
 - **Instalador arreglado**: ya no falla con «DeleteFile falló; código 5». Antes de copiar archivos se desregistra la extensión y se libera la DLL del Explorador (reiniciándolo solo si sigue bloqueada), y XoPy se cierra solo durante la instalación.

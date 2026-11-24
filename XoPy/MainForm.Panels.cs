@@ -39,21 +39,25 @@ public sealed partial class MainForm
             Padding = new Padding(0),
             Margin = new Padding(0)
         };
-        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 94));
+        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 58));
         page.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         page.Controls.Add(BuildMetaBlock(), 0, 0);
         page.Controls.Add(BuildListShell(), 0, 1);
         return page;
     }
 
-    /// <summary>Bloque «Procesar archivos / Origen / Destino» con etiquetas en caja.</summary>
+    /// <summary>
+    /// Resumen de la lista. Antes repetía «Origen» y «Destino» que ya están en la cabecera de
+    /// progreso (por eso salían duplicados) y una fila «Filtro · Todos los archivos» que no
+    /// hacía nada. Ahora solo lo que aporta: cuántos archivos hay y a dónde van.
+    /// </summary>
     private Control BuildMetaBlock()
     {
         var block = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
             ColumnCount = 3,
-            RowCount = 3,
+            RowCount = 2,
             BackColor = _palette.Surface,
             Padding = new Padding(8, 5, 8, 3),
             Margin = new Padding(0)
@@ -61,31 +65,29 @@ public sealed partial class MainForm
         block.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 96));
         block.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         block.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 96));
-        for (var i = 0; i < 3; i++) block.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
+        for (var i = 0; i < 2; i++) block.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
 
-        block.Controls.Add(MetaTag("Filtro"), 0, 0);
-        _metaFilter = MetaValue("Todos los archivos");
+        block.Controls.Add(MetaTag("Archivos"), 0, 0);
+        _metaFilter = MetaValue("Ninguno");
         block.Controls.Add(_metaFilter, 1, 0);
-        _metaCount = MetaValue("0 / 0");
+        _metaCount = MetaValue("0 archivo(s)");
         _metaCount.TextAlign = ContentAlignment.MiddleRight;
         _metaCount.ForeColor = _palette.Muted;
         block.Controls.Add(_metaCount, 2, 0);
 
-        block.Controls.Add(MetaTag("Origen"), 0, 1);
-        _metaOrigin = MetaValue("Sin origen");
-        block.Controls.Add(_metaOrigin, 1, 1);
-        _metaOriginSize = MetaValue("0 B");
-        _metaOriginSize.TextAlign = ContentAlignment.MiddleRight;
-        _metaOriginSize.ForeColor = _palette.Muted;
-        block.Controls.Add(_metaOriginSize, 2, 1);
-
-        block.Controls.Add(MetaTag("Destino"), 0, 2);
-        _metaDestination = MetaValue("Sin destino");
-        block.Controls.Add(_metaDestination, 1, 2);
+        block.Controls.Add(MetaTag("Destino"), 0, 1);
+        _metaDestination = MetaValue("Sin destino: elige una carpeta");
+        block.Controls.Add(_metaDestination, 1, 1);
         _metaDestinationSize = MetaValue(string.Empty);
         _metaDestinationSize.TextAlign = ContentAlignment.MiddleRight;
         _metaDestinationSize.ForeColor = _palette.Muted;
-        block.Controls.Add(_metaDestinationSize, 2, 2);
+        block.Controls.Add(_metaDestinationSize, 2, 1);
+
+        // Campos que usa el resto del código; se mantienen para no romper el resumen.
+        _metaOrigin = MetaValue(string.Empty);
+        _metaOriginSize = MetaValue(string.Empty);
+        _metaOrigin.Visible = false;
+        _metaOriginSize.Visible = false;
         return block;
     }
 
@@ -1304,10 +1306,14 @@ public sealed partial class MainForm
                 // Como TeraCopy: cada fila muestra la ruta completa del archivo, para que al
                 // reordenar se vea de dónde sale cada cosa aunque vengan de carpetas distintas.
                 // La carpeta va en color atenuado y el nombre del archivo en el color normal.
+                // Ruta completa SIEMPRE: la carpeta donde está el archivo, tal cual (raíz
+                // incluida). Al arrastrar una carpeta se añaden todos sus archivos y cada uno
+                // muestra de qué subcarpeta viene; la ruta de destino no cambia al reordenar.
                 var folderPath = string.Empty;
                 try
                 {
-                    folderPath = Path.GetDirectoryName(item.SourcePath) ?? string.Empty;
+                    var full = Path.GetFullPath(item.SourcePath);
+                    folderPath = Path.GetDirectoryName(full) ?? string.Empty;
                 }
                 catch { }
                 if (folderPath.Length > 0)

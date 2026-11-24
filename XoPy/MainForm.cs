@@ -35,14 +35,13 @@ public sealed partial class MainForm : Form
     private ToolStripButton _addFolderButton = null!;
     private ToolStripButton _copyButton = null!;
     private ToolStripButton _moveButton = null!;
-    private ToolStripButton _deleteButton = null!;
     private ToolStripButton _testButton = null!;
     private ToolStripButton _pauseButton = null!;
     private ToolStripButton _skipButton = null!;
     private ToolStripButton _stopButton = null!;
     private ToolStripButton _optionsButton = null!;
     private ToolStripButton _menuButton = null!;
-    private ComboBox _copyMode = null!;
+    private ToolStripButton _multiThreadButton = null!;
     private Button _removeButton = null!;
     private Button _clearButton = null!;
     private Button _upButton = null!;
@@ -186,7 +185,7 @@ public sealed partial class MainForm : Form
         };
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 72));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 90));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 96));
@@ -194,6 +193,10 @@ public sealed partial class MainForm : Form
 
         InitializeDestinationState();
         _menu = BuildMenu();
+        // Barra de menús oculta por defecto: todo lo que ofrece está en la barra de iconos,
+        // en el menú contextual de la lista y en Preferencias. Ocupaba una fila entera.
+        _menu.Visible = _settings.ShowMenuBar;
+        root.RowStyles[0].Height = _settings.ShowMenuBar ? 24 : 0;
         root.Controls.Add(_menu, 0, 0);
         root.Controls.Add(BuildToolbar(), 0, 1);
         root.Controls.Add(BuildTransferHeader(), 0, 2);
@@ -224,7 +227,8 @@ public sealed partial class MainForm : Form
         {
             _rootLayout.SuspendLayout();
             _rootLayout.RowStyles[1].Height = compact ? 44 : 48;
-            _rootLayout.RowStyles[2].Height = 72;
+            // 24+16+24+16 = 80 de contenido + relleno vertical de la cabecera.
+            _rootLayout.RowStyles[2].Height = 90;
             // En reducido se ocultan las pestañas (como TeraCopy: solo metadatos y lista) y
             // la lista SÍ queda a la vista: ahí está la barra de progreso de cada archivo.
             // Sin pestañas en reducido: la fila se queda a cero (antes dejaba un hueco de 34 px).
@@ -239,11 +243,12 @@ public sealed partial class MainForm : Form
             _rootLayout.RowStyles[5].Height = 106;
             if (_transferHeader is not null && _transferHeader.RowStyles.Count >= 4)
             {
-                // Las dos líneas (origen y destino) y sus barras siguen visibles en compacto.
-                _transferHeader.RowStyles[0].Height = 26;
-                _transferHeader.RowStyles[1].Height = 7;
-                _transferHeader.RowStyles[2].Height = 26;
-                _transferHeader.RowStyles[3].Height = 7;
+                // Las dos líneas (origen y destino) y sus barras siguen visibles en compacto,
+                // con la misma altura que en la ventana completa para que la barra se vea.
+                _transferHeader.RowStyles[0].Height = 24;
+                _transferHeader.RowStyles[1].Height = 16;
+                _transferHeader.RowStyles[2].Height = 24;
+                _transferHeader.RowStyles[3].Height = 16;
             }
             UpdateToolbarForCompact(compact);
             if (_compactButton is not null)
@@ -306,11 +311,21 @@ public sealed partial class MainForm : Form
         }
     }
 
+    /// <summary>Muestra u oculta la barra de menús superior y devuelve el alto a la lista.</summary>
+    private void ApplyMenuBarSetting()
+    {
+        if (_menu is null || _rootLayout is null) return;
+        var show = _settings.ShowMenuBar;
+        _menu.Visible = show;
+        _rootLayout.RowStyles[0].Height = show ? 24 : 0;
+        _rootLayout.PerformLayout();
+    }
+
     private void UpdateToolbarForCompact(bool compact)
     {
         // Como en TeraCopy, la vista reducida mantiene las acciones principales y los
         // controles de la transferencia (pausar, saltar y detener) siempre visibles.
-        var listButtons = new[] { _addFilesButton, _addFolderButton, _copyButton, _moveButton, _testButton, _deleteButton };
+        var listButtons = new[] { _addFilesButton, _addFolderButton, _copyButton, _moveButton, _testButton };
         foreach (var button in listButtons)
         {
             if (button is not null) button.Visible = true;
@@ -350,7 +365,6 @@ public sealed partial class MainForm : Form
         var transfer = new ToolStripMenuItem("Transferencia");
         transfer.DropDownItems.Add(MenuItem("Copiar", (_, _) => StartTransfer(OperationType.Copy), Keys.F5));
         transfer.DropDownItems.Add(MenuItem("Mover", (_, _) => StartTransfer(OperationType.Move), Keys.Control | Keys.F5));
-        transfer.DropDownItems.Add(MenuItem("Eliminar…", (_, _) => StartTransfer(OperationType.Delete), Keys.Shift | Keys.Delete));
         transfer.DropDownItems.Add(MenuItem("Verificar", (_, _) => StartTransfer(OperationType.Test), Keys.F6));
         transfer.DropDownItems.Add(new ToolStripSeparator());
         transfer.DropDownItems.Add(MenuItem("Pausar / reanudar", (_, _) => TogglePause()));
@@ -437,41 +451,17 @@ public sealed partial class MainForm : Form
         _copyButton = BarButton("Copiar", Icons.Copy, (_, _) => StartTransfer(OperationType.Copy), true, iconOnly: true);
         _moveButton = BarButton("Mover", Icons.Move, (_, _) => StartTransfer(OperationType.Move), iconOnly: true);
         _testButton = BarButton("Verificar", Icons.Verify, (_, _) => StartTransfer(OperationType.Test), iconOnly: true);
-        _deleteButton = BarButton("Eliminar", Icons.Delete, (_, _) => StartTransfer(OperationType.Delete), iconOnly: true);
         _pauseButton = BarButton("Pausar", Icons.Pause, (_, _) => TogglePause());
         _skipButton = BarButton("Saltar", Icons.ChevronRight, (_, _) => SkipCurrent());
         _stopButton = BarButton("Detener", Icons.Stop, (_, _) => StopTransfer());
-        // ComboBox normal dentro de un ToolStripControlHost: un ToolStripComboBox con
-        // AutoSize=false se recortaba y el texto quedaba cortado por arriba.
-        var modeCombo = new ComboBox
-        {
-            DropDownStyle = ComboBoxStyle.DropDownList,
-            FlatStyle = FlatStyle.Flat,
-            Font = new Font("Segoe UI", 8.75f),
-            BackColor = _palette.Raised,
-            ForeColor = _palette.Text,
-            Width = 150,
-            Height = 26,
-            IntegralHeight = false,
-            MaxDropDownItems = 8
-        };
-        // Se listan los hilos concretos, no un simple «Multihilo»: así se ajusta el número
-        // (2, 4, 8…) sin abrir Preferencias, como en TeraCopy.
-        modeCombo.Items.Add(ModeLabel(false, 1));
-        foreach (var threads in new[] { 2, 4, 6, 8, 12, 16 })
-            modeCombo.Items.Add(ModeLabel(true, threads));
-        modeCombo.SelectedIndex = _settings.MultiThreadCopy
-            ? Math.Max(0, modeCombo.Items.IndexOf(ModeLabel(true, _settings.Parallelism)))
-            : 0;
-        modeCombo.SelectedIndexChanged += (_, _) => ChangeCopyMode();
-        var modeHost = new ToolStripControlHost(modeCombo)
-        {
-            AutoSize = false,
-            Margin = new Padding(2, 3, 8, 0),
-            Size = new Size(150, 26),
-            ToolTipText = "Modo de copia: secuencial (un archivo a la vez) o multihilo con N archivos en paralelo"
-        };
-        _copyMode = modeCombo;
+        // Un solo botón que activa o desactiva el multihilo (el NÚMERO de hilos se ajusta
+        // en Preferencias). Antes era un desplegable con «Multihilo · 4 a la vez», que
+        // ocupaba mucho y no se entendía.
+        _multiThreadButton = BarButton(MultiThreadLabel(), Icons.Lightning,
+            (_, _) => ToggleMultiThread(), iconOnly: true);
+        _multiThreadButton.ToolTipText = MultiThreadTooltip();
+
+        // «Verificar» y el resto de opciones viven en Preferencias: aquí solo lo esencial.
         _compactButton = BarButton("Ocultar", Icons.ChevronRight, (_, _) => ToggleCompactView(), iconOnly: true);
         _compactButton.Margin = new Padding(2, 0, 4, 0);
         _compactButton.ToolTipText = "Ocultar la lista y dejar visibles los controles y el progreso";
@@ -545,7 +535,7 @@ public sealed partial class MainForm : Form
         };
         left.Items.AddRange(new ToolStripItem[]
         {
-            _addFilesButton, _addFolderButton, _copyButton, _moveButton, _testButton, _deleteButton
+            _addFilesButton, _addFolderButton, _copyButton, _moveButton, _testButton
         });
 
         // Una sola barra: las acciones (iconos), el modo, la verificación y la transferencia
@@ -553,9 +543,7 @@ public sealed partial class MainForm : Form
         // botones desaparecían; así solo se recoge lo que de verdad no quepa.
         left.Items.AddRange(new ToolStripItem[]
         {
-            // «Verificar» ya está en la pestaña Opciones; en la barra se gana el ancho que
-            // necesitan Detener, Mostrar y Preferencias para no irse al desplegable.
-            modeHost,
+            _multiThreadButton,
             new ToolStripSeparator(),
             _pauseButton, _skipButton, _stopButton,
             new ToolStripSeparator(),
@@ -802,10 +790,11 @@ public sealed partial class MainForm : Form
             Margin = new Padding(0, 0, 0, 0)
         };
         _transferHeader = host;
-        host.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));
-        host.RowStyles.Add(new RowStyle(SizeType.Absolute, 7));
-        host.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));
-        host.RowStyles.Add(new RowStyle(SizeType.Absolute, 7));
+        // La barra ocupa 12 px de alto (antes 4, prácticamente invisible).
+        host.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
+        host.RowStyles.Add(new RowStyle(SizeType.Absolute, 16));
+        host.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
+        host.RowStyles.Add(new RowStyle(SizeType.Absolute, 16));
 
         host.Controls.Add(BuildHeaderLine("Copiando", out _hdrCopyState, out _hdrCopyPath, out _hdrCopyInfo, out _hdrCopyPercent), 0, 0);
         host.Controls.Add(BuildHeaderBar(out _hdrCopyBar), 0, 1);
@@ -816,8 +805,9 @@ public sealed partial class MainForm : Form
 
     private Control BuildHeaderBar(out ProgressStrip bar)
     {
-        var host = new Panel { Dock = DockStyle.Fill, BackColor = _palette.Surface, Margin = new Padding(0, 0, 0, 4) };
-        bar = new ProgressStrip(_palette) { Dock = DockStyle.Fill, Height = 4 };
+        var host = new Panel { Dock = DockStyle.Fill, BackColor = _palette.Surface, Margin = new Padding(0, 2, 0, 3), Padding = new Padding(0) };
+        // 14 px de alto: las barras de 4 px no se veían y parecían una raya del borde.
+        bar = new ProgressStrip(_palette) { Dock = DockStyle.Fill, Height = 14, MinimumSize = new Size(0, 10) };
         host.Controls.Add(bar);
         return host;
     }
@@ -1158,7 +1148,6 @@ public sealed partial class MainForm : Form
         _listMenu.Items.Add("Copiar…", null, (_, _) => StartTransfer(OperationType.Copy));
         _listMenu.Items.Add("Mover…", null, (_, _) => StartTransfer(OperationType.Move));
         _listMenu.Items.Add("Verificar", null, (_, _) => StartTransfer(OperationType.Test));
-        _listMenu.Items.Add("Eliminar del disco…", null, (_, _) => StartTransfer(OperationType.Delete));
         _listMenu.Items.Add(new ToolStripSeparator());
         _listMenu.Items.Add("Expandir / contraer", null, (_, _) => ToggleSelectedFolders());
         _listMenu.Items.Add("Subir", null, (_, _) => MoveSelected(-1));
@@ -1336,11 +1325,10 @@ public sealed partial class MainForm : Form
     private void ApplyWindowGeometry()
     {
         var workingArea = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1920, 1080);
-        var width = _settings.WindowWidth >= MinimumSize.Width ? Math.Min(_settings.WindowWidth, 1080) : 940;
-        // En vista compacta el alto mínimo es 210 px (lista oculta), pero la ventana debe
-        // abrirse con el alto normal: si se usaba MinimumSize.Height, la ventana arrancaba
-        // recortada y con la barra de botones y la lista cortadas por abajo.
-        var height = _settings.WindowHeight >= 480 ? Math.Min(_settings.WindowHeight, 660) : 600;
+        // Se respeta el tamaño guardado (antes se recortaba a 1080×660 y por eso «no guardaba
+        // el tamaño»): solo se limita a la pantalla disponible.
+        var width = _settings.WindowWidth >= MinimumSize.Width ? _settings.WindowWidth : 940;
+        var height = _settings.WindowHeight >= 420 ? _settings.WindowHeight : 600;
         if (!_startupRequest.Screenshot)
         {
             width = Math.Min(width, workingArea.Width - 20);
@@ -1610,6 +1598,13 @@ public sealed partial class MainForm : Form
                     CaptureDialogPng(() => new OptionsDialog(_settings, _palette), target);
                     break;
 
+                case "advanced":
+                    // Regresión del informe: «Opciones avanzadas» lanzaba
+                    // «No se puede agregar 'Button' a 'TabControl'». Se abre de verdad y se
+                    // pulsa el botón; si vuelve a fallar, la captura lo muestra.
+                    CaptureAdvancedPng(target);
+                    break;
+
                 case "conflict":
                     CaptureDialogPng(() => new PromptDialog(_palette, "Archivo ya existente",
                         "El archivo «informe.pdf» ya existe en la carpeta de destino. ¿Qué quieres hacer?",
@@ -1666,6 +1661,46 @@ public sealed partial class MainForm : Form
         using var bitmap = new Bitmap(Math.Max(1, Width), Math.Max(1, Height));
         using (var graphics = Graphics.FromImage(bitmap)) graphics.CopyFromScreen(Location, Point.Empty, Size);
         bitmap.Save(target, System.Drawing.Imaging.ImageFormat.Png);
+    }
+
+    /// <summary>Captura las «Opciones avanzadas» pulsando el botón como el usuario.</summary>
+    private void CaptureAdvancedPng(string target)
+    {
+        using var dialog = new OptionsDialog(_settings, _palette);
+        dialog.StartPosition = FormStartPosition.Manual;
+        dialog.Location = new Point(Location.X + 30, Location.Y + 30);
+        dialog.Show(this);
+        try
+        {
+            for (var pass = 0; pass < 8; pass++) { Application.DoEvents(); Thread.Sleep(60); }
+            var button = FindButtonByText(dialog, "Opciones avanzadas");
+            if (button is null)
+            {
+                try { File.WriteAllText(target + ".error.txt", "No se encontró el botón"); } catch { }
+                return;
+            }
+            try { button.PerformClick(); }
+            catch (Exception ex) { try { File.WriteAllText(target + ".error.txt", ex.ToString()); } catch { } }
+            for (var pass = 0; pass < 14; pass++) { Application.DoEvents(); dialog.Update(); Thread.Sleep(60); }
+            var area = dialog.Bounds;
+            using var bitmap = new Bitmap(Math.Max(1, area.Width), Math.Max(1, area.Height));
+            using (var graphics = Graphics.FromImage(bitmap))
+                graphics.CopyFromScreen(area.Location, Point.Empty, area.Size);
+            bitmap.Save(target, System.Drawing.Imaging.ImageFormat.Png);
+        }
+        finally { dialog.Close(); }
+    }
+
+    private static Button? FindButtonByText(Control parent, string text)
+    {
+        foreach (Control child in parent.Controls)
+        {
+            if (child is Button candidate && candidate.Text.Contains(text, StringComparison.OrdinalIgnoreCase))
+                return candidate;
+            var nested = FindButtonByText(child, text);
+            if (nested is not null) return nested;
+        }
+        return null;
     }
 
     private static void SaveControlPng(Control? control, string target)
@@ -1741,18 +1776,12 @@ public sealed partial class MainForm : Form
         try { TopMost = _settings.AlwaysOnTop; } catch { }
 
         // El selector de modo refleja lo guardado en Preferencias sin volver a guardar.
-        if (_copyMode is not null)
+        if (_multiThreadButton is not null)
         {
-            var index = 0;
-            if (_settings.MultiThreadCopy)
-            {
-                index = _settings.Parallelism switch
-                {
-                    <= 2 => 1, <= 4 => 2, <= 6 => 3, <= 8 => 4, <= 12 => 5, _ => 6
-                };
-                _copyMode.Items[index] = ModeLabel(true, _settings.Parallelism);
-            }
-            if (_copyMode.SelectedIndex != index) _copyMode.SelectedIndex = index;
+            // El botón refleja el ajuste: activo = multihilo, atenuado = secuencial.
+            _multiThreadButton.Text = MultiThreadLabel();
+            _multiThreadButton.ForeColor = _settings.MultiThreadCopy ? _palette.Accent : _palette.Muted;
+            _multiThreadButton.ToolTipText = MultiThreadTooltip();
         }
 
         _verifyCheck.Checked = _settings.VerifyAfterCopy;

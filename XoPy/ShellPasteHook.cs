@@ -287,15 +287,13 @@ public sealed class ShellPasteHook : IDisposable
         GetClassName(window, builder, builder.Capacity);
         var className = builder.ToString();
 
-        // Pegar sobre el escritorio: se prefiere una carpeta real abierta en el Explorador
-        // (lo habitual es venir de ahí) y sólo si no hay ninguna se usa el escritorio.
+        // Pegar sobre el escritorio: el destino ES el escritorio. Antes se prefería «una
+        // carpeta abierta en el Explorador», que normalmente es la de ORIGEN: por eso al
+        // pegar en el escritorio salía «origen y destino son el mismo archivo» y encima
+        // usaba la carpeta de copia como destino.
         if (string.Equals(className, "Progman", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(className, "WorkerW", StringComparison.OrdinalIgnoreCase))
-        {
-            var open = FirstExplorerFolder();
-            if (!string.IsNullOrWhiteSpace(open)) return open;
             return Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
-        }
 
         try
         {

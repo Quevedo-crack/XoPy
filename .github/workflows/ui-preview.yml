@@ -114,6 +114,13 @@ jobs:
           $process = Start-Process -FilePath $exe -ArgumentList @('--screenshot-history', 'C:\xopytest\history.png') -PassThru
           if (-not $process.WaitForExit(60000)) { $process.Kill(); $ok = $false }
           if (Test-Path 'C:\xopytest\history.png') { Copy-Item 'C:\xopytest\history.png' 'docs\xopy-history.png' -Force } else { $ok = $false }
+          # «Opciones avanzadas»: regresión del error «No se puede agregar 'Button' a 'TabControl'».
+          $adv = 'C:\xopytest\advanced.png'
+          $process = Start-Process -FilePath $exe -ArgumentList @('--screenshot-advanced', $adv) -PassThru
+          if (-not $process.WaitForExit(60000)) { $process.Kill(); throw 'Las opciones avanzadas no terminaron' }
+          if (-not (Test-Path $adv)) { throw 'No se generó la captura de las opciones avanzadas' }
+          if (Test-Path ($adv + '.error.txt')) { throw ("Opciones avanzadas falló: " + (Get-Content ($adv + '.error.txt') -Raw)) }
+          Copy-Item $adv 'docs\xopy-advanced.png' -Force
           if (-not $ok) { throw 'No se pudieron capturar los diálogos' }
 
       - name: Probar una copia real
@@ -317,6 +324,33 @@ jobs:
           $memoria = (Get-Process XoPy -ErrorAction SilentlyContinue | Measure-Object WorkingSet64 -Maximum).Maximum
           if ($memoria) { Write-Host "::notice title=Memoria::pico_MB=$([Math]::Round($memoria / 1MB, 1))" }
 
+      - name: Pegar en la MISMA carpeta (nombre nuevo, el origen no se toca)
+        shell: pwsh
+        run: |
+          # Caso del informe: al pegar donde ya está el archivo, XoPy debe crear una copia
+          # con otro nombre y NO sobrescribir el original.
+          $exe = (Resolve-Path .\publish\XoPy.exe).Path
+          # Los ajustes del runner arrastran destinos extra de pruebas anteriores; esta prueba
+          # necesita estado limpio para comprobar de verdad dónde cae la copia.
+          $cfgDir = Join-Path $env:LOCALAPPDATA 'XoPy'
+          if (Test-Path $cfgDir) { Remove-Item $cfgDir -Recurse -Force -ErrorAction SilentlyContinue }
+          New-Item -ItemType Directory -Force C:\xopytest\misma | Out-Null
+          Set-Content 'C:\xopytest\misma\original.txt' ('o' * 3000)
+          $before = (Get-FileHash 'C:\xopytest\misma\original.txt').Hash
+          $process = Start-Process -FilePath $exe -ArgumentList @('--copy', '--exit', '--to', 'C:\xopytest\misma', 'C:\xopytest\misma\original.txt') -PassThru
+          Start-Sleep -Seconds 14
+          if (-not $process.HasExited) { $process.Kill() }
+          $report = @()
+          $report += "original_intacto=$((Get-FileHash 'C:\xopytest\misma\original.txt').Hash -eq $before)"
+          $copias = @(Get-ChildItem 'C:\xopytest\misma' -File | Where-Object { $_.Name -ne 'original.txt' })
+          $report += "copias=$($copias.Count)"
+          $report += "nombres=$($copias.Name -join ',')"
+          $report | Set-Content C:\xopytest\mismacarpeta.txt
+          Get-Content C:\xopytest\mismacarpeta.txt
+          Write-Host ("::notice title=Misma carpeta::" + (($report -join ' | ') -replace '%','%25'))
+          if ((Get-FileHash 'C:\xopytest\misma\original.txt').Hash -ne $before) { throw 'Se sobrescribió el archivo original' }
+          if ($copias.Count -lt 1) { throw 'No se creó la copia con otro nombre' }
+
       - name: Probar reordenar, ordenar y quitar de la lista
         shell: pwsh
         run: |
@@ -339,7 +373,7 @@ jobs:
         run: |
           git config user.name "XoPy Bot"
           git config user.email "xopy-bot@users.noreply.github.com"
-          git add docs/xopy-preview.png docs/xopy-tab-*.png docs/xopy-dropdown.png docs/xopy-contextmenu.png docs/xopy-options.png docs/xopy-conflict.png docs/xopy-verify.png docs/xopy-history.png
+          git add docs/xopy-preview.png docs/xopy-tab-*.png docs/xopy-dropdown.png docs/xopy-contextmenu.png docs/xopy-options.png docs/xopy-advanced.png docs/xopy-conflict.png docs/xopy-verify.png docs/xopy-history.png
           git diff --cached --quiet
           if ($LASTEXITCODE -ne 0) {
             git commit -m "Añadir captura automática de la interfaz"
@@ -358,6 +392,11 @@ jobs:
             if (Test-Path $file) { $out += "--- $file"; $out += Get-Content $file }
           }
           # Registro propio de la aplicación (destinos, conflictos y errores de copia).
+          $startupLog = Join-Path $env:LOCALAPPDATA 'XoPy\startup.log'
+          if (Test-Path $startupLog) {
+            $out += '--- startup.log (últimas 80 líneas)'
+            $out += Get-Content $startupLog -Tail 80
+          }
           $log = Join-Path $env:LOCALAPPDATA 'XoPy\transfer.log'
           if (Test-Path $log) {
             $out += "--- transfer.log (últimas 120 líneas)"

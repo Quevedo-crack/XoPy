@@ -172,6 +172,10 @@ public sealed class AppSettings
     public bool UseRecycleBin { get; set; } = true;
     public bool MinimizeToTray { get; set; }
 
+    /// <summary>Mostrar la barra de menús superior (Archivo/Transferencia/Cola…).</summary>
+    public bool ShowMenuBar { get; set; }
+
+
     /// <summary>Ya se explicó una vez que XoPy queda en la bandeja al cerrar.</summary>
     public bool TrayHintShown { get; set; }
     public bool StartWithWindows { get; set; }
@@ -316,6 +320,11 @@ public sealed class StartupRequest
                         request.VerifyAlgorithm = algorithm;
                     break;
                 case "--screenshot":
+                case "--screenshot-advanced":
+                    request.Screenshot = true;
+                    request.ScreenshotMode = "advanced";
+                    if (i + 1 < args.Length) request.ScreenshotPath = Normalize(args[++i]);
+                    break;
                 case "--screenshot-options":
                 case "--screenshot-conflict":
                 case "--screenshot-tabs":
