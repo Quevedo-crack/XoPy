@@ -75,6 +75,7 @@ public sealed partial class MainForm : Form
     private ContextMenuStrip _listMenu = null!;
     private MenuStrip _menu = null!;
 
+    private Control? _tabBar;
     private Button _tabFiles = null!;
     private Button _tabTarget = null!;
     private Button _tabOptions = null!;
@@ -224,12 +225,16 @@ public sealed partial class MainForm : Form
             _rootLayout.SuspendLayout();
             _rootLayout.RowStyles[1].Height = compact ? 44 : 48;
             _rootLayout.RowStyles[2].Height = 72;
+            // En reducido se ocultan las pestañas (como TeraCopy: solo metadatos y lista) y
+            // la lista SÍ queda a la vista: ahí está la barra de progreso de cada archivo.
             _rootLayout.RowStyles[3].Height = 34;
-            // La lista se queda visible también en reducido (como TeraCopy): es donde se ve la
-            // barra de progreso de CADA archivo, que era justo lo que faltaba. Con cuatro filas
-            // fijas basta sin comerse la ventana.
-            _rootLayout.RowStyles[4].SizeType = SizeType.Absolute;
-            _rootLayout.RowStyles[4].Height = compact ? 108 : 220;
+            _rootLayout.RowStyles[3].SizeType = compact ? SizeType.Absolute : SizeType.Absolute;
+            if (_tabBar is not null) _tabBar.Visible = !compact;
+            _rootLayout.RowStyles[4].SizeType = SizeType.Percent;
+            _rootLayout.RowStyles[4].Height = 100;
+            // En reducido no hay pestañas que mostrar: la lista ocupa todo el ancho.
+            if (_contentGrid is not null && _contentGrid.ColumnStyles.Count >= 2)
+                _contentGrid.ColumnStyles[0].Width = compact ? 0 : 228;
             _rootLayout.RowStyles[5].Height = compact ? 78 : 96;
             if (_transferHeader is not null && _transferHeader.RowStyles.Count >= 4)
             {
@@ -272,12 +277,14 @@ public sealed partial class MainForm : Form
                 if (_rootLayout is not null)
                 {
                     // Se suman TODAS las filas visibles (la lista incluida, con sus cuatro filas).
-                    foreach (var index in new[] { 0, 1, 2, 3, 4, 5 })
+                    foreach (var index in new[] { 0, 1, 2, 5 })
                     {
                         var style = _rootLayout.RowStyles[index];
                         var value = style.SizeType == SizeType.Absolute ? style.Height : 0;
                         height += (int)value;
                     }
+                    // La fila 3 (pestañas) desaparece en reducido; la 4 es la lista y crece.
+                    height += compact ? 0 : (int)_rootLayout.RowStyles[3].Height;
                 }
                 height += SystemInformation.FrameBorderSize.Height * 2 + SystemInformation.CaptionHeight;
                 // Se acerca al tamaño justo, pero nunca por debajo de lo que necesita el contenido.
@@ -653,6 +660,7 @@ public sealed partial class MainForm : Form
             Padding = new Padding(6, 0, 0, 0),
             Margin = new Padding(0)
         };
+        _tabBar = bar;
         _tabFiles = TabButton("Lista de archivos", 0, 150);
         _tabTarget = TabButton("Destino", 1, 96);
         _tabOptions = TabButton("Opciones", 2, 96);
