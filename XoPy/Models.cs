@@ -1,3 +1,4 @@
+using System.IO;
 using System.Text.Json.Serialization;
 
 namespace XoPy;
@@ -327,10 +328,12 @@ public sealed class StartupRequest
                         "--screenshot-history" => "history",
                         _ => "window"
                     };
-                    if (i + 1 < args.Length && !args[i + 1].StartsWith("-", StringComparison.Ordinal))
+                    // Solo se consume el argumento siguiente si es la ruta del PNG. Antes se
+                    // hacía «i++» también cuando no había ruta y se saltaba el primer archivo.
+                    if (i + 1 < args.Length && !args[i + 1].StartsWith("-", StringComparison.Ordinal)
+                        && (args[i + 1].EndsWith(".png", StringComparison.OrdinalIgnoreCase)
+                            || !File.Exists(args[i + 1])))
                         request.ScreenshotPath = Normalize(args[++i]);
-                    else
-                        i++;
                     break;
                 case "--to":
                     if (i + 1 < args.Length) request.Destination = Normalize(args[++i]);
