@@ -1876,6 +1876,11 @@ public sealed partial class MainForm : Form
             // del arranque para que la imagen muestre la interfaz ya completa.
             if (_startupRequest.Screenshot)
             {
+                // Los archivos de la lista se añaden de forma asíncrona (se miden tamaños):
+                // hay que esperar a que estén para que la imagen los muestre.
+                for (var waited = 0; waited < 15000 && _items.Count == 0 && _startupRequest.Paths.Count > 0; waited += 200)
+                    await Task.Delay(200);
+
                 // Si además se pidió una transferencia (--test/--copy), la captura debe
                 // esperar a que termine; si no, el PNG sale a medias.
                 Program.Log("MF16. CaptureScreenshot start");
