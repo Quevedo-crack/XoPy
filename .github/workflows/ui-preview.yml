@@ -302,7 +302,7 @@ jobs:
           $log = Join-Path $env:LOCALAPPDATA 'XoPy\transfer.log'
           if (Test-Path $log) {
             $out += "--- transfer.log (últimas 120 líneas)"
-            $out += Get-Content $log -Tail 120
+            $out += Get-Content $log -Tail 400
           }
           New-Item -ItemType Directory -Force docs | Out-Null
           $out | Set-Content docs\diagnostics.txt
