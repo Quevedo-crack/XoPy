@@ -1631,6 +1631,23 @@ public sealed partial class MainForm
     private ConflictChoice ResolveConflict(ConflictPrompt prompt)
     {
         if (!IsHandleCreated || IsDisposed) return ConflictChoice.Rename;
+
+        // Si el usuario (o un script) fijó una política explícita —«--rename», «--overwrite»,
+        // «--skip»— se aplica sin preguntar. Antes, al pegar en la misma carpeta salía un
+        // diálogo modal aunque se hubiera pedido «renombrar»: en modo desatendido se quedaba
+        // esperando para siempre y en el Explorador parecía que no hacía nada.
+        var samePath = string.Equals(Path.GetFullPath(prompt.SourcePath), Path.GetFullPath(prompt.TargetPath),
+            StringComparison.OrdinalIgnoreCase);
+        if (samePath && _settings.Conflict != ConflictPolicy.Ask)
+        {
+            return _settings.Conflict switch
+            {
+                ConflictPolicy.Rename => ConflictChoice.Rename,
+                ConflictPolicy.Skip => ConflictChoice.Skip,
+                ConflictPolicy.Overwrite => ConflictChoice.Rename, // nunca sobrescribir el origen
+                _ => ConflictChoice.Rename
+            };
+        }
         try
         {
             return (ConflictChoice)Invoke(new Func<ConflictChoice>(() => AskConflict(prompt)));
@@ -1645,22 +1662,11 @@ public sealed partial class MainForm
     {
         var detail = $"Origen: {prompt.SourcePath} ({Format.Bytes(prompt.SourceSize)}, {prompt.SourceModified:g})\n" +
                      $"Destino: {prompt.TargetPath} ({Format.Bytes(prompt.TargetSize)}, {prompt.TargetModified:g})";
-        var samePath = string.Equals(Path.GetFullPath(prompt.SourcePath), Path.GetFullPath(prompt.TargetPath), StringComparison.OrdinalIgnoreCase);
-        if (samePath)
-        {
-            var sameChoice = PromptDialog.Ask(this, _palette, "Origen y destino son el mismo archivo",
-                "El archivo ya está en la carpeta elegida. Como en el Explorador, se crea una copia con " +
-                "otro nombre («archivo - copia») o puedes dejarlo como está.",
-                detail, new[] { "Crear copia con otro nombre", "Dejarlo sin cambios", "Cancelar" });
-            // Orden igualado con la etiqueta: la opción por defecto (Enter) crea la copia,
-            // que es lo que hace el Explorador al pegar sobre la misma carpeta.
-            return sameChoice switch
-            {
-                0 => ConflictChoice.Rename,
-                2 => ConflictChoice.Cancel,
-                _ => ConflictChoice.Skip
-            };
-        }
+        // Como el Explorador de Windows: pegar donde ya está el archivo crea una copia con otro
+        // nombre, sin preguntar y sin tocar el original. Antes salía un diálogo por cada archivo.
+        var samePath = string.Equals(Path.GetFullPath(prompt.SourcePath), Path.GetFullPath(prompt.TargetPath),
+            StringComparison.OrdinalIgnoreCase);
+        if (samePath) return ConflictChoice.Rename;
 
         var choice = PromptDialog.Ask(this, _palette, "Ya existe un archivo",
             "El archivo de destino ya existe. ¿Qué quieres hacer con \"" + Path.GetFileName(prompt.TargetPath) + "\"?",
