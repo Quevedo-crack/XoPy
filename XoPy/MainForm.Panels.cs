@@ -1400,8 +1400,10 @@ public sealed partial class MainForm
     {
         if (_scrollCover is null || _list is null || !_list.IsHandleCreated) return;
         var width = SystemInformation.VerticalScrollBarWidth;
-        var reallyVisible = _list.Items.Count > 0;
-        if (!reallyVisible)
+        // El recuadro blanco aparece en la cabecera cuando la lista NO tiene filas: el control
+        // nativo mantiene igualmente su franja de desplazamiento. Con filas de verdad la barra
+        // es necesaria y se deja ver, así que la tapa solo actúa con la lista vacía.
+        if (_list.Items.Count > 0)
         {
             _scrollCover.Visible = false;
             return;
