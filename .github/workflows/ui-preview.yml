@@ -330,6 +330,10 @@ jobs:
           # Caso del informe: al pegar donde ya está el archivo, XoPy debe crear una copia
           # con otro nombre y NO sobrescribir el original.
           $exe = (Resolve-Path .\publish\XoPy.exe).Path
+          # Los ajustes del runner arrastran destinos extra de pruebas anteriores; esta prueba
+          # necesita estado limpio para comprobar de verdad dónde cae la copia.
+          $cfgDir = Join-Path $env:LOCALAPPDATA 'XoPy'
+          if (Test-Path $cfgDir) { Remove-Item $cfgDir -Recurse -Force -ErrorAction SilentlyContinue }
           New-Item -ItemType Directory -Force C:\xopytest\misma | Out-Null
           Set-Content 'C:\xopytest\misma\original.txt' ('o' * 3000)
           $before = (Get-FileHash 'C:\xopytest\misma\original.txt').Hash
