@@ -1479,6 +1479,41 @@ public sealed partial class MainForm : Form
             report.Add("archivos_copiados=" + copied);
             if (copied != 3) { report.Add("error=se esperaban 3 archivos copiados"); ok = false; }
 
+            // ── Los BOTONES ↑/↓ (no solo MoveSelected) deben mover de verdad ──
+            // El informe decía que reordenar «no funcionaba de ninguna forma»: se comprueban
+            // los mismos botones que pulsa el usuario, dos veces, y con archivos de otra raíz.
+            ClearList();
+            AddPathsAsync(new[]
+            {
+                Path.Combine(rootA, "a1.bin"), Path.Combine(rootB, "b1.bin"), Path.Combine(rootA, "a2.bin")
+            }, askDestination: false).GetAwaiter().GetResult();
+            var rowsNow = _list.Items.Cast<ListViewItem>().Select(row => row.Tag as TransferItem)
+                .OfType<TransferItem>().ToList();
+            var last = rowsNow.LastOrDefault();
+            if (last is not null && _rows.TryGetValue(last.Id, out var lastRow))
+            {
+                _list.SelectedItems.Clear();
+                lastRow.Selected = true;
+                var beforeOrder = _list.Items.Cast<ListViewItem>()
+                    .Select(row => (row.Tag as TransferItem)?.Name ?? "?").ToList();
+                _upButton.PerformClick();
+                var afterUp = _list.Items.Cast<ListViewItem>()
+                    .Select(row => (row.Tag as TransferItem)?.Name ?? "?").ToList();
+                report.Add("boton_arriba=" + string.Join(",", beforeOrder) + " -> " + string.Join(",", afterUp));
+                if (afterUp.SequenceEqual(beforeOrder))
+                { report.Add("error=el boton subir no movio nada"); ok = false; }
+                _list.SelectedItems.Clear();
+                _rows.TryGetValue(last.Id, out var againRow);
+                if (againRow is not null) againRow.Selected = true;
+                _downButton.PerformClick();
+                var afterDown = _list.Items.Cast<ListViewItem>()
+                    .Select(row => (row.Tag as TransferItem)?.Name ?? "?").ToList();
+                report.Add("boton_abajo=" + string.Join(",", afterDown));
+                if (afterDown.SequenceEqual(afterUp))
+                { report.Add("error=el boton bajar no movio nada"); ok = false; }
+            }
+            else { report.Add("error=no se pudo seleccionar la ultima fila"); ok = false; }
+
             var before = _items.Count(item => item.Kind == ItemKind.File);
             RemoveItems(_items.Where(item => item.Kind == ItemKind.File).ToList());
             var after = _items.Count(item => item.Kind == ItemKind.File);

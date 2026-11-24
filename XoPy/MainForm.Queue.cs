@@ -2902,10 +2902,14 @@ public sealed partial class MainForm
             EnsureTrayIcon();
             ShowInTaskbar = true;
             // Restaurar SIEMPRE al frente: antes, con el proceso ya minimizado, la ventana
-            // volvía en estado minimizado en la barra de tareas.
-            WindowState = FormWindowState.Normal;
+            // volvía en estado minimizado en la barra de tareas. Pero si estaba maximizada,
+            // se devuelve maximizada: al pasar por Normal se perdía el maximizado y la
+            // ventana volvía más pequeña de lo que el usuario la tenía.
+            var wasMaximized = WindowState == FormWindowState.Maximized || _settings.WindowMaximized;
+            if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
             if (!Visible) Show();
             Show();
+            if (wasMaximized) WindowState = FormWindowState.Maximized;
             Activate();
             BringToFront();
             // Windows solo concede SetForegroundWindow a procesos con permiso del usuario.
@@ -2978,10 +2982,27 @@ public sealed partial class MainForm
         SaveWindowGeometry();
         if (_items.Count > 0) SaveQueueFile(_store.LastQueueFile, silent: true);
 
-        if (!_exitRequested && _settings.MinimizeToTray && e.CloseReason == CloseReason.UserClosing)
+        // Mientras XoPy sustituye al copiador de Windows debe seguir vivo: si se cerrara con
+        // la X, el Ctrl+V del Explorador volvería a copiar con Windows y parecería que la
+        // sustitución «no funciona». Se queda en la bandeja y se avisa la primera vez; el
+        // cierre definitivo es «Archivo → Salir» o el menú del icono.
+        var mustStayResident = _settings.ReplaceWindowsCopier || _settings.MinimizeToTray;
+        if (!_exitRequested && mustStayResident && e.CloseReason == CloseReason.UserClosing)
         {
             e.Cancel = true;
             MinimizeToTray();
+            if (_settings.ReplaceWindowsCopier && !_settings.TrayHintShown)
+            {
+                _settings.TrayHintShown = true;
+                _store.Save(_settings);
+                try
+                {
+                    _tray.ShowBalloonTip(4000, "XoPy sigue activo",
+                        "Se queda en el área de notificación para seguir sustituyendo al copiador de Windows. " +
+                        "Para cerrarlo del todo: clic derecho en el icono → Salir.", ToolTipIcon.Info);
+                }
+                catch { }
+            }
             return;
         }
 
