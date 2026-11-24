@@ -472,7 +472,7 @@ public sealed partial class MainForm : Form
             ToolTipText = "Modo de copia: secuencial (un archivo a la vez) o multihilo con N archivos en paralelo"
         };
         _copyMode = modeCombo;
-        _compactButton = BarButton("Ocultar", Icons.ChevronRight, (_, _) => ToggleCompactView());
+        _compactButton = BarButton("Ocultar", Icons.ChevronRight, (_, _) => ToggleCompactView(), iconOnly: true);
         _compactButton.Margin = new Padding(2, 0, 4, 0);
         _compactButton.ToolTipText = "Ocultar la lista y dejar visibles los controles y el progreso";
         // Único acceso a Preferencias (el menú «⋯» tenía la misma opción y sobraba).
@@ -559,7 +559,6 @@ public sealed partial class MainForm : Form
             new ToolStripSeparator(),
             _pauseButton, _skipButton, _stopButton,
             new ToolStripSeparator(),
-            _removeFromListButton,
             _compactButton, _optionsButton
         });
         bar.Controls.Add(left, 0, 0);
