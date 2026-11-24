@@ -324,6 +324,29 @@ jobs:
           $memoria = (Get-Process XoPy -ErrorAction SilentlyContinue | Measure-Object WorkingSet64 -Maximum).Maximum
           if ($memoria) { Write-Host "::notice title=Memoria::pico_MB=$([Math]::Round($memoria / 1MB, 1))" }
 
+      - name: Pegar en la MISMA carpeta (nombre nuevo, el origen no se toca)
+        shell: pwsh
+        run: |
+          # Caso del informe: al pegar donde ya está el archivo, XoPy debe crear una copia
+          # con otro nombre y NO sobrescribir el original.
+          $exe = (Resolve-Path .\publish\XoPy.exe).Path
+          New-Item -ItemType Directory -Force C:\xopytest\misma | Out-Null
+          Set-Content 'C:\xopytest\misma\original.txt' ('o' * 3000)
+          $before = (Get-FileHash 'C:\xopytest\misma\original.txt').Hash
+          $process = Start-Process -FilePath $exe -ArgumentList @('--copy', '--exit', '--to', 'C:\xopytest\misma', 'C:\xopytest\misma\original.txt') -PassThru
+          Start-Sleep -Seconds 14
+          if (-not $process.HasExited) { $process.Kill() }
+          $report = @()
+          $report += "original_intacto=$((Get-FileHash 'C:\xopytest\misma\original.txt').Hash -eq $before)"
+          $copias = @(Get-ChildItem 'C:\xopytest\misma' -File | Where-Object { $_.Name -ne 'original.txt' })
+          $report += "copias=$($copias.Count)"
+          $report += "nombres=$($copias.Name -join ',')"
+          $report | Set-Content C:\xopytest\mismacarpeta.txt
+          Get-Content C:\xopytest\mismacarpeta.txt
+          Write-Host ("::notice title=Misma carpeta::" + (($report -join ' | ') -replace '%','%25'))
+          if ((Get-FileHash 'C:\xopytest\misma\original.txt').Hash -ne $before) { throw 'Se sobrescribió el archivo original' }
+          if ($copias.Count -lt 1) { throw 'No se creó la copia con otro nombre' }
+
       - name: Probar reordenar, ordenar y quitar de la lista
         shell: pwsh
         run: |
