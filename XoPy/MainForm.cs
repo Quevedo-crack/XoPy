@@ -1871,24 +1871,6 @@ public sealed partial class MainForm : Form
                 Environment.Exit(ok ? 0 : 1);
                 return;
             }
-
-            // Modo captura (solo CI): guarda la ventana como PNG y cierra. Se hace al final
-            // del arranque para que la imagen muestre la interfaz ya completa.
-            if (_startupRequest.Screenshot)
-            {
-                // Los archivos de la lista se añaden de forma asíncrona (se miden tamaños):
-                // hay que esperar a que estén para que la imagen los muestre.
-                for (var waited = 0; waited < 15000 && _items.Count == 0 && _startupRequest.Paths.Count > 0; waited += 200)
-                    await Task.Delay(200);
-
-                // Si además se pidió una transferencia (--test/--copy), la captura debe
-                // esperar a que termine; si no, el PNG sale a medias.
-                Program.Log("MF16. CaptureScreenshot start");
-                await WaitForEngineIdleAndCaptureAsync();
-                Program.Log("MF16. CaptureScreenshot end");
-                // Proceso de un solo uso: se termina sin pasar por el flujo de la bandeja.
-                Environment.Exit(0);
-            }
         }
         catch (Exception ex)
         {
@@ -1926,6 +1908,20 @@ public sealed partial class MainForm : Form
                 }
             }
             catch (Exception ex) { Program.Log("MF-OnShown startup request FATAL: " + ex.Message); }
+        }
+
+        // Modo captura (solo CI): se hace AL FINAL, cuando la lista ya tiene los archivos.
+        // Antes estaba antes de aplicar la petición y la imagen salía siempre vacía.
+        if (_startupRequest.Screenshot)
+        {
+            for (var waited = 0; waited < 15000 && _items.Count == 0 && _startupRequest.Paths.Count > 0; waited += 200)
+                await Task.Delay(200);
+
+            Program.Log("MF16. CaptureScreenshot start");
+            await WaitForEngineIdleAndCaptureAsync();
+            Program.Log("MF16. CaptureScreenshot end");
+            // Proceso de un solo uso: se termina sin pasar por el flujo de la bandeja.
+            Environment.Exit(0);
         }
 
     }
@@ -2347,7 +2343,6 @@ public sealed partial class MainForm : Form
     /// </summary>
     private async Task HandleExternalFiles(IReadOnlyList<string> files, string? detectedDestination, bool move)
     {
-        FileLog.Write($"HandleExternalFiles: {files?.Count ?? 0} ruta(s), destino={(detectedDestination ?? "(ninguno)")}, captura={_startupRequest.Screenshot}");
         if (files == null || files.Count == 0) return;
         if (IsDisposed) return;
 
@@ -2399,7 +2394,6 @@ public sealed partial class MainForm : Form
         // El destino ya lo eligió el Explorer/--to: no se vuelve a preguntar.
         await AddPathsAsync(files, askDestination: false);
 
-        FileLog.Write($"HandleExternalFiles: tras AddPathsAsync, elementos={_items.Count}");
         // En modo captura solo se rellena la lista para la imagen: no se abre el selector de
         // carpeta ni se arranca una copia (eso bloqueaba la captura y salía vacía).
         if (_startupRequest.Screenshot) return;
