@@ -195,6 +195,16 @@ jobs:
 
       # Los artefactos no siempre se pueden descargar desde el agente: los errores del
       # compilador se publican también como anotación, que sí se puede leer por la API.
+      - name: Publicar errores de la extensión C++ como anotación
+        if: failure() && hashFiles('shell-extension-build.log') != ''
+        shell: pwsh
+        run: |
+          $errors = Select-String -Path shell-extension-build.log -Pattern 'error|warning C' | Select-Object -First 25
+          foreach ($e in $errors) {
+            $line = ($e.Line -replace '%','%25' -replace '\r','' -replace '\n','%0A')
+            Write-Host "::error file=ShellExtension/XoPyShell.cpp::$line"
+          }
+
       - name: Publicar errores de compilación como anotación
         if: failure()
         shell: pwsh
