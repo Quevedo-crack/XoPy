@@ -1438,6 +1438,9 @@ public sealed partial class MainForm : Form
         // enviando WM_PAINT; con una sola pasada la captura salía a medio pintar.
         for (var pass = 0; pass < 12; pass++)
         {
+            // Se reaplica el reparto en cada ciclo: al asentarse el layout la lista podía
+            // recuperar su alto completo y aparecer la barra de desplazamiento blanca.
+            ResizeColumns();
             Application.DoEvents();
             Thread.Sleep(80);
         }
