@@ -492,6 +492,9 @@ public sealed partial class MainForm
         RefreshFolders();
         SyncRows();
         UpdateHashColumns();
+        // Al pasar de lista vacía a con filas se reparte de nuevo el alto: ResizeColumns es
+        // quien devuelve la fila del ListView a Percent y, si no, las filas no se ven.
+        ResizeColumns();
         UpdateScrollCover();
     }
 

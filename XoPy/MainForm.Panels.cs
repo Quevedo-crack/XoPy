@@ -1135,7 +1135,13 @@ public sealed partial class MainForm
         BeginInvoke(new Action(() =>
         {
             _columnUpdatePending = false;
-            if (!IsDisposed) UpdateHashColumns();
+            if (IsDisposed) return;
+            UpdateHashColumns();
+            // La lista también recupera SU alto aquí: al pasar de vacía a con filas había que
+            // repartir columnas otra vez (ResizeColumns devuelve la fila a Percent), y antes
+            // solo se hacía al redimensionar la ventana. Sin esto la lista se quedaba con la
+            // altura de la cabecera y las filas no se veían.
+            ResizeColumns();
         }));
     }
 
