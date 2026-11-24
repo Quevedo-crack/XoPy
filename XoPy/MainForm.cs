@@ -431,12 +431,14 @@ public sealed partial class MainForm : Form
         bar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         bar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
 
-        _addFilesButton = BarButton("Añadir", Icons.Add, (_, _) => AddFiles());
-        _addFolderButton = BarButton("Carpeta", Icons.FolderAdd, (_, _) => AddFolder());
-        _copyButton = BarButton("Copiar", Icons.Copy, (_, _) => StartTransfer(OperationType.Copy), true);
-        _moveButton = BarButton("Mover", Icons.Move, (_, _) => StartTransfer(OperationType.Move));
-        _testButton = BarButton("Verificar", Icons.Verify, (_, _) => StartTransfer(OperationType.Test));
-        _deleteButton = BarButton("Eliminar", Icons.Delete, (_, _) => StartTransfer(OperationType.Delete));
+        // Acciones de la lista con icono (el texto va en el tooltip): así caben todas en una
+        // sola fila. Con texto completo no cabían y, sin desplegable, desaparecían.
+        _addFilesButton = BarButton("Añadir", Icons.Add, (_, _) => AddFiles(), iconOnly: true);
+        _addFolderButton = BarButton("Carpeta", Icons.FolderAdd, (_, _) => AddFolder(), iconOnly: true);
+        _copyButton = BarButton("Copiar", Icons.Copy, (_, _) => StartTransfer(OperationType.Copy), true, iconOnly: true);
+        _moveButton = BarButton("Mover", Icons.Move, (_, _) => StartTransfer(OperationType.Move), iconOnly: true);
+        _testButton = BarButton("Verificar", Icons.Verify, (_, _) => StartTransfer(OperationType.Test), iconOnly: true);
+        _deleteButton = BarButton("Eliminar", Icons.Delete, (_, _) => StartTransfer(OperationType.Delete), iconOnly: true);
         _pauseButton = BarButton("Pausar", Icons.Pause, (_, _) => TogglePause());
         _skipButton = BarButton("Saltar", Icons.ChevronRight, (_, _) => SkipCurrent());
         _stopButton = BarButton("Detener", Icons.Stop, (_, _) => StopTransfer());
@@ -531,10 +533,11 @@ public sealed partial class MainForm : Form
         {
             Dock = DockStyle.Fill,
             GripStyle = ToolStripGripStyle.Hidden,
-            // Sin desplegable: pausar/reanudar/detener deben verse siempre como botones.
-            // Antes se iban al menú «» en cuanto la barra se quedaba estrecha.
+            // Con desplegable como red de seguridad: si un botón no cabe (ventana muy
+            // estrecha), se recoge en «» en lugar de desaparecer sin más. Con el reparto
+            // actual (izquierda con iconos, transferencia a la derecha) caben todos.
             LayoutStyle = ToolStripLayoutStyle.HorizontalStackWithOverflow,
-            CanOverflow = false,
+            CanOverflow = true,
             AutoSize = false,
             BackColor = _palette.Surface,
             Font = new Font("Segoe UI", 8.75f, FontStyle.Bold),
