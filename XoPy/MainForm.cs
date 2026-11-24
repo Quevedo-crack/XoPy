@@ -422,14 +422,13 @@ public sealed partial class MainForm : Form
         var bar = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            ColumnCount = 2,
+            ColumnCount = 1,
             BackColor = _palette.Surface,
             Padding = new Padding(10, 8, 10, 8),
             RowCount = 1
         };
         bar.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         bar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        bar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
 
         // Acciones de la lista con icono (el texto va en el tooltip): así caben todas en una
         // sola fila. Con texto completo no cabían y, sin desplegable, desaparecían.
@@ -549,45 +548,20 @@ public sealed partial class MainForm : Form
             _addFilesButton, _addFolderButton, _copyButton, _moveButton, _testButton, _deleteButton
         });
 
-        var right = new ToolStrip
-        {
-            Dock = DockStyle.Fill,
-            GripStyle = ToolStripGripStyle.Hidden,
-            LayoutStyle = ToolStripLayoutStyle.HorizontalStackWithOverflow,
-            CanOverflow = false,
-            AutoSize = true,
-            BackColor = _palette.Surface,
-            Font = new Font("Segoe UI", 8.75f, FontStyle.Bold),
-            Renderer = new DarkMenuRenderer(_palette),
-            Padding = new Padding(0)
-        };
-        right.Items.AddRange(new ToolStripItem[]
+        // Una sola barra: las acciones (iconos), el modo, la verificación y la transferencia
+        // en el mismo ToolStrip. Con dos columnas la izquierda podía quedarse a cero y los
+        // botones desaparecían; así solo se recoge lo que de verdad no quepa.
+        left.Items.AddRange(new ToolStripItem[]
         {
             new ToolStripLabel("Modo:"), modeHost,
             new ToolStripControlHost(_verifyCheck) { Margin = new Padding(2, 2, 4, 0), AutoSize = true },
             new ToolStripSeparator(),
-            // Los controles de la transferencia, siempre a la vista y separados de las
-            // acciones de la lista (como en TeraCopy: Pausar/Reanudar y Detener redondos).
             _pauseButton, _skipButton, _stopButton,
             new ToolStripSeparator(),
             _removeFromListButton,
             _compactButton, _optionsButton
         });
-
         bar.Controls.Add(left, 0, 0);
-        bar.Controls.Add(right, 1, 0);
-        // El reparto se rehace cuando la barra ya tiene ancho: con AutoSize en la columna
-        // derecha, si no se fuerza, la izquierda se queda a 0 y los botones no se ven.
-        bar.Layout += (_, _) =>
-        {
-            var needed = right.GetPreferredSize(Size.Empty).Width;
-            var style = bar.ColumnStyles[1];
-            if (style.SizeType == SizeType.AutoSize && Math.Abs(style.Width - needed) > 2)
-            {
-                style.SizeType = SizeType.Absolute;
-                style.Width = needed;
-            }
-        };
         bar.Paint += (_, e) =>
         {
             using var pen = new Pen(_palette.Border);
