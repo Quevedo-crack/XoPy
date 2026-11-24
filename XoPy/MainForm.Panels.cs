@@ -1154,9 +1154,6 @@ public sealed partial class MainForm
         ResizeColumns();
     }
 
-    [DllImport("user32.dll")]
-    private static extern int ShowScrollBar(IntPtr hwnd, int bar, bool show);
-
     private static void SetWidth(ColumnHeader column, int width)
     {
         if (column.Width != width) column.Width = width;
@@ -1430,15 +1427,15 @@ public sealed partial class MainForm
             if (spare > 0) SetWidth(_list.Columns[last], _list.Columns[last].Width + spare);
             else if (spare < -12) SetWidth(_list.Columns[last], Math.Max(60, _list.Columns[last].Width + spare));
 
+            // Con la lista vacía no hay nada que desplazar, pero el ListView nativo mostraba
+            // igualmente la barra vertical, y el tema oscuro de Windows no la colorea: se veía
+            // un rectángulo blanco junto a la cabecera. Sin desplazamiento, no hay barra.
+            var scrollable = _list.Items.Count > 0;
+            if (_list.Scrollable != scrollable) _list.Scrollable = scrollable;
+
             // Con las columnas ajustadas al ancho no hace falta desplazarse en horizontal:
             // su barra (blanca en el tema oscuro) aparecía como una línea al pie de la lista.
-            if (total + scrollbar <= _list.ClientSize.Width + 4) ShowScrollBar(_list.Handle, 0 /* SB_HORZ */, false);
 
-            // Con la lista vacía también aparecía el pulgar de la barra vertical, que el tema
-            // oscuro de Windows no colorea (se veía un rectángulo blanco). Se oculta mientras
-            // no haya filas: con contenido vuelve sola.
-            var needsVertical = _list.Items.Count > 0;
-            ShowScrollBar(_list.Handle, 1 /* SB_VERT */, needsVertical);
         }
         finally
         {
