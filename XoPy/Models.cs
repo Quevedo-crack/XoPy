@@ -320,6 +320,11 @@ public sealed class StartupRequest
                         request.VerifyAlgorithm = algorithm;
                     break;
                 case "--screenshot":
+                case "--screenshot-advanced":
+                    request.Screenshot = true;
+                    request.ScreenshotMode = "advanced";
+                    if (i + 1 < args.Length) request.ScreenshotPath = Normalize(args[++i]);
+                    break;
                 case "--screenshot-options":
                 case "--screenshot-conflict":
                 case "--screenshot-tabs":

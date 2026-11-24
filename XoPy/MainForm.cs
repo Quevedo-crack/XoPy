@@ -1598,6 +1598,13 @@ public sealed partial class MainForm : Form
                     CaptureDialogPng(() => new OptionsDialog(_settings, _palette), target);
                     break;
 
+                case "advanced":
+                    // Regresión del informe: «Opciones avanzadas» lanzaba
+                    // «No se puede agregar 'Button' a 'TabControl'». Se abre de verdad y se
+                    // pulsa el botón; si vuelve a fallar, la captura lo muestra.
+                    CaptureAdvancedPng(target);
+                    break;
+
                 case "conflict":
                     CaptureDialogPng(() => new PromptDialog(_palette, "Archivo ya existente",
                         "El archivo «informe.pdf» ya existe en la carpeta de destino. ¿Qué quieres hacer?",
@@ -1654,6 +1661,44 @@ public sealed partial class MainForm : Form
         using var bitmap = new Bitmap(Math.Max(1, Width), Math.Max(1, Height));
         using (var graphics = Graphics.FromImage(bitmap)) graphics.CopyFromScreen(Location, Point.Empty, Size);
         bitmap.Save(target, System.Drawing.Imaging.ImageFormat.Png);
+    }
+
+    /// <summary>Captura las «Opciones avanzadas» pulsando el botón como el usuario.</summary>
+    private void CaptureAdvancedPng(string target)
+    {
+        using var dialog = new OptionsDialog(_settings, _palette);
+        dialog.StartPosition = FormStartPosition.Manual;
+        dialog.Location = new Point(Location.X + 30, Location.Y + 30);
+        try
+        {
+            var button = FindButtonByText(dialog, "Opciones avanzadas");
+            if (button is null)
+            {
+                try { File.WriteAllText(target + ".error.txt", "No se encontró el botón"); } catch { }
+                return;
+            }
+            try { button.PerformClick(); }
+            catch (Exception ex) { try { File.WriteAllText(target + ".error.txt", ex.ToString()); } catch { } }
+            for (var pass = 0; pass < 14; pass++) { Application.DoEvents(); dialog.Update(); Thread.Sleep(60); }
+            var area = dialog.Bounds;
+            using var bitmap = new Bitmap(Math.Max(1, area.Width), Math.Max(1, area.Height));
+            using (var graphics = Graphics.FromImage(bitmap))
+                graphics.CopyFromScreen(area.Location, Point.Empty, area.Size);
+            bitmap.Save(target, System.Drawing.Imaging.ImageFormat.Png);
+        }
+        finally { dialog.Close(); }
+    }
+
+    private static Button? FindButtonByText(Control parent, string text)
+    {
+        foreach (Control child in parent.Controls)
+        {
+            if (child is Button candidate && candidate.Text.Contains(text, StringComparison.OrdinalIgnoreCase))
+                return candidate;
+            var nested = FindButtonByText(child, text);
+            if (nested is not null) return nested;
+        }
+        return null;
     }
 
     private static void SaveControlPng(Control? control, string target)

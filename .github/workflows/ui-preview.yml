@@ -114,6 +114,13 @@ jobs:
           $process = Start-Process -FilePath $exe -ArgumentList @('--screenshot-history', 'C:\xopytest\history.png') -PassThru
           if (-not $process.WaitForExit(60000)) { $process.Kill(); $ok = $false }
           if (Test-Path 'C:\xopytest\history.png') { Copy-Item 'C:\xopytest\history.png' 'docs\xopy-history.png' -Force } else { $ok = $false }
+          # «Opciones avanzadas»: regresión del error «No se puede agregar 'Button' a 'TabControl'».
+          $adv = 'C:\xopytest\advanced.png'
+          $process = Start-Process -FilePath $exe -ArgumentList @('--screenshot-advanced', $adv) -PassThru
+          if (-not $process.WaitForExit(60000)) { $process.Kill(); throw 'Las opciones avanzadas no terminaron' }
+          if (-not (Test-Path $adv)) { throw 'No se generó la captura de las opciones avanzadas' }
+          if (Test-Path ($adv + '.error.txt')) { throw ("Opciones avanzadas falló: " + (Get-Content ($adv + '.error.txt') -Raw)) }
+          Copy-Item $adv 'docs\xopy-advanced.png' -Force
           if (-not $ok) { throw 'No se pudieron capturar los diálogos' }
 
       - name: Probar una copia real
@@ -339,7 +346,7 @@ jobs:
         run: |
           git config user.name "XoPy Bot"
           git config user.email "xopy-bot@users.noreply.github.com"
-          git add docs/xopy-preview.png docs/xopy-tab-*.png docs/xopy-dropdown.png docs/xopy-contextmenu.png docs/xopy-options.png docs/xopy-conflict.png docs/xopy-verify.png docs/xopy-history.png
+          git add docs/xopy-preview.png docs/xopy-tab-*.png docs/xopy-dropdown.png docs/xopy-contextmenu.png docs/xopy-options.png docs/xopy-advanced.png docs/xopy-conflict.png docs/xopy-verify.png docs/xopy-history.png
           git diff --cached --quiet
           if ($LASTEXITCODE -ne 0) {
             git commit -m "Añadir captura automática de la interfaz"
