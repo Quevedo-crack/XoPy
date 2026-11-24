@@ -172,6 +172,10 @@ public sealed class AppSettings
     public bool UseRecycleBin { get; set; } = true;
     public bool MinimizeToTray { get; set; }
 
+    /// <summary>Mostrar la barra de menús superior (Archivo/Transferencia/Cola…).</summary>
+    public bool ShowMenuBar { get; set; }
+
+
     /// <summary>Ya se explicó una vez que XoPy queda en la bandeja al cerrar.</summary>
     public bool TrayHintShown { get; set; }
     public bool StartWithWindows { get; set; }

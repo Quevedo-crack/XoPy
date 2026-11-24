@@ -2,8 +2,8 @@
 
 [Setup]
 AppName=XoPy
-AppVersion=2.5.4
-AppVerName=XoPy 2.5.4
+AppVersion=2.5.5
+AppVerName=XoPy 2.5.5
 AppPublisher=Quevedo-crack
 AppPublisherURL=https://github.com/Quevedo-crack/XoPy
 AppSupportURL=https://github.com/Quevedo-crack/XoPy/issues
@@ -14,7 +14,7 @@ DisableProgramGroupPage=yes
 OutputDir=..\installer-output
 OutputBaseFilename=XoPy-Setup-win-x64
 UninstallDisplayIcon={app}\XoPy.exe
-UninstallDisplayName=XoPy 2.5.4
+UninstallDisplayName=XoPy 2.5.5
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
@@ -26,9 +26,9 @@ MinVersion=10.0
 ; instalación falla («DeleteFile falló; código 5»).
 CloseApplications=yes
 RestartApplications=no
-AppMutex=XoPySingleInstance
+AppMutex=Local\\XoPy.SingleInstance.5C1A93
 AllowNoIcons=yes
-VersionInfoVersion=2.5.4.0
+VersionInfoVersion=2.5.5.0
 VersionInfoProductName=XoPy
 VersionInfoDescription=Gestor de copias XoPy
 VersionInfoCompany=Quevedo-crack
@@ -46,7 +46,9 @@ Name: "replacecopier"; Description: "Sustituir Ctrl+V del Explorador por XoPy"; 
 
 [Files]
 Source: "..\publish\XoPy.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\publish\XoPyShell.dll"; DestDir: "{app}"; Flags: ignoreversion 64bit
+; restartreplace: si Windows no deja reemplazarla en caliente, se sustituye al reiniciar en
+; lugar de abortar con «DeleteFile falló; código 5».
+Source: "..\publish\XoPyShell.dll"; DestDir: "{app}"; Flags: ignoreversion 64bit restartreplace
 ; Extensión del Explorador que añade «Pegar» al menú contextual de las carpetas.
 ; Sin ella, el instalador prometía el comando pegar y luego no quedaba registrado.
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
@@ -118,6 +120,7 @@ end;
 procedure RestartExplorerIfNeeded();
 var
   ResultCode: Integer;
+  Attempt: Integer;
   DllPath, ProbePath: String;
 begin
   DllPath := ExpandConstant('{app}\XoPyShell.dll');
@@ -128,9 +131,22 @@ begin
     RenameFile(ProbePath, DllPath);
     exit;
   end;
+  // El Explorador la tiene cargada y Windows no deja reemplazarla. Se cierra Explorer
+  // (Windows lo relanza solo) y se espera a que suelte el archivo: este era el fallo
+  // «DeleteFile falló; código 5» que seguía apareciendo al instalar encima.
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM explorer.exe /F', '', SW_HIDE,
        ewWaitUntilTerminated, ResultCode);
-  Sleep(1500);
+  Sleep(2500);
+  // Reintento con margen: si sigue bloqueada, se informa en el log del instalador.
+  for Attempt := 0 to 9 do
+  begin
+    if RenameFile(DllPath, ProbePath) then
+    begin
+      RenameFile(ProbePath, DllPath);
+      exit;
+    end;
+    Sleep(500);
+  end;
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);

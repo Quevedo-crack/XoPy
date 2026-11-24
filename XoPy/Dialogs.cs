@@ -145,12 +145,17 @@ internal sealed class OptionsDialog : Form
 {
     private readonly Palette _palette;
     private readonly TabControl _tabs;
+    private Button? _advancedBack;
+    private bool _advancedShown;
+    private FlowLayoutPanel? _advancedRow;
     private readonly TextBox _destination;
     private readonly ChoiceButton _theme;
     private readonly CheckBox _confirmDelete;
     private readonly CheckBox _minimizeToTray;
     private readonly CheckBox _startWithWindows;
     private readonly CheckBox _startMinimized;
+    private readonly CheckBox _multiThread;
+    private readonly CheckBox _showMenuBar;
     private readonly NumericUpDown _parallel;
     private readonly NumericUpDown _buffer;
     private readonly NumericUpDown _speed;
@@ -240,6 +245,8 @@ internal sealed class OptionsDialog : Form
         _startWithWindows = Check("Iniciar XoPy al encender el equipo", settings.StartWithWindows);
         _startMinimized = Check("Arrancar minimizado en el área de notificación", settings.StartMinimized);
 
+        _multiThread = Check("Copiar varios archivos a la vez (multihilo)", settings.MultiThreadCopy);
+        _showMenuBar = Check("Mostrar la barra de menús superior", settings.ShowMenuBar);
         _parallel = Numeric(settings.Parallelism, 1, 16, 1);
         _buffer = Numeric(settings.BufferKiB, 64, 8192, 64);
         _speed = Numeric(settings.SpeedLimitMiB, 0, 100000, 10);
@@ -484,6 +491,7 @@ internal sealed class OptionsDialog : Form
             Margin = new Padding(0)
         };
         bottom.Controls.Add(advanced);
+        _advancedRow = bottom;
 
         page.RowStyles.Clear();
         page.RowCount = 2;
@@ -499,41 +507,54 @@ internal sealed class OptionsDialog : Form
     /// <summary>Muestra las pestañas de opciones avanzadas (destino, motor, verificación…).</summary>
     private void ShowAdvanced()
     {
-        var tabs = _tabs;
-        tabs.Visible = true;
-        tabs.BringToFront();
-        var host = tabs.Parent as TableLayoutPanel;
+        if (_advancedShown) return;
+        _advancedShown = true;
+
+        var host = _tabs.Parent as TableLayoutPanel;
         if (host is not null)
         {
+            // Se oculta la pantalla principal y se muestra la de pestañas avanzadas.
+            host.RowStyles[0].SizeType = SizeType.Absolute;
             host.RowStyles[0].Height = 0;
-            host.RowStyles[1].Height = 100;
             host.RowStyles[1].SizeType = SizeType.Percent;
+            host.RowStyles[1].Height = 100;
             var main = host.GetControlFromPosition(0, 0);
             if (main is not null) main.Visible = false;
         }
+        _tabs.Visible = true;
+        _tabs.BringToFront();
         FitTabWidths();
 
-        // Al cerrar las pestañas se vuelve a la pantalla principal.
-        var back = Ui.DialogButton("← Volver", _palette);
-        back.Size = new Size(110, 28);
-        back.Location = new Point(14, 8);
-        back.Click += (_, _) =>
+        // «Volver» va en la fila del botón Guardar/Cancelar, NO dentro del TabControl:
+        // un TabControl solo admite TabPage y añadirle un Button lanzaba
+        // «No se puede agregar 'Button' a 'TabControl'» al pulsar Opciones avanzadas.
+        var back = Ui.DialogButton("← Volver a las opciones", _palette);
+        back.Size = new Size(210, 30);
+        back.Margin = new Padding(0, 0, 8, 0);
+        back.Click += (_, _) => CloseAdvanced();
+        _advancedBack = back;
+        if (_advancedRow is not null)
         {
-            tabs.Visible = false;
-            if (host is not null)
-            {
-                host.RowStyles[0].SizeType = SizeType.Percent;
-                host.RowStyles[0].Height = 100;
-                host.RowStyles[1].SizeType = SizeType.Absolute;
-                host.RowStyles[1].Height = 0;
-                var main = host.GetControlFromPosition(0, 0);
-                if (main is not null) main.Visible = true;
-            }
-            back.Visible = false;
-        };
-        tabs.Controls.Add(back);
-        back.Parent = tabs;
-        back.BringToFront();
+            _advancedRow.Controls.Add(back);
+            _advancedRow.Controls.SetChildIndex(back, 0);
+        }
+    }
+
+    private void CloseAdvanced()
+    {
+        _tabs.Visible = false;
+        var host = _tabs.Parent as TableLayoutPanel;
+        if (host is not null)
+        {
+            host.RowStyles[0].SizeType = SizeType.Percent;
+            host.RowStyles[0].Height = 100;
+            host.RowStyles[1].SizeType = SizeType.Absolute;
+            host.RowStyles[1].Height = 0;
+            var main = host.GetControlFromPosition(0, 0);
+            if (main is not null) main.Visible = true;
+        }
+        if (_advancedBack is not null) _advancedBack.Visible = false;
+        _advancedShown = false;
     }
 
     private Label SectionTitle(string text) => new()
@@ -667,7 +688,8 @@ internal sealed class OptionsDialog : Form
         extraPanel.Controls.Add(extraButtons, 0, 1);
 
         _tabs.TabPages.Add(Page("Transferencia", 11,
-            ("Máximo de hilos (modo multihilo)", _parallel, 44),
+            ("", _multiThread, 32),
+            ("Hilos en paralelo (solo con multihilo)", _parallel, 44),
             ("Búfer por archivo (KiB)", _buffer, 44),
             ("Límite de velocidad (MiB/s, 0 = sin límite)", _speed, 44),
             ("", _preserveTimestamps, 36),
@@ -944,6 +966,8 @@ internal sealed class OptionsDialog : Form
         Result.MinimizeToTray = _minimizeToTray.Checked;
         Result.StartWithWindows = _startWithWindows.Checked;
         Result.StartMinimized = _startMinimized.Checked;
+        Result.MultiThreadCopy = _multiThread.Checked;
+        Result.ShowMenuBar = _showMenuBar.Checked;
         Result.Parallelism = (int)_parallel.Value;
         Result.BufferKiB = (int)_buffer.Value;
         Result.SpeedLimitMiB = (int)_speed.Value;
@@ -1005,6 +1029,7 @@ internal sealed class OptionsDialog : Form
         target.StartMinimized = Result.StartMinimized;
         target.Parallelism = Result.Parallelism;
         target.MultiThreadCopy = Result.MultiThreadCopy;
+        target.ShowMenuBar = Result.ShowMenuBar;
         target.BufferKiB = Result.BufferKiB;
         target.SpeedLimitMiB = Result.SpeedLimitMiB;
         target.PreserveTimestamps = Result.PreserveTimestamps;
@@ -1050,6 +1075,7 @@ internal sealed class OptionsDialog : Form
         StartMinimized = source.StartMinimized,
         Parallelism = source.Parallelism,
         MultiThreadCopy = source.MultiThreadCopy,
+        ShowMenuBar = source.ShowMenuBar,
         BufferKiB = source.BufferKiB,
         SpeedLimitMiB = source.SpeedLimitMiB,
         PreserveTimestamps = source.PreserveTimestamps,
