@@ -1,8 +1,8 @@
   Determining projects to restore...
-  Restored D:\a\XoPy\XoPy\XoPy\XoPy.csproj (in 25 ms).
+  Restored D:\a\XoPy\XoPy\XoPy\XoPy.csproj (in 27 ms).
 D:\a\XoPy\XoPy\XoPy\MainForm.cs(1778,9): warning WFDEV004: 'Form.Closed' is obsolete: 'Form.OnClosing, Form.OnClosed and the corresponding events are obsolete. Use Form.OnFormClosing, Form.OnFormClosed, Form.FormClosing and Form.FormClosed instead.' (https://aka.ms/winforms-warnings/WFDEV004) [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
-D:\a\XoPy\XoPy\XoPy\MainForm.cs(2027,13): warning CS8602: Dereference of a possibly null reference. [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
-D:\a\XoPy\XoPy\XoPy\MainForm.cs(2062,74): warning CS8602: Dereference of a possibly null reference. [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
+D:\a\XoPy\XoPy\XoPy\MainForm.cs(2034,13): warning CS8602: Dereference of a possibly null reference. [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
+D:\a\XoPy\XoPy\XoPy\MainForm.cs(2069,74): warning CS8602: Dereference of a possibly null reference. [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
 D:\a\XoPy\XoPy\XoPy\MainForm.cs(117,18): warning CS0414: The field 'MainForm._wasRunning' is assigned but its value is never used [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
 CSC : warning WFO0003: Remove high DPI settings from D:\a\XoPy\XoPy\XoPy\app.manifest and configure via Application.SetHighDpiMode API or 'ApplicationHighDpiMode' project property (https://aka.ms/winforms-warnings/wfo0003) [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
   XoPy -> D:\a\XoPy\XoPy\XoPy\bin\Release\net10.0-windows\win-x64\XoPy.dll
@@ -10,21 +10,158 @@ CSC : warning WFO0003: Remove high DPI settings from D:\a\XoPy\XoPy\XoPy\app.man
 Build succeeded.
 
 D:\a\XoPy\XoPy\XoPy\MainForm.cs(1778,9): warning WFDEV004: 'Form.Closed' is obsolete: 'Form.OnClosing, Form.OnClosed and the corresponding events are obsolete. Use Form.OnFormClosing, Form.OnFormClosed, Form.FormClosing and Form.FormClosed instead.' (https://aka.ms/winforms-warnings/WFDEV004) [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
-D:\a\XoPy\XoPy\XoPy\MainForm.cs(2027,13): warning CS8602: Dereference of a possibly null reference. [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
-D:\a\XoPy\XoPy\XoPy\MainForm.cs(2062,74): warning CS8602: Dereference of a possibly null reference. [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
+D:\a\XoPy\XoPy\XoPy\MainForm.cs(2034,13): warning CS8602: Dereference of a possibly null reference. [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
+D:\a\XoPy\XoPy\XoPy\MainForm.cs(2069,74): warning CS8602: Dereference of a possibly null reference. [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
 D:\a\XoPy\XoPy\XoPy\MainForm.cs(117,18): warning CS0414: The field 'MainForm._wasRunning' is assigned but its value is never used [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
 CSC : warning WFO0003: Remove high DPI settings from D:\a\XoPy\XoPy\XoPy\app.manifest and configure via Application.SetHighDpiMode API or 'ApplicationHighDpiMode' project property (https://aka.ms/winforms-warnings/wfo0003) [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
     5 Warning(s)
     0 Error(s)
 
-Time Elapsed 00:00:03.51
+Time Elapsed 00:00:03.05
 FILE: carpeta (1 bytes)
+FILE: dest-rbcopy (1 bytes)
+FILE: dest3 (1 bytes)
+FILE: dest4 (1 bytes)
+FILE: dest5 (1 bytes)
+FILE: destino (1 bytes)
+FILE: destino2 (1 bytes)
+FILE: jerarquia (1 bytes)
+FILE: cola.txt (293 bytes)
+FILE: conflict.png (8495 bytes)
+FILE: conflictotest.txt (70 bytes)
+FILE: copiatest.txt (83 bytes)
 FILE: exitcode.txt (24 bytes)
+FILE: grande.bin (300000 bytes)
+FILE: history.png (24516 bytes)
 FILE: informe.pdf (10242 bytes)
-FILE: shot.png (35550 bytes)
+FILE: jerarquiatest.txt (111 bytes)
+FILE: menu-context.png (5996 bytes)
+FILE: menu-menu.png (35088 bytes)
+FILE: movetest.txt (88 bytes)
+FILE: options.png (49620 bytes)
+FILE: rbcopy.bin (200002 bytes)
+FILE: reanudartest.txt (41 bytes)
+FILE: robocopytest.txt (49 bytes)
+FILE: shot.png (35088 bytes)
+FILE: verify.png (34883 bytes)
 FILE: video.mp4 (20482 bytes)
 --- C:\xopytest\exitcode.txt
 exitcode=0 exited=True
+--- C:\xopytest\copiatest.txt
+archivo_copiado=True
+carpeta_copiada=True
+tamano_copiado=10242
+hash_igual=True
+--- C:\xopytest\movetest.txt
+movido=True
+origen_eliminado=True
+carpeta_movida=True
+carpeta_origen_eliminada=True
+--- C:\xopytest\conflictotest.txt
+tamano=20482
+hash_igual=True
+solo_lectura=False
+omitido_tamano=50
+--- C:\xopytest\jerarquiatest.txt
+anidado_dest1=True
+anidado_dest2=True
+vacia_dest1=True
+plano_dest1=False
+archivo_suelto=True
+checksums=1
+--- C:\xopytest\reanudartest.txt
+final=True
+temporal=0
+hash_igual=True
+--- C:\xopytest\cola.txt
+inicial=archivo1.bin,archivo2.bin,archivo3.bin
+lista_tras_mover=archivo2.bin,archivo1.bin,archivo3.bin
+visual_tras_mover=archivo2.bin,archivo1.bin,archivo3.bin
+tras_mover=archivo2.bin,archivo1.bin,archivo3.bin
+tras_ordenar=archivo3.bin,archivo2.bin,archivo1.bin
+quitados=3
+resultado=OK
+--- C:\xopytest\robocopytest.txt
+robocopy_copiado=True
+robocopy_hash_igual=True
 --- transfer.log (últimas 120 líneas)
-2026-11-24 17:37:36  Aviso: el copiador está sustituido, pero XoPy no arranca con Windows; el Ctrl+V del Explorador sólo se intercepta con XoPy abierto.
-2026-11-24 17:37:36  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
+2026-11-24 18:15:12  Aviso: el copiador está sustituido, pero XoPy no arranca con Windows; el Ctrl+V del Explorador sólo se intercepta con XoPy abierto.
+2026-11-24 18:15:12  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
+2026-11-24 18:15:32  Aviso: el copiador está sustituido, pero XoPy no arranca con Windows; el Ctrl+V del Explorador sólo se intercepta con XoPy abierto.
+2026-11-24 18:15:32  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
+2026-11-24 18:15:59  Aviso: el copiador está sustituido, pero XoPy no arranca con Windows; el Ctrl+V del Explorador sólo se intercepta con XoPy abierto.
+2026-11-24 18:15:59  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
+2026-11-24 18:16:04  Aviso: el copiador está sustituido, pero XoPy no arranca con Windows; el Ctrl+V del Explorador sólo se intercepta con XoPy abierto.
+2026-11-24 18:16:04  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
+2026-11-24 18:16:08  Aviso: el copiador está sustituido, pero XoPy no arranca con Windows; el Ctrl+V del Explorador sólo se intercepta con XoPy abierto.
+2026-11-24 18:16:08  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
+2026-11-24 18:16:12  Aviso: el copiador está sustituido, pero XoPy no arranca con Windows; el Ctrl+V del Explorador sólo se intercepta con XoPy abierto.
+2026-11-24 18:16:12  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
+2026-11-24 18:16:16  Aviso: el copiador está sustituido, pero XoPy no arranca con Windows; el Ctrl+V del Explorador sólo se intercepta con XoPy abierto.
+2026-11-24 18:16:16  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
+2026-11-24 18:16:16  Arranque: destinos extra=[] guardados=[]
+2026-11-24 18:16:16  HandleExternalFiles: 2 ruta(s), destino=C:\xopytest\destino, captura=False
+2026-11-24 18:16:16  HandleExternalFiles: tras AddPathsAsync, elementos=5
+2026-11-24 18:16:16  Inicio: 4 elementos, destinos=C:\xopytest\destino, verificar=False (Sha256), reanudar=False
+2026-11-24 18:16:16  Copia nativa: C:\xopytest\informe.pdf -> C:\xopytest\destino\informe.pdf
+2026-11-24 18:16:16  Copia nativa: C:\xopytest\carpeta\foto1.jpg -> C:\xopytest\destino\carpeta\foto1.jpg
+2026-11-24 18:16:16  Copia nativa: C:\xopytest\carpeta\foto2.jpg -> C:\xopytest\destino\carpeta\foto2.jpg
+2026-11-24 18:16:16  Copia nativa: C:\xopytest\carpeta\foto3.jpg -> C:\xopytest\destino\carpeta\foto3.jpg
+2026-11-24 18:16:16  Fin: 22536 bytes en 0.0s, errores=0
+2026-11-24 18:16:32  Aviso: el copiador está sustituido, pero XoPy no arranca con Windows; el Ctrl+V del Explorador sólo se intercepta con XoPy abierto.
+2026-11-24 18:16:32  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
+2026-11-24 18:16:32  Arranque: destinos extra=[] guardados=[]
+2026-11-24 18:16:32  HandleExternalFiles: 1 ruta(s), destino=C:\xopytest\destino, captura=False
+2026-11-24 18:16:32  HandleExternalFiles: tras AddPathsAsync, elementos=1
+2026-11-24 18:16:32  Inicio: 1 elementos, destinos=C:\xopytest\destino, verificar=True (Sha256), reanudar=False
+2026-11-24 18:16:32  Fin: 20482 bytes en 0.1s, errores=0
+2026-11-24 18:16:44  Aviso: el copiador está sustituido, pero XoPy no arranca con Windows; el Ctrl+V del Explorador sólo se intercepta con XoPy abierto.
+2026-11-24 18:16:44  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
+2026-11-24 18:16:44  Arranque: destinos extra=[] guardados=[]
+2026-11-24 18:16:44  HandleExternalFiles: 1 ruta(s), destino=C:\xopytest\destino, captura=False
+2026-11-24 18:16:44  HandleExternalFiles: tras AddPathsAsync, elementos=1
+2026-11-24 18:16:44  Inicio: 1 elementos, destinos=C:\xopytest\destino, verificar=True (Sha256), reanudar=False
+2026-11-24 18:16:44  Fin: 20482 bytes en 0.0s, errores=0
+2026-11-24 18:16:54  Aviso: el copiador está sustituido, pero XoPy no arranca con Windows; el Ctrl+V del Explorador sólo se intercepta con XoPy abierto.
+2026-11-24 18:16:54  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
+2026-11-24 18:17:14  Aviso: el copiador está sustituido, pero XoPy no arranca con Windows; el Ctrl+V del Explorador sólo se intercepta con XoPy abierto.
+2026-11-24 18:17:14  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
+2026-11-24 18:17:14  Arranque: destinos extra=[] guardados=[]
+2026-11-24 18:17:14  HandleExternalFiles: 1 ruta(s), destino=C:\xopytest\destino2, captura=False
+2026-11-24 18:17:14  HandleExternalFiles: tras AddPathsAsync, elementos=1
+2026-11-24 18:17:14  Inicio: 1 elementos, destinos=C:\xopytest\destino2, verificar=True (Sha256), reanudar=False
+2026-11-24 18:17:14  Fin: 5002 bytes en 0.1s, errores=0
+2026-11-24 18:17:26  Aviso: el copiador está sustituido, pero XoPy no arranca con Windows; el Ctrl+V del Explorador sólo se intercepta con XoPy abierto.
+2026-11-24 18:17:26  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
+2026-11-24 18:17:26  Arranque: destinos extra=[] guardados=[]
+2026-11-24 18:17:26  HandleExternalFiles: 1 ruta(s), destino=C:\xopytest\destino2, captura=False
+2026-11-24 18:17:26  HandleExternalFiles: tras AddPathsAsync, elementos=4
+2026-11-24 18:17:26  Inicio: 2 elementos, destinos=C:\xopytest\destino2, verificar=True (Sha256), reanudar=False
+2026-11-24 18:17:26  Fin: 8196 bytes en 0.1s, errores=0
+2026-11-24 18:17:26  Carpeta de origen eliminada tras mover: C:\xopytest\movercarpeta
+2026-11-24 18:17:41  Aviso: el copiador está sustituido, pero XoPy no arranca con Windows; el Ctrl+V del Explorador sólo se intercepta con XoPy abierto.
+2026-11-24 18:17:41  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
+2026-11-24 18:17:41  Arranque: destinos extra=[] guardados=[]
+2026-11-24 18:17:41  HandleExternalFiles: 1 ruta(s), destino=C:\xopytest\dest-rbcopy, captura=False
+2026-11-24 18:17:41  HandleExternalFiles: tras AddPathsAsync, elementos=1
+2026-11-24 18:17:41  Inicio: 1 elementos, destinos=C:\xopytest\dest-rbcopy, verificar=True (Sha256), reanudar=False
+2026-11-24 18:17:41  Copia con Robocopy: C:\xopytest\rbcopy.bin -> C:\xopytest\dest-rbcopy\rbcopy.bin
+2026-11-24 18:17:41  Fin: 200002 bytes en 0.2s, errores=0
+2026-11-24 18:17:55  Aviso: el copiador está sustituido, pero XoPy no arranca con Windows; el Ctrl+V del Explorador sólo se intercepta con XoPy abierto.
+2026-11-24 18:17:55  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
+2026-11-24 18:17:55  Arranque: destinos extra=[C:\xopytest\dest4] guardados=[C:\xopytest\dest4]
+2026-11-24 18:17:55  HandleExternalFiles: 2 ruta(s), destino=C:\xopytest\dest3, captura=False
+2026-11-24 18:17:55  HandleExternalFiles: tras AddPathsAsync, elementos=6
+2026-11-24 18:17:55  Inicio: 4 elementos, destinos=C:\xopytest\dest3 | C:\xopytest\dest4, verificar=True (Sha256), reanudar=False
+2026-11-24 18:17:55  Fin: 40972 bytes en 0.1s, errores=0
+2026-11-24 18:17:55  Archivo de checksums creado: C:\xopytest\dest3\XoPy-checksums-20261124-181755.sha256
+2026-11-24 18:18:00  Aviso: el copiador está sustituido, pero XoPy no arranca con Windows; el Ctrl+V del Explorador sólo se intercepta con XoPy abierto.
+2026-11-24 18:18:00  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
+2026-11-24 18:18:00  Arranque: destinos extra=[] guardados=[C:\xopytest\dest4]
+2026-11-24 18:18:00  HandleExternalFiles: 1 ruta(s), destino=C:\xopytest\dest5, captura=False
+2026-11-24 18:18:00  HandleExternalFiles: tras AddPathsAsync, elementos=1
+2026-11-24 18:18:00  Inicio: 1 elementos, destinos=C:\xopytest\dest5 | C:\xopytest\dest4, verificar=True (Sha256), reanudar=False
+2026-11-24 18:18:00  Fin: 600000 bytes en 0.1s, errores=0
+2026-11-24 18:18:00  Archivo de checksums creado: C:\xopytest\dest5\XoPy-checksums-20261124-181800.sha256
+2026-11-24 18:18:15  Aviso: el copiador está sustituido, pero XoPy no arranca con Windows; el Ctrl+V del Explorador sólo se intercepta con XoPy abierto.
+2026-11-24 18:18:15  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
