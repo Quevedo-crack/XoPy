@@ -227,15 +227,16 @@ public sealed partial class MainForm : Form
             _rootLayout.RowStyles[2].Height = 72;
             // En reducido se ocultan las pestañas (como TeraCopy: solo metadatos y lista) y
             // la lista SÍ queda a la vista: ahí está la barra de progreso de cada archivo.
-            _rootLayout.RowStyles[3].Height = 34;
-            _rootLayout.RowStyles[3].SizeType = compact ? SizeType.Absolute : SizeType.Absolute;
+            // Sin pestañas en reducido: la fila se queda a cero (antes dejaba un hueco de 34 px).
+            _rootLayout.RowStyles[3].Height = compact ? 0 : 34;
             if (_tabBar is not null) _tabBar.Visible = !compact;
             _rootLayout.RowStyles[4].SizeType = SizeType.Percent;
             _rootLayout.RowStyles[4].Height = 100;
             // En reducido no hay pestañas que mostrar: la lista ocupa todo el ancho.
             if (_contentGrid is not null && _contentGrid.ColumnStyles.Count >= 2)
                 _contentGrid.ColumnStyles[0].Width = compact ? 0 : 228;
-            _rootLayout.RowStyles[5].Height = compact ? 78 : 96;
+            // El pie necesita 90 px de filas + 16 de relleno: con menos, se recortaba.
+            _rootLayout.RowStyles[5].Height = 106;
             if (_transferHeader is not null && _transferHeader.RowStyles.Count >= 4)
             {
                 // Las dos líneas (origen y destino) y sus barras siguen visibles en compacto.
