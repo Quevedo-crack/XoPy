@@ -105,10 +105,10 @@ public static class ShellIntegration
         var dll = Path.Combine(Path.GetDirectoryName(Application.ExecutablePath) ?? string.Empty, "XoPyShell.dll");
         if (!File.Exists(dll)) return;
 
-        // Se llama a DllRegisterServer de la propia DLL: es el registro COM oficial y deja
-        // el CLSID, InprocServer32 y el handler del menú en su sitio. Antes solo se escribían
-        // claves a mano y, si la DLL no estaba registrada, Windows seguía usando su copiador.
-        if (RegisterComServer(dll)) return;
+        // Se llama a DllRegisterServer de la propia DLL (registro COM oficial) y ADEMÁS se
+        // escriben las claves a mano: el registro COM por sí solo no basta porque no cubre
+        // todos los contextos del Explorador.
+        RegisterComServer(dll);
 
         const string clsid = "{3B1E92A7-7AD6-4E71-A218-75449CE13061}";
         using (var key = Registry.CurrentUser.CreateSubKey(ClassesRoot + @"\CLSID\" + clsid))
@@ -118,14 +118,31 @@ public static class ShellIntegration
             key?.SetValue(null, dll);
             key?.SetValue("ThreadingModel", "Apartment");
         }
-        using (var key = Registry.CurrentUser.CreateSubKey(ClassesRoot + @"\Directory\Background\shellex\ContextMenuHandlers\XoPyPaste"))
-            key?.SetValue(null, clsid);
+        // «Pegar» debe salir con el clic derecho EN TODOS los contextos donde Windows lo
+        // ofrece: dentro de una carpeta (fondo), sobre una carpeta, y en el escritorio.
+        // Antes solo se registraba el fondo de carpeta: por eso al pegar en el escritorio o
+        // con una carpeta seleccionada seguía copiando el de Windows.
+        foreach (var context in new[]
+                 {
+                     @"Directory\Background\shellex\ContextMenuHandlers\XoPyPaste",
+                     @"Directory\shellex\ContextMenuHandlers\XoPyPaste",
+                     @"DesktopBackground\shellex\ContextMenuHandlers\XoPyPaste"
+                 })
+        {
+            using var handlers = Registry.CurrentUser.CreateSubKey(ClassesRoot + @"\" + context);
+            handlers?.SetValue(null, clsid);
+        }
         try
         {
             using var approved = Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved");
             approved?.SetValue(clsid, "XoPy Pegar");
         }
         catch { }
+
+        // Sin este aviso el Explorador sigue con la caché antigua y no muestra «Pegar»
+        // hasta reiniciarlo a mano.
+        try { SHChangeNotify(0x08000000, 0, IntPtr.Zero, IntPtr.Zero); } catch { }
+        try { SHChangeNotify(0x00000004, 0, IntPtr.Zero, IntPtr.Zero); } catch { }
     }
 
     /// <summary>Ejecuta DllRegisterServer de la extensión; devuelve si lo consiguió.</summary>

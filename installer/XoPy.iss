@@ -22,8 +22,11 @@ PrivilegesRequired=admin
 ArchitecturesAllowed=x64
 ArchitecturesInstallIn64BitMode=x64
 MinVersion=10.0
-CloseApplications=no
+; La aplicación se cierra sola al instalar: si sigue abierta, XoPy.exe queda bloqueado y la
+; instalación falla («DeleteFile falló; código 5»).
+CloseApplications=yes
 RestartApplications=no
+AppMutex=XoPySingleInstance
 AllowNoIcons=yes
 VersionInfoVersion=2.5.3.0
 VersionInfoProductName=XoPy
@@ -43,9 +46,9 @@ Name: "replacecopier"; Description: "Sustituir Ctrl+V del Explorador por XoPy"; 
 
 [Files]
 Source: "..\publish\XoPy.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\publish\XoPyShell.dll"; DestDir: "{app}"; Flags: ignoreversion 64bit
 ; Extensión del Explorador que añade «Pegar» al menú contextual de las carpetas.
 ; Sin ella, el instalador prometía el comando pegar y luego no quedaba registrado.
-Source: "..\publish\XoPyShell.dll"; DestDir: "{app}"; Flags: ignoreversion 64bit
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [InstallDelete]
@@ -73,6 +76,44 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Shell Extensions\
 ; Windows según lo elegido en el instalador, para que quede configurado desde el primer día.
 Filename: "{app}\XoPy.exe"; Parameters: "--install-hooks"; Flags: postinstall nowait skipifsilent; Tasks: replacecopier
 Filename: "{app}\XoPy.exe"; Description: "Iniciar XoPy"; Flags: postinstall nowait skipifsilent
+
+[Code]
+// ─────────────────────────────────────────────────────────────────────────────
+// El Explorador mantiene cargada XoPyShell.dll mientras la extensión «Pegar» está
+// registrada. Windows no permite reemplazar un archivo en uso: de ahí el error
+// «DeleteFile falló; código 5. Acceso denegado» al instalar encima de otra versión.
+// Solución: desregistrar y descargar la DLL del Explorador ANTES de copiar archivos,
+// y solo si aun así queda bloqueada, reiniciar el Explorador.
+// ─────────────────────────────────────────────────────────────────────────────
+const
+  CLSID_XoPy = '{3B1E92A7-7AD6-4E71-A218-75449CE13061}';
+
+procedure UnregisterShellExtension();
+var
+  ResultCode: Integer;
+  DllPath: String;
+begin
+  DllPath := ExpandConstant('{app}\XoPyShell.dll');
+  if not FileExists(DllPath) then exit;
+  // Las exportaciones DllRegisterServer/DllUnregisterServer registran en HKCU, así que
+  // basta con invocarlas sobre la DLL que se va a reemplazar.
+  Exec(ExpandConstant('{sys}\regsvr32.exe'), '/u /s "' + DllPath + '"', '',
+       SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  // Además, se quitan las claves a mano: si regsvr32 no puede cargarla (DLL ya bloqueada),
+  // el Explorador deja de pedirla en el siguiente arranque.
+  RegDeleteKeyIncludingSubkeys(HKCU, 'Software\Classes\CLSID\' + CLSID_XoPy);
+  RegDeleteKeyIncludingSubkeys(HKCU,
+    'Software\Classes\Directory\Background\shellex\ContextMenuHandlers\XoPyPaste');
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  UnregisterShellExtension();
+  // Cierra XoPy si estaba abierto (CloseApplications lo hace, pero aquí se fuerza antes).
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM XoPy.exe /F', '', SW_HIDE,
+       ewWaitUntilTerminated, Result);
+  Result := '';
+end;
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"

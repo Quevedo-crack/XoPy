@@ -471,9 +471,14 @@ public sealed partial class MainForm
         {
             _list.Items.Clear();
             _rows.Clear();
+            // Lista PLANA, como TeraCopy: una fila por archivo, venga de la carpeta que venga.
+            // La carpeta no ocupa fila (por eso antes había que desplegarla para ver el
+            // contenido), y así se puede reordenar archivo a archivo conservando su raíz, que
+            // se muestra en la propia fila. La ruta de destino sigue saliendo de RelativePath,
+            // que no se toca al reordenar.
             foreach (var item in VisualItems())
             {
-                if (!IsVisibleRow(item)) continue;
+                if (item.Kind == ItemKind.Folder) continue;
                 var row = new ListViewItem(new[] { item.Name, DestinationText(item), item.SizeText, item.StateText, string.Empty, string.Empty, string.Empty })
                 {
                     Tag = item,
@@ -685,54 +690,39 @@ public sealed partial class MainForm
         SetStatus("Orden de la cola actualizado.");
     }
 
+    /// <summary>
+    /// Reordena un elemento una posición arriba o abajo. Los ARCHIVOS se mueven siempre
+    /// dentro de la lista plana de archivos, sin importar de qué carpeta vengan: es lo que
+    /// pide poder ordenar archivo a archivo aunque estén en raíces distintas. Las carpetas
+    /// conservan su propia posición y se reordenan solo entre carpetas.
+    /// </summary>
     private bool MoveBlock(TransferItem item, int delta)
     {
-        // Los archivos son solo filas visuales: se cambia su posición en la secuencia
-        // visual, nunca el ParentId, RelativePath ni Depth. Además solo se intercambian
-        // con archivos del MISMO padre: un archivo no puede «saltar» a otra carpeta.
-        if (item.Kind == ItemKind.File)
+        if (item.Kind == ItemKind.Folder)
         {
-            // Solo archivos hermanos (mismo ParentId): el orden real de _items no se toca.
-            var files = VisualItems()
-                .Where(candidate => candidate.Kind == ItemKind.File && candidate.ParentId == item.ParentId)
-                .ToList();
-            var fileIndex = files.IndexOf(item);
-            var fileTarget = fileIndex + delta;
-            if (fileIndex < 0 || fileTarget < 0 || fileTarget >= files.Count) return false;
-            var first = _visualOrder.IndexOf(files[fileIndex].Id);
-            var second = _visualOrder.IndexOf(files[fileTarget].Id);
-            if (first < 0 || second < 0) return false;
-            (_visualOrder[first], _visualOrder[second]) = (_visualOrder[second], _visualOrder[first]);
-            return true;
+            var folders = VisualItems().Where(candidate => candidate.Kind == ItemKind.Folder).ToList();
+            return SwapInVisualOrder(folders, item, delta);
         }
 
-        var parent = item.ParentId is null ? null : _items.FirstOrDefault(candidate => candidate.Id == item.ParentId.Value);
-        var siblings = parent is null ? RootItems() : Children(parent);
-        var index = siblings.IndexOf(item);
+        // Archivos (y carpetas vacías, que son un archivo-índice): una sola secuencia plana.
+        // No se toca ParentId, RelativePath ni Depth: la ruta de destino al copiar no cambia.
+        var files = VisualItems()
+            .Where(candidate => candidate.Kind != ItemKind.Folder)
+            .ToList();
+        return SwapInVisualOrder(files, item, delta);
+    }
+
+    private bool SwapInVisualOrder(List<TransferItem> sequence, TransferItem item, int delta)
+    {
+        var index = sequence.IndexOf(item);
+        if (index < 0) return false;
         var target = index + delta;
-        if (index < 0 || target < 0 || target >= siblings.Count) return false;
+        if (target < 0 || target >= sequence.Count) return false;
 
-        (siblings[index], siblings[target]) = (siblings[target], siblings[index]);
-
-        var rebuilt = new List<TransferItem>();
-        void AddNode(TransferItem node)
-        {
-            rebuilt.Add(node);
-            var children = ReferenceEquals(node, parent) ? siblings : Children(node);
-            foreach (var child in children) AddNode(child);
-        }
-        if (parent is null)
-        {
-            foreach (var root in siblings) AddNode(root);
-        }
-        else
-        {
-            foreach (var root in RootItems()) AddNode(root);
-        }
-
-        _items.Clear();
-        _items.AddRange(rebuilt);
-        ResetVisualOrder();
+        var first = _visualOrder.IndexOf(sequence[index].Id);
+        var second = _visualOrder.IndexOf(sequence[target].Id);
+        if (first < 0 || second < 0) return false;
+        (_visualOrder[first], _visualOrder[second]) = (_visualOrder[second], _visualOrder[first]);
         return true;
     }
 
@@ -879,21 +869,14 @@ public sealed partial class MainForm
             _list.SelectedItems.Clear();
             info.Item.Selected = true;
         }
-        if (e.Button != MouseButtons.Left || info.Item?.Tag is not TransferItem item || item.Kind != ItemKind.Folder) return;
-        var indent = 8 + item.Depth * 18;
-        if (e.X < info.Item.Bounds.Left + indent + 18 && e.X >= info.Item.Bounds.Left + indent - 2)
-            ToggleExpand(item);
+        // La lista es plana (una fila por archivo): no hay carpetas que desplegar.
+        _ = e;
     }
 
     private void ListDoubleClick(object? sender, EventArgs e)
     {
         if (_list.SelectedItems.Count != 1) return;
         if (_list.SelectedItems[0].Tag is not TransferItem item) return;
-        if (item.Kind == ItemKind.Folder && Children(item).Count > 0)
-        {
-            ToggleExpand(item);
-            return;
-        }
         OpenItem(item);
     }
 
@@ -2929,7 +2912,10 @@ public sealed partial class MainForm
             // TopMost temporal ayuda a sacar la ventana cuando está minimizada u ocultada en bandeja.
             TopMost = true;
             TopMost = false;
-            try { SetForegroundWindow(Handle); } catch { }
+            // El clic se ha producido en el área de notificación (de Explorer), así que este
+            // proceso NO tiene el foco y SetForegroundWindow se ignora. ForceForeground usa
+            // AttachThreadInput, que sí funciona en ese caso.
+            ForceForeground();
             UpdateFooter();
             UpdateButtons();
         }

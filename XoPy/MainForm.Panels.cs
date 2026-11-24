@@ -1273,7 +1273,8 @@ public sealed partial class MainForm
         {
             case 0:
             {
-                var x = e.Bounds.Left + 8 + item.Depth * 18;
+                // Lista plana: sin sangría por profundidad. La raíz se ve en la ruta de la fila.
+                var x = e.Bounds.Left + 8;
                 if (item.Kind == ItemKind.Folder)
                 {
                     TextRenderer.DrawText(e.Graphics, item.IsExpanded ? Icons.ChevronDown : Icons.ChevronRight,
