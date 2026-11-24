@@ -543,8 +543,7 @@ public sealed partial class MainForm : Form
         };
         left.Items.AddRange(new ToolStripItem[]
         {
-            _addFilesButton, _addFolderButton, _copyButton, _moveButton, _testButton, _deleteButton,
-            _pauseButton, _skipButton, _stopButton
+            _addFilesButton, _addFolderButton, _copyButton, _moveButton, _testButton, _deleteButton
         });
 
         var right = new ToolStrip
@@ -563,6 +562,11 @@ public sealed partial class MainForm : Form
         {
             new ToolStripLabel("Modo:"), modeHost,
             new ToolStripControlHost(_verifyCheck) { Margin = new Padding(2, 2, 4, 0), AutoSize = true },
+            new ToolStripSeparator(),
+            // Los controles de la transferencia, siempre a la vista y separados de las
+            // acciones de la lista (como en TeraCopy: Pausar/Reanudar y Detener redondos).
+            _pauseButton, _skipButton, _stopButton,
+            new ToolStripSeparator(),
             _removeFromListButton,
             _compactButton, _optionsButton
         });
