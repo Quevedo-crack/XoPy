@@ -173,6 +173,54 @@ STDAPI DllCanUnloadNow()
     return InterlockedCompareExchange(&g_objects, 0, 0) == 0 ? S_OK : S_FALSE;
 }
 
+// Registro COM de la extensión. Sin estas dos exportaciones, ni «regsvr32» ni la marca
+// «regserver» de Inno Setup podían registrar el CLSID: la integración se anunciaba pero
+// Windows seguía usando su copiador. El instalador y XoPy llaman a estas funciones.
+static const wchar_t* kClsidText = L"{3B1E92A7-7AD6-4E71-A218-75449CE13061}";
+
+static HRESULT WriteKey(HKEY root, const std::wstring& subkey, const wchar_t* name, const std::wstring& value)
+{
+    HKEY key = nullptr;
+    if (RegCreateKeyExW(root, subkey.c_str(), 0, nullptr, 0, KEY_WRITE, nullptr, &key, nullptr) != ERROR_SUCCESS)
+        return E_ACCESSDENIED;
+    const DWORD bytes = static_cast<DWORD>((value.size() + 1) * sizeof(wchar_t));
+    const LONG result = RegSetValueExW(key, name, 0, REG_SZ, reinterpret_cast<const BYTE*>(value.c_str()), bytes);
+    RegCloseKey(key);
+    return result == ERROR_SUCCESS ? S_OK : E_FAIL;
+}
+
+static std::wstring ModulePath()
+{
+    wchar_t path[MAX_PATH] = {};
+    GetModuleFileNameW(g_module, path, MAX_PATH);
+    return path;
+}
+
+STDAPI DllRegisterServer()
+{
+    const std::wstring clsidKey = std::wstring(L"Software\\Classes\\CLSID\\") + kClsidText;
+    HRESULT hr = WriteKey(HKEY_CURRENT_USER, clsidKey, nullptr, L"XoPy Shell Extension");
+    if (FAILED(hr)) return hr;
+    hr = WriteKey(HKEY_CURRENT_USER, clsidKey + L"\\InprocServer32", nullptr, ModulePath());
+    if (FAILED(hr)) return hr;
+    hr = WriteKey(HKEY_CURRENT_USER, clsidKey + L"\\InprocServer32", L"ThreadingModel", L"Apartment");
+    if (FAILED(hr)) return hr;
+    hr = WriteKey(HKEY_CURRENT_USER, L"Software\\Classes\\Directory\\Background\\shellex\\ContextMenuHandlers\\XoPyPaste",
+                  nullptr, kClsidText);
+    if (FAILED(hr)) return hr;
+    WriteKey(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Shell Extensions\\Approved",
+             kClsidText, L"XoPy Pegar");
+    return S_OK;
+}
+
+STDAPI DllUnregisterServer()
+{
+    RegDeleteKeyW(HKEY_CURRENT_USER, (std::wstring(L"Software\\Classes\\CLSID\\") + kClsidText).c_str());
+    RegDeleteKeyW(HKEY_CURRENT_USER, (std::wstring(L"Software\\Classes\\CLSID\\") + kClsidText + L"\\InprocServer32").c_str());
+    RegDeleteKeyW(HKEY_CURRENT_USER, L"Software\\Classes\\Directory\\Background\\shellex\\ContextMenuHandlers\\XoPyPaste");
+    return S_OK;
+}
+
 BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID)
 {
     if (reason == DLL_PROCESS_ATTACH) { g_module = instance; DisableThreadLibraryCalls(instance); }

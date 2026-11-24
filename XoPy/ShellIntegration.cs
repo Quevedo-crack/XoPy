@@ -21,6 +21,17 @@ public static class ShellIntegration
     [DllImport("shell32.dll")]
     private static extern void SHChangeNotify(uint eventId, uint flags, IntPtr item1, IntPtr item2);
 
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern IntPtr LoadLibrary(string path);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr GetProcAddress(IntPtr module, string name);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool FreeLibrary(IntPtr module);
+
+    private delegate int RegisterDelegate();
+
     /// <summary>Claves de menú contextual de versiones anteriores, para borrarlas al actualizar.</summary>
     private static readonly string[] LegacyVerbKeys =
     {
@@ -94,6 +105,11 @@ public static class ShellIntegration
         var dll = Path.Combine(Path.GetDirectoryName(Application.ExecutablePath) ?? string.Empty, "XoPyShell.dll");
         if (!File.Exists(dll)) return;
 
+        // Se llama a DllRegisterServer de la propia DLL: es el registro COM oficial y deja
+        // el CLSID, InprocServer32 y el handler del menú en su sitio. Antes solo se escribían
+        // claves a mano y, si la DLL no estaba registrada, Windows seguía usando su copiador.
+        if (RegisterComServer(dll)) return;
+
         const string clsid = "{3B1E92A7-7AD6-4E71-A218-75449CE13061}";
         using (var key = Registry.CurrentUser.CreateSubKey(ClassesRoot + @"\CLSID\" + clsid))
             key?.SetValue(null, "XoPy Shell Extension");
@@ -110,6 +126,29 @@ public static class ShellIntegration
             approved?.SetValue(clsid, "XoPy Pegar");
         }
         catch { }
+    }
+
+    /// <summary>Ejecuta DllRegisterServer de la extensión; devuelve si lo consiguió.</summary>
+    private static bool RegisterComServer(string dll)
+    {
+        var module = IntPtr.Zero;
+        try
+        {
+            module = LoadLibrary(dll);
+            if (module == IntPtr.Zero) return false;
+            var address = GetProcAddress(module, "DllRegisterServer");
+            if (address == IntPtr.Zero) return false;
+            var register = Marshal.GetDelegateForFunctionPointer<RegisterDelegate>(address);
+            return register() == 0;
+        }
+        catch
+        {
+            return false;
+        }
+        finally
+        {
+            if (module != IntPtr.Zero) FreeLibrary(module);
+        }
     }
 
     /// <summary>¿Está activa la sustitución del copiador (extensión + DLL en su sitio)?</summary>

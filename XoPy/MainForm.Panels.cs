@@ -1135,7 +1135,13 @@ public sealed partial class MainForm
         BeginInvoke(new Action(() =>
         {
             _columnUpdatePending = false;
-            if (!IsDisposed) UpdateHashColumns();
+            if (IsDisposed) return;
+            UpdateHashColumns();
+            // La lista también recupera SU alto aquí: al pasar de vacía a con filas había que
+            // repartir columnas otra vez (ResizeColumns devuelve la fila a Percent), y antes
+            // solo se hacía al redimensionar la ventana. Sin esto la lista se quedaba con la
+            // altura de la cabecera y las filas no se veían.
+            ResizeColumns();
         }));
     }
 
@@ -1292,8 +1298,33 @@ public sealed partial class MainForm
                     _ => _palette.Text
                 };
                 if (item.Kind == ItemKind.DirectoryEntry) nameColor = _palette.Muted;
-                var name = item.Kind == ItemKind.DirectoryEntry ? e.Item.Text + "  (carpeta vacía)" : e.Item.Text;
-                TextRenderer.DrawText(e.Graphics, name, _list.Font,
+                var baseName = item.Kind == ItemKind.DirectoryEntry ? e.Item.Text + "  (carpeta vacía)" : e.Item.Text;
+
+                // Como TeraCopy: cada fila muestra la ruta completa del archivo, para que al
+                // reordenar se vea de dónde sale cada cosa aunque vengan de carpetas distintas.
+                // La carpeta va en color atenuado y el nombre del archivo en el color normal.
+                var folderPath = string.Empty;
+                try
+                {
+                    folderPath = Path.GetDirectoryName(item.SourcePath) ?? string.Empty;
+                }
+                catch { }
+                if (folderPath.Length > 0)
+                {
+                    if (!folderPath.EndsWith(Path.DirectorySeparatorChar)) folderPath += Path.DirectorySeparatorChar;
+                    var folderWidth = TextRenderer.MeasureText(e.Graphics, folderPath, _list.Font, Size.Empty,
+                        TextFormatFlags.NoPrefix).Width;
+                    var roomForName = Math.Max(0, e.Bounds.Right - x - 8);
+                    if (folderWidth + 40 < roomForName)
+                    {
+                        TextRenderer.DrawText(e.Graphics, folderPath, _list.Font,
+                            new Rectangle(x, top, folderWidth + 2, height), _palette.Muted, flags);
+                        x += folderWidth + 2;
+                        roomForName = Math.Max(0, e.Bounds.Right - x - 8);
+                    }
+                }
+
+                TextRenderer.DrawText(e.Graphics, baseName, _list.Font,
                     new Rectangle(x, top, Math.Max(0, e.Bounds.Right - x - 8), height),
                     nameColor, flags);
                 break;

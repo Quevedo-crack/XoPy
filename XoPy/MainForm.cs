@@ -75,6 +75,7 @@ public sealed partial class MainForm : Form
     private ContextMenuStrip _listMenu = null!;
     private MenuStrip _menu = null!;
 
+    private Control? _tabBar;
     private Button _tabFiles = null!;
     private Button _tabTarget = null!;
     private Button _tabOptions = null!;
@@ -224,10 +225,18 @@ public sealed partial class MainForm : Form
             _rootLayout.SuspendLayout();
             _rootLayout.RowStyles[1].Height = compact ? 44 : 48;
             _rootLayout.RowStyles[2].Height = 72;
+            // En reducido se ocultan las pestañas (como TeraCopy: solo metadatos y lista) y
+            // la lista SÍ queda a la vista: ahí está la barra de progreso de cada archivo.
+            // Sin pestañas en reducido: la fila se queda a cero (antes dejaba un hueco de 34 px).
             _rootLayout.RowStyles[3].Height = compact ? 0 : 34;
-            _rootLayout.RowStyles[4].SizeType = compact ? SizeType.Absolute : SizeType.Percent;
-            _rootLayout.RowStyles[4].Height = compact ? 0 : 100;
-            _rootLayout.RowStyles[5].Height = compact ? 74 : 96;
+            if (_tabBar is not null) _tabBar.Visible = !compact;
+            _rootLayout.RowStyles[4].SizeType = SizeType.Percent;
+            _rootLayout.RowStyles[4].Height = 100;
+            // En reducido no hay pestañas que mostrar: la lista ocupa todo el ancho.
+            if (_contentGrid is not null && _contentGrid.ColumnStyles.Count >= 2)
+                _contentGrid.ColumnStyles[0].Width = compact ? 0 : 228;
+            // El pie necesita 90 px de filas + 16 de relleno: con menos, se recortaba.
+            _rootLayout.RowStyles[5].Height = 106;
             if (_transferHeader is not null && _transferHeader.RowStyles.Count >= 4)
             {
                 // Las dos líneas (origen y destino) y sus barras siguen visibles en compacto.
@@ -249,18 +258,12 @@ public sealed partial class MainForm : Form
             _rootLayout.ResumeLayout(true);
         }
 
-        // El ajuste automático de tamaño solo se aplica al pulsar «Ocultar»/«Mostrar»
-        // (persist): al arrancar se respeta el tamaño de la ventana, también en modo captura.
-        if (persist)
-        {
-            AutoSize = compact;
-            AutoSizeMode = AutoSizeMode.GrowAndShrink;
-        }
-        else if (compact)
-        {
-            AutoSize = false;
-        }
-        MinimumSize = compact ? new Size(560, 150) : new Size(860, 480);
+        // La ventana NUNCA se ajusta sola: se recortaba. Como en TeraCopy, es redimensionable
+        // a mano en los dos modos y el tamaño mínimo se calcula para que quepa todo lo visible.
+        AutoSize = false;
+        // La lista ya está visible en la vista reducida, así que el mínimo crece para que
+        // quepan las cuatro filas sin recortar la cabecera ni el pie.
+        MinimumSize = compact ? new Size(620, 430) : new Size(820, 560);
         if (persist)
         {
             if (compact)
@@ -274,15 +277,20 @@ public sealed partial class MainForm : Form
                 var height = 0;
                 if (_rootLayout is not null)
                 {
+                    // Se suman TODAS las filas visibles (la lista incluida, con sus cuatro filas).
                     foreach (var index in new[] { 0, 1, 2, 5 })
                     {
                         var style = _rootLayout.RowStyles[index];
                         var value = style.SizeType == SizeType.Absolute ? style.Height : 0;
                         height += (int)value;
                     }
+                    // La fila 3 (pestañas) desaparece en reducido; la 4 es la lista y crece.
+                    height += compact ? 0 : (int)_rootLayout.RowStyles[3].Height;
                 }
                 height += SystemInformation.FrameBorderSize.Height * 2 + SystemInformation.CaptionHeight;
-                Height = Math.Max(MinimumSize.Height, height);
+                // Se acerca al tamaño justo, pero nunca por debajo de lo que necesita el contenido.
+                Height = Math.Max(height, MinimumSize.Height);
+                Width = Math.Max(Width, MinimumSize.Width);
             }
             else if (_expandedBounds.Width > 0)
             {
@@ -414,21 +422,22 @@ public sealed partial class MainForm : Form
         var bar = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            ColumnCount = 2,
+            ColumnCount = 1,
             BackColor = _palette.Surface,
             Padding = new Padding(10, 8, 10, 8),
             RowCount = 1
         };
         bar.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         bar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        bar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
 
-        _addFilesButton = BarButton("Añadir", Icons.Add, (_, _) => AddFiles());
-        _addFolderButton = BarButton("Carpeta", Icons.FolderAdd, (_, _) => AddFolder());
-        _copyButton = BarButton("Copiar", Icons.Copy, (_, _) => StartTransfer(OperationType.Copy), true);
-        _moveButton = BarButton("Mover", Icons.Move, (_, _) => StartTransfer(OperationType.Move));
-        _testButton = BarButton("Verificar", Icons.Verify, (_, _) => StartTransfer(OperationType.Test));
-        _deleteButton = BarButton("Eliminar", Icons.Delete, (_, _) => StartTransfer(OperationType.Delete));
+        // Acciones de la lista con icono (el texto va en el tooltip): así caben todas en una
+        // sola fila. Con texto completo no cabían y, sin desplegable, desaparecían.
+        _addFilesButton = BarButton("Añadir", Icons.Add, (_, _) => AddFiles(), iconOnly: true);
+        _addFolderButton = BarButton("Carpeta", Icons.FolderAdd, (_, _) => AddFolder(), iconOnly: true);
+        _copyButton = BarButton("Copiar", Icons.Copy, (_, _) => StartTransfer(OperationType.Copy), true, iconOnly: true);
+        _moveButton = BarButton("Mover", Icons.Move, (_, _) => StartTransfer(OperationType.Move), iconOnly: true);
+        _testButton = BarButton("Verificar", Icons.Verify, (_, _) => StartTransfer(OperationType.Test), iconOnly: true);
+        _deleteButton = BarButton("Eliminar", Icons.Delete, (_, _) => StartTransfer(OperationType.Delete), iconOnly: true);
         _pauseButton = BarButton("Pausar", Icons.Pause, (_, _) => TogglePause());
         _skipButton = BarButton("Saltar", Icons.ChevronRight, (_, _) => SkipCurrent());
         _stopButton = BarButton("Detener", Icons.Stop, (_, _) => StopTransfer());
@@ -441,7 +450,7 @@ public sealed partial class MainForm : Form
             Font = new Font("Segoe UI", 8.75f),
             BackColor = _palette.Raised,
             ForeColor = _palette.Text,
-            Width = 168,
+            Width = 150,
             Height = 26,
             IntegralHeight = false,
             MaxDropDownItems = 8
@@ -458,15 +467,17 @@ public sealed partial class MainForm : Form
         var modeHost = new ToolStripControlHost(modeCombo)
         {
             AutoSize = false,
-            Margin = new Padding(12, 3, 10, 0),
-            Size = new Size(168, 26),
+            Margin = new Padding(2, 3, 8, 0),
+            Size = new Size(150, 26),
             ToolTipText = "Modo de copia: secuencial (un archivo a la vez) o multihilo con N archivos en paralelo"
         };
         _copyMode = modeCombo;
-        _compactButton = BarButton("Ocultar", Icons.ChevronRight, (_, _) => ToggleCompactView());
+        _compactButton = BarButton("Ocultar", Icons.ChevronRight, (_, _) => ToggleCompactView(), iconOnly: true);
         _compactButton.Margin = new Padding(2, 0, 4, 0);
         _compactButton.ToolTipText = "Ocultar la lista y dejar visibles los controles y el progreso";
+        // Único acceso a Preferencias (el menú «⋯» tenía la misma opción y sobraba).
         _optionsButton = BarButton("Opciones", Icons.Settings, (_, _) => ShowOptions(), false, true);
+        _optionsButton.ToolTipText = "Preferencias…";
         _optionsButton.Margin = new Padding(6, 0, 4, 0);
         _menuButton = BarButton("Menú", Icons.More, (_, _) => ShowMainMenu(), false, true);
         _menuButton.Margin = new Padding(0);
@@ -521,6 +532,9 @@ public sealed partial class MainForm : Form
         {
             Dock = DockStyle.Fill,
             GripStyle = ToolStripGripStyle.Hidden,
+            // Con desplegable como red de seguridad: si un botón no cabe (ventana muy
+            // estrecha), se recoge en «» en lugar de desaparecer sin más. Con el reparto
+            // actual (izquierda con iconos, transferencia a la derecha) caben todos.
             LayoutStyle = ToolStripLayoutStyle.HorizontalStackWithOverflow,
             CanOverflow = true,
             AutoSize = false,
@@ -531,32 +545,23 @@ public sealed partial class MainForm : Form
         };
         left.Items.AddRange(new ToolStripItem[]
         {
-            _addFilesButton, _addFolderButton, _copyButton, _moveButton, _testButton, _deleteButton,
-            _pauseButton, _skipButton, _stopButton
+            _addFilesButton, _addFolderButton, _copyButton, _moveButton, _testButton, _deleteButton
         });
 
-        var right = new ToolStrip
+        // Una sola barra: las acciones (iconos), el modo, la verificación y la transferencia
+        // en el mismo ToolStrip. Con dos columnas la izquierda podía quedarse a cero y los
+        // botones desaparecían; así solo se recoge lo que de verdad no quepa.
+        left.Items.AddRange(new ToolStripItem[]
         {
-            Dock = DockStyle.Fill,
-            GripStyle = ToolStripGripStyle.Hidden,
-            LayoutStyle = ToolStripLayoutStyle.HorizontalStackWithOverflow,
-            CanOverflow = false,
-            AutoSize = true,
-            BackColor = _palette.Surface,
-            Font = new Font("Segoe UI", 8.75f, FontStyle.Bold),
-            Renderer = new DarkMenuRenderer(_palette),
-            Padding = new Padding(0)
-        };
-        right.Items.AddRange(new ToolStripItem[]
-        {
-            new ToolStripLabel("Modo:"), modeHost,
-            new ToolStripControlHost(_verifyCheck) { Margin = new Padding(2, 2, 4, 0), AutoSize = true },
-            _removeFromListButton,
-            _compactButton, _optionsButton, _menuButton
+            // «Verificar» ya está en la pestaña Opciones; en la barra se gana el ancho que
+            // necesitan Detener, Mostrar y Preferencias para no irse al desplegable.
+            modeHost,
+            new ToolStripSeparator(),
+            _pauseButton, _skipButton, _stopButton,
+            new ToolStripSeparator(),
+            _compactButton, _optionsButton
         });
-
         bar.Controls.Add(left, 0, 0);
-        bar.Controls.Add(right, 1, 0);
         bar.Paint += (_, e) =>
         {
             using var pen = new Pen(_palette.Border);
@@ -649,6 +654,7 @@ public sealed partial class MainForm : Form
             Padding = new Padding(6, 0, 0, 0),
             Margin = new Padding(0)
         };
+        _tabBar = bar;
         _tabFiles = TabButton("Lista de archivos", 0, 150);
         _tabTarget = TabButton("Destino", 1, 96);
         _tabOptions = TabButton("Opciones", 2, 96);
@@ -1614,12 +1620,19 @@ public sealed partial class MainForm : Form
         {
             ShellIntegration.Apply(_settings.ReplaceWindowsCopier);
 
-            // El interceptor de Ctrl+V sólo funciona mientras XoPy se está ejecutando.
-            // No se activa el inicio con Windows por la cara: si el usuario lo quiere,
-            // hay un aviso en el estado y una opción en Preferencias.
+            // El interceptor de Ctrl+V sólo existe mientras XoPy se ejecuta: sin arranque
+            // automático, al reiniciar el equipo Windows vuelve a copiar con su copiador y la
+            // sustitución no se nota. Al sustituirlo se registra el arranque en la bandeja,
+            // que es justo lo que pide «sustituir de verdad al copiador de Windows».
             if (_settings.ReplaceWindowsCopier && !_settings.StartWithWindows)
-                FileLog.Write("Aviso: el copiador está sustituido, pero XoPy no arranca con Windows; " +
-                              "el Ctrl+V del Explorador sólo se intercepta con XoPy abierto.");
+            {
+                _settings.StartWithWindows = true;
+                _settings.MinimizeToTray = true;
+                _store.Save(_settings);
+                ShellIntegration.SetAutoStart(true);
+                FileLog.Write("Sustitución real: se activa el arranque de XoPy con Windows " +
+                              "para que Ctrl+V siga pasando por XoPy tras reiniciar.");
+            }
 
             if (_settings.ReplaceWindowsCopier)
             {
@@ -1809,7 +1822,15 @@ public sealed partial class MainForm : Form
             Program.Log("MF2. LoadSettingsIntoUi done");
 
             Program.Log("MF3. ApplyCompactView");
-            ApplyCompactView(_settings.CompactView, persist: false);
+            // Modo de ventana de Preferencias: 0 reducida (por defecto, como TeraCopy),
+            // 1 completa, 2 automático (completa si hay archivos, reducida si no).
+            var compactOnStart = _settings.WindowMode switch
+            {
+                1 => false,
+                2 => _startupRequest.Paths.Count == 0 && _startupRequest.Operation is null,
+                _ => true
+            };
+            ApplyCompactView(compactOnStart, persist: false);
             Program.Log("MF3. ApplyCompactView done");
 
             Program.Log("MF4. ApplyJobsCollapsed");

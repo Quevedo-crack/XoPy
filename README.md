@@ -118,6 +118,16 @@ XoPy.exe --multi --copy --to "D:\Copias" "C:\Datos\informe.pdf"
 - En la barra de copia se puede alternar entre modo secuencial y multihilo, también durante una transferencia; un archivo se puede pausar/reanudar individualmente desde el menú contextual de la lista. La lista admite reordenado por arrastre; las carpetas se muestran contraídas al añadirse y se pueden desplegar con la flecha o desde el menú. La columna de trabajos también empieza plegada y puede expandirse.
 - El instalador limpia las antiguas claves del menú contextual antes de iniciar la aplicación.
 
+## Novedades de la versión 2.5.3
+
+- **Integración real con el Explorador**: la DLL registra ahora su servidor COM (`DllRegisterServer`/`DllUnregisterServer`), de modo que «Pegar» sustituye de verdad al copiador de Windows.
+- **Modo de ventana**: «Al abrir» → reducida (por defecto), completa o automático; la ventana recuerda el tamaño elegido y se puede redimensionar.
+- **Icono de bandeja**: al pulsarlo, la ventana siempre aparece delante y restaurada.
+- **Un solo engranaje**: el menú «⋯» duplicaba «Preferencias» y se ha retirado.
+- **Pausar / Reanudar / Detener** siempre visibles, también en vista reducida.
+- **Renombrar y reordenar** mientras la copia sigue en marcha, sin tocar la ruta de destino.
+- **Ruta completa** en la columna Nombre, con la carpeta atenuada, como TeraCopy.
+
 ## Novedades de la versión 2.5.2
 
 - **La integración con Windows sustituye de verdad el copiador**: el instalador registra la

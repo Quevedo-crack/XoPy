@@ -492,6 +492,9 @@ public sealed partial class MainForm
         RefreshFolders();
         SyncRows();
         UpdateHashColumns();
+        // Al pasar de lista vacía a con filas se reparte de nuevo el alto: ResizeColumns es
+        // quien devuelve la fila del ListView a Percent y, si no, las filas no se ven.
+        ResizeColumns();
         UpdateScrollCover();
     }
 
@@ -817,11 +820,8 @@ public sealed partial class MainForm
     private void BeginRenameSelected()
     {
         if (_list is null || _list.SelectedItems.Count == 0) return;
-        if (_engine.IsRunning)
-        {
-            SetStatus("No se puede renombrar con una transferencia en marcha.");
-            return;
-        }
+        // Editable también con la copia en marcha: el nombre visible de la lista no afecta
+        // a la transferencia que ya está en curso (el motor trabaja sobre su instantánea).
         _list.SelectedItems[0].BeginEdit();
     }
 
@@ -2918,8 +2918,11 @@ public sealed partial class MainForm
             // pero sin foco y parecía que XoPy no abría.
             EnsureTrayIcon();
             ShowInTaskbar = true;
-            if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
+            // Restaurar SIEMPRE al frente: antes, con el proceso ya minimizado, la ventana
+            // volvía en estado minimizado en la barra de tareas.
+            WindowState = FormWindowState.Normal;
             if (!Visible) Show();
+            Show();
             Activate();
             BringToFront();
             // Windows solo concede SetForegroundWindow a procesos con permiso del usuario.

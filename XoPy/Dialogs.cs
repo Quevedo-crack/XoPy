@@ -191,6 +191,7 @@ internal sealed class OptionsDialog : Form
     private readonly TextBox _fastDevices;
     private readonly TextBox _slowDevices;
     private readonly ChoiceButton _language;
+    private readonly ChoiceButton _windowMode;
 
     public AppSettings Result { get; }
 
@@ -300,6 +301,10 @@ internal sealed class OptionsDialog : Form
         _slowDevices.PlaceholderText = @"Ejemplo: D:, \\PC-lento\datos";
         _language = new ChoiceButton(palette, new[] { "Español", "English" }, settings.Language == "en" ? 1 : 0);
         _language.Width = 170;
+        // Modo de ventana al abrir: reducida (como TeraCopy), completa o automático.
+        _windowMode = new ChoiceButton(palette, new[] { "Reducida", "Completa", "Automático" },
+            Math.Clamp(settings.WindowMode, 0, 2));
+        _windowMode.Width = 170;
 
         BuildPages();
         _tabs.SelectedIndex = 0;
@@ -419,6 +424,7 @@ internal sealed class OptionsDialog : Form
             Margin = new Padding(0)
         };
         right.Controls.Add(SectionTitle("Ventana"));
+        right.Controls.Add(Inline("Al abrir:", _windowMode));
         right.Controls.Add(Stack(_alwaysOnTop));
         right.Controls.Add(Inline("Idioma:", _language));
         right.Controls.Add(Inline("Tema:", _theme));
@@ -981,6 +987,7 @@ internal sealed class OptionsDialog : Form
         Result.FastDevices = _fastDevices.Text.Trim();
         Result.SlowDevices = _slowDevices.Text.Trim();
         Result.Language = _language.SelectedIndex == 1 ? "en" : "es";
+        Result.WindowMode = _windowMode.SelectedIndex;
         // El gestor predeterminado y el registro del gestor de copia son la misma casilla
         // de integración: si cualquiera está marcada, el copiador queda sustituido.
         Result.ReplaceWindowsCopier = _registerCopyManager.Checked || _defaultCopyManager.Checked;

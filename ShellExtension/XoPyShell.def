@@ -2,3 +2,5 @@ LIBRARY "XoPyShell"
 EXPORTS
     DllGetClassObject
     DllCanUnloadNow
+    DllRegisterServer
+    DllUnregisterServer
