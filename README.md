@@ -118,6 +118,24 @@ XoPy.exe --multi --copy --to "D:\Copias" "C:\Datos\informe.pdf"
 - En la barra de copia se puede alternar entre modo secuencial y multihilo, también durante una transferencia; un archivo se puede pausar/reanudar individualmente desde el menú contextual de la lista. La lista admite reordenado por arrastre; las carpetas se muestran contraídas al añadirse y se pueden desplegar con la flecha o desde el menú. La columna de trabajos también empieza plegada y puede expandirse.
 - El instalador limpia las antiguas claves del menú contextual antes de iniciar la aplicación.
 
+## Novedades de la versión 2.5.2
+
+- **La integración con Windows sustituye de verdad el copiador**: el instalador registra la
+  extensión «Pegar» y XoPy ya no la borra al arrancar (antes se eliminaba la clave y por eso
+  Ctrl+V seguía siendo el de Windows).
+- **Al terminar una copia la ventana se cierra, pero XoPy sigue funcionando** en la bandeja
+  para las próximas copias (antes se cerraba la aplicación entera).
+- **Vista reducida como TeraCopy**: la ventana se ajusta a su contenido en vez de recortarse y
+  los botones de pausar, reanudar y detener siguen visibles.
+- **Sin destino heredado**: la carpeta de destino ya no se rellena sola al arrancar.
+- **Menú de los tres puntos**: solo «Preferencias…»; se quitó el selector «Lista de copia».
+- **Sin espacio en el destino**: se puede continuar, copiar solo lo que quepa o cancelar.
+- **Lista editable**: renombrar cualquier elemento con F2 o desde el menú contextual.
+- **Pausa y reanudación rápidas**: al reanudar ya no se arrastra el tiempo en pausa en el
+  cálculo del límite de velocidad («copiaba superlento»).
+- **Porcentaje de la barra de tareas** dibujado a 64 px: el número se lee bien con escalado.
+- **Instalador**: copia y registra `XoPyShell.dll` (sin ella el comando «Pegar» no existía).
+
 ## Novedades de la versión 2.5.1
 
 - **Preferencias estilo TeraCopy 4**: una sola pantalla en dos columnas, con las secciones

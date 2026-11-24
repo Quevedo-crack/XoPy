@@ -116,6 +116,8 @@ public sealed partial class MainForm : Form
     private Icon? _percentIcon;
     private bool _wasRunning;
     private bool _exitRequested;
+    /// <summary>Decisión tomada en el diálogo de espacio insuficiente para esta copia.</summary>
+    private FreeSpaceMode _freeSpaceMode = FreeSpaceMode.Ignore;
     private bool _loadingUi;
     private Label _metaFilter = null!, _metaCount = null!, _metaOrigin = null!, _metaOriginSize = null!;
     private Label _metaDestination = null!, _metaDestinationSize = null!;
@@ -247,7 +249,11 @@ public sealed partial class MainForm : Form
             _rootLayout.ResumeLayout(true);
         }
 
-        MinimumSize = compact ? new Size(860, 210) : new Size(860, 480);
+        // En la vista reducida la ventana se ajusta sola a su contenido (nada de recortar);
+        // en la normal vuelve a ser redimensionable a mano y conserva el tamaño del usuario.
+        AutoSize = compact;
+        AutoSizeMode = AutoSizeMode.GrowAndShrink;
+        MinimumSize = compact ? new Size(560, 150) : new Size(860, 480);
         if (persist)
         {
             if (compact)
@@ -255,10 +261,25 @@ public sealed partial class MainForm : Form
                 _expandedWasMaximized = WindowState == FormWindowState.Maximized;
                 _expandedBounds = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
                 WindowState = FormWindowState.Normal;
-                Height = 210;
+
+                // La altura se calcula sumando lo que sigue siendo visible (menú, barra,
+                // cabecera de progreso y pie), de modo que quepa TODO sin recortar nada.
+                var height = 0;
+                if (_rootLayout is not null)
+                {
+                    foreach (var index in new[] { 0, 1, 2, 5 })
+                    {
+                        var style = _rootLayout.RowStyles[index];
+                        var value = style.SizeType == SizeType.Absolute ? style.Height : 0;
+                        height += (int)value;
+                    }
+                }
+                height += SystemInformation.FrameBorderSize.Height * 2 + SystemInformation.CaptionHeight;
+                Height = Math.Max(MinimumSize.Height, height);
             }
             else if (_expandedBounds.Width > 0)
             {
+                AutoSize = false;
                 Bounds = new Rectangle(_expandedBounds.X, _expandedBounds.Y,
                     Math.Max(MinimumSize.Width, _expandedBounds.Width), Math.Max(MinimumSize.Height, _expandedBounds.Height));
                 if (_expandedWasMaximized) WindowState = FormWindowState.Maximized;
@@ -272,18 +293,19 @@ public sealed partial class MainForm : Form
 
     private void UpdateToolbarForCompact(bool compact)
     {
-        // Al ocultar la lista se quitan las opciones que solo tienen sentido con la lista visible
-        // (añadir/copiar/mover/verificar/eliminar) y se priorizan pausa/reanudar y detener.
+        // Como en TeraCopy, la vista reducida mantiene las acciones principales y los
+        // controles de la transferencia (pausar, saltar y detener) siempre visibles.
         var listButtons = new[] { _addFilesButton, _addFolderButton, _copyButton, _moveButton, _testButton, _deleteButton };
         foreach (var button in listButtons)
         {
-            if (button is not null) button.Visible = !compact;
+            if (button is not null) button.Visible = true;
         }
         _pauseButton.Visible = true;
         _skipButton.Visible = true;
         _stopButton.Visible = true;
-        if (_listSelector is not null) _listSelector.Visible = true;
-        if (_newListButton is not null) _newListButton.Visible = true;
+        if (_listSelector is not null) _listSelector.Visible = false;
+        if (_newListButton is not null) _newListButton.Visible = false;
+        if (_deleteListButton is not null) _deleteListButton.Visible = false;
     }
 
     private MenuStrip BuildMenu()
@@ -522,8 +544,6 @@ public sealed partial class MainForm : Form
         {
             new ToolStripLabel("Modo:"), modeHost,
             new ToolStripControlHost(_verifyCheck) { Margin = new Padding(2, 2, 4, 0), AutoSize = true },
-            new ToolStripLabel("  Lista:"),
-            listHost, _newListButton, _deleteListButton,
             _removeFromListButton,
             _compactButton, _optionsButton, _menuButton
         });
@@ -1044,7 +1064,7 @@ public sealed partial class MainForm : Form
             ShowItemToolTips = true,
             Font = new Font("Segoe UI", 8.5f),
             Margin = new Padding(0),
-            LabelEdit = false,
+            LabelEdit = true,
             GridLines = false
         };
         _list.Columns.Add("Nombre", 380);
@@ -1081,6 +1101,7 @@ public sealed partial class MainForm : Form
         Shown += (_, _) => ScheduleColumnUpdate();
         _list.KeyDown += ListKeyDown;
         _list.DoubleClick += ListDoubleClick;
+        _list.AfterLabelEdit += ListAfterLabelEdit;
         _list.MouseDown += ListMouseDown;
         _list.ItemDrag += ListItemDrag;
         _list.DragEnter += ListDragEnter;
@@ -1136,6 +1157,7 @@ public sealed partial class MainForm : Form
         sendTo.DropDownItems.Add("Elegir destino…", null, (_, _) => SendSelectionTo(null));
         sendTo.DropDownItems.Add(new ToolStripSeparator());
         _listMenu.Items.Add(sendTo);
+        _listMenu.Items.Add("Renombrar el elemento…", null, (_, _) => BeginRenameSelected());
         _listMenu.Items.Add("Cambiar el destino de la lista…", null, (_, _) => BrowseDestination());
         _listMenu.Items.Add(new ToolStripSeparator());
         var pauseItem = new ToolStripMenuItem("Pausar archivo seleccionado");
@@ -1161,16 +1183,11 @@ public sealed partial class MainForm : Form
 
     private ContextMenuStrip BuildMainMenu()
     {
+        // Los tres puntos de TeraCopy solo abren Preferencias; el resto de opciones vive ya
+        // en el menú «Herramientas» de la barra superior.
         var menu = new ContextMenuStrip { ShowImageMargin = false };
         Ui.StyleMenu(menu, _palette);
         menu.Items.Add("Preferencias…", null, (_, _) => ShowOptions());
-        menu.Items.Add("Integración con el Explorador…", null, (_, _) => ShowExplorerIntegration());
-        menu.Items.Add("Historial de transferencias…", null, (_, _) => ShowHistory());
-        menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("Abrir el registro", null, (_, _) => OpenLogFile());
-        menu.Items.Add("Mostrar los hashes", null, (_, _) => ToggleHashes());
-        menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("Acerca de XoPy", null, (_, _) => ShowAbout());
         return menu;
     }
 

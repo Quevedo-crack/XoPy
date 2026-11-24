@@ -747,9 +747,20 @@ public sealed class CopyEngine
         var throttle = Stopwatch.StartNew();
         long copied = offset;
 
+        // Tras una pausa se reinicia la cuenta del límite de velocidad: si se medía desde el
+        // principio, al reanudar tocaba «esperar» todo el tiempo pausado y avanzaba lentísimo.
+        var baseline = offset;
+        var paused = false;
         while (true)
         {
             token.ThrowIfCancellationRequested();
+            var pauseNow = _paused || IsItemPaused(item);
+            if (paused && !pauseNow)
+            {
+                throttle.Restart();
+                baseline = copied;
+            }
+            paused = pauseNow;
             await WaitWhilePausedAsync(item, token).ConfigureAwait(false);
             if (_skipCurrent)
             {
@@ -765,7 +776,7 @@ public sealed class CopyEngine
             item.TransferredBytes = copied;
             item.CurrentFile = source;
             Interlocked.Add(ref _doneBytes, read);
-            await ThrottleAsync(copied - offset, throttle, options, token).ConfigureAwait(false);
+            await ThrottleAsync(copied - baseline, throttle, options, token).ConfigureAwait(false);
         }
 
         await output.FlushAsync(token).ConfigureAwait(false);
@@ -876,10 +887,22 @@ public sealed class CopyEngine
         {
             ClearReadOnly(target);
             var transferred = 0L;
+            // El reloj del límite de velocidad se reinicia al reanudar: antes se medía desde
+            // el inicio de la copia, así que tras una pausa el retardo salía enorme y la
+            // reanudación avanzaba «superlento».
             var clock = Stopwatch.StartNew();
+            var wasPaused = false;
             var routine = new NativeMethods.CopyProgressRoutine((_, totalTransferred, _, _, _, _, _, _, _) =>
             {
                 token.ThrowIfCancellationRequested();
+                var pausedNow = _paused || IsItemPaused(item);
+                if (wasPaused && !pausedNow)
+                {
+                    // Al reanudar se descarta el tiempo en pausa del cálculo del límite.
+                    clock.Restart();
+                    transferred = 0;
+                }
+                wasPaused = pausedNow;
                 WaitWhilePaused(item, token);
                 if (_skipCurrent)
                 {
@@ -1151,7 +1174,7 @@ public sealed class CopyEngine
         {
             if (IsItemPaused(item)) item.State = ItemState.Paused;
             token.ThrowIfCancellationRequested();
-            await Task.Delay(100, token).ConfigureAwait(false);
+            await Task.Delay(40, token).ConfigureAwait(false);
         }
         if (item.State == ItemState.Paused) item.State = ItemState.Running;
     }
@@ -1162,7 +1185,7 @@ public sealed class CopyEngine
         {
             if (IsItemPaused(item)) item.State = ItemState.Paused;
             token.ThrowIfCancellationRequested();
-            Thread.Sleep(80);
+            Thread.Sleep(40);
         }
         if (item.State == ItemState.Paused) item.State = ItemState.Running;
     }

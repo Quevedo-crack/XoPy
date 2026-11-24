@@ -63,14 +63,84 @@ public static class ShellIntegration
     /// <summary>Indica si queda una integración antigua registrada.</summary>
     public static bool IsEnabled() => HasLegacyEntries();
 
-    /// <summary>Usa atajos de teclado y un acceso estándar de «Enviar a», sin modificar el Pegar nativo.</summary>
+    /// <summary>
+    /// Aplica la integración con el Explorador. Con <paramref name="enabled"/> se deja XoPy
+    /// como gestor de copias: NO se borra la extensión «Pegar» (eso la rompía y el Ctrl+V
+    /// seguía siendo el de Windows, que es lo que el usuario notaba). Sin él se limpia todo.
+    /// </summary>
     public static void Apply(bool enabled)
     {
-        Cleanup();
         if (enabled)
         {
-            try { CreateSendToShortcut(); } catch (Exception ex) { FileLog.Write("No se pudo crear el acceso de Enviar a: " + ex.Message); }
+            // Se registra la ruta y se conserva la extensión que instala el instalador.
+            try { RegisterAppPath(Application.ExecutablePath); } catch { }
+            try { EnsurePasteExtension(); } catch (Exception ex) { FileLog.Write("No se pudo registrar el Pegar: " + ex.Message); }
+            try { SHChangeNotify(0x08000000, 0, IntPtr.Zero, IntPtr.Zero); } catch { }
+            return;
         }
+
+        Cleanup();
+    }
+
+    /// <summary>
+    /// Deja registrada la extensión «Pegar» apuntando a la DLL que hay junto al ejecutable.
+    /// Es idempotente: si el instalador ya la registró bien, no cambia nada.
+    /// </summary>
+    public static void EnsurePasteExtension()
+    {
+        var dll = Path.Combine(Path.GetDirectoryName(Application.ExecutablePath) ?? string.Empty, "XoPyShell.dll");
+        if (!File.Exists(dll)) return;
+
+        const string clsid = "{3B1E92A7-7AD6-4E71-A218-75449CE13061}";
+        using (var key = Registry.CurrentUser.CreateSubKey(ClassesRoot + @"\CLSID\" + clsid))
+            key?.SetValue(null, "XoPy Shell Extension");
+        using (var key = Registry.CurrentUser.CreateSubKey(ClassesRoot + @"\CLSID\" + clsid + @"\InprocServer32"))
+        {
+            key?.SetValue(null, dll);
+            key?.SetValue("ThreadingModel", "Apartment");
+        }
+        using (var key = Registry.CurrentUser.CreateSubKey(ClassesRoot + @"\Directory\Background\shellex\ContextMenuHandlers\XoPyPaste"))
+            key?.SetValue(null, clsid);
+        try
+        {
+            using var approved = Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved");
+            approved?.SetValue(clsid, "XoPy Pegar");
+        }
+        catch { }
+    }
+
+    /// <summary>¿Está activa la sustitución del copiador (extensión + DLL en su sitio)?</summary>
+    public static bool IsPasteExtensionInstalled()
+    {
+        try
+        {
+            var dll = Path.Combine(Path.GetDirectoryName(Application.ExecutablePath) ?? string.Empty, "XoPyShell.dll");
+            if (!File.Exists(dll)) return false;
+            using var key = Registry.CurrentUser.OpenSubKey(LegacyPasteClsid + @"\InprocServer32");
+            var value = key?.GetValue(null) as string;
+            return !string.IsNullOrEmpty(value) && File.Exists(value);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Borra la clave APPROVED y la DLL asociada al desinstalar la integración.</summary>
+    public static void RemovePasteExtension()
+    {
+        try { Registry.CurrentUser.DeleteSubKeyTree(LegacyPasteClsid, false); } catch { }
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved", true);
+            key?.DeleteValue("{3B1E92A7-7AD6-4E71-A218-75449CE13061}", false);
+        }
+        catch { }
+        try
+        {
+            Registry.CurrentUser.DeleteSubKeyTree(@"Software\Classes\Directory\Background\shellex\ContextMenuHandlers\XoPyPaste", false);
+        }
+        catch { }
     }
 
     /// <summary>Borra las integraciones antiguas y registra la ruta de la aplicación.</summary>
@@ -128,7 +198,15 @@ public static class ShellIntegration
             try { Registry.CurrentUser.DeleteSubKeyTree(ClassesRoot + "\\" + verb, false); }
             catch { }
         }
-        try { Registry.CurrentUser.DeleteSubKeyTree(LegacyPasteClsid, false); } catch { }
+        // La clave CLSID de la extensión «Pegar» NO se borra aquí: es la que registra el
+        // instalador y la que hace que Ctrl+V abra XoPy. Antes se borraba al arrancar y por
+        // eso la integración no sustituía al copiador de Windows.
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved", true);
+            key?.DeleteValue("{3B1E92A7-7AD6-4E71-A218-75449CE13061}", false);
+        }
+        catch { }
     }
 
     public static void SetAutoStart(bool enabled)

@@ -251,15 +251,51 @@ public sealed class ShellPasteHook : IDisposable
     }
 
     /// <summary>Carpeta de la ventana del Explorador que tiene el foco (o el escritorio).</summary>
+    /// <summary>Carpeta de la primera ventana del Explorador abierta (no el escritorio).</summary>
+    private static string? FirstExplorerFolder()
+    {
+        try
+        {
+            var shellType = Type.GetTypeFromProgID("Shell.Application");
+            if (shellType is null) return null;
+            dynamic? shell = Activator.CreateInstance(shellType);
+            if (shell is null) return null;
+            try
+            {
+                foreach (dynamic candidate in shell.Windows())
+                {
+                    try
+                    {
+                        string? path = candidate.Document?.Folder?.Self?.Path;
+                        if (!string.IsNullOrWhiteSpace(path) && Directory.Exists((string)path)) return path;
+                    }
+                    catch { }
+                }
+            }
+            finally
+            {
+                try { Marshal.FinalReleaseComObject(shell); } catch { }
+            }
+        }
+        catch { }
+        return null;
+    }
+
     private static string? ExplorerDestinationCore(IntPtr window)
     {
         var builder = new StringBuilder(256);
         GetClassName(window, builder, builder.Capacity);
         var className = builder.ToString();
 
+        // Pegar sobre el escritorio: se prefiere una carpeta real abierta en el Explorador
+        // (lo habitual es venir de ahí) y sólo si no hay ninguna se usa el escritorio.
         if (string.Equals(className, "Progman", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(className, "WorkerW", StringComparison.OrdinalIgnoreCase))
+        {
+            var open = FirstExplorerFolder();
+            if (!string.IsNullOrWhiteSpace(open)) return open;
             return Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+        }
 
         try
         {
