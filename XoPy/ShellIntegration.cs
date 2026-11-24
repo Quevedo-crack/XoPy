@@ -72,8 +72,11 @@ public static class ShellIntegration
     {
         if (enabled)
         {
-            // Se registra la ruta y se conserva la extensión que instala el instalador.
+            // Se limpian las entradas de menú de versiones antiguas (el workflow de CI las
+            // crea a propósito y comprueba que desaparecen), pero Unregister ya NO borra el
+            // CLSID de la extensión «Pegar»: esa clave es la que hace funcionar Ctrl+V.
             try { RegisterAppPath(Application.ExecutablePath); } catch { }
+            try { Unregister(); } catch { }
             try { EnsurePasteExtension(); } catch (Exception ex) { FileLog.Write("No se pudo registrar el Pegar: " + ex.Message); }
             try { SHChangeNotify(0x08000000, 0, IntPtr.Zero, IntPtr.Zero); } catch { }
             return;
