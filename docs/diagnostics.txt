@@ -19,7 +19,7 @@ CSC : warning WFO0003: Remove high DPI settings from D:\a\XoPy\XoPy\XoPy\app.man
     6 Warning(s)
     0 Error(s)
 
-Time Elapsed 00:00:03.85
+Time Elapsed 00:00:03.98
 FILE: carpeta (1 bytes)
 FILE: dest-rbcopy (1 bytes)
 FILE: dest3 (1 bytes)
@@ -37,11 +37,11 @@ FILE: conflictotest.txt (70 bytes)
 FILE: copiatest.txt (83 bytes)
 FILE: exitcode.txt (24 bytes)
 FILE: grande.bin (300000 bytes)
-FILE: history.png (24517 bytes)
+FILE: history.png (24562 bytes)
 FILE: informe.pdf (10242 bytes)
 FILE: jerarquiatest.txt (111 bytes)
 FILE: menu-context.png (5636 bytes)
-FILE: menu-menu.png (32697 bytes)
+FILE: menu-menu.png (32917 bytes)
 FILE: mismacarpeta.txt (43 bytes)
 FILE: movetest.txt (88 bytes)
 FILE: options.png (50274 bytes)
@@ -84,38 +84,6 @@ hash_igual=True
 robocopy_copiado=True
 robocopy_hash_igual=True
 --- startup.log (últimas 80 líneas)
-MF1. BuildUi done
-MF2. LoadSettingsIntoUi
-MF2. LoadSettingsIntoUi done
-MF3. ApplyCompactView
-MF3. ApplyCompactView done
-MF4. ApplyJobsCollapsed
-MF4. ApplyJobsCollapsed done
-MF5. WireEngine
-MF5. WireEngine done
-MF6. EnsureDefaultList start
-MF6. EnsureDefaultList done
-MF7. ApplyWindowGeometry start
-MF7. ApplyWindowGeometry done
-MF8. Timer start
-MF8. Timer start done
-MF9. UpdateButtons start
-MF9. UpdateButtons done
-MF10. UpdateFooter start
-MF10. UpdateFooter done
-MF11. UpdateHashColumns start
-MF11. UpdateHashColumns done
-MF12. UpdateJobs start
-MF12. UpdateJobs done
-MF13. BuildTray start
-MF13. BuildTray done
-MF14. ApplyCopierReplacement start
-MF14. ApplyCopierReplacement done
-MF15. InstallShellHookIfNeeded start
-MF15. InstallShellHookIfNeeded done
-MF-OnShown end (UI lista)
-MF-OnShown HandleExternalAsync(startup) start
-MF-FormClosing: Cancel=False Reason=ApplicationExitCall
 1. Inicio Main
 2. ApplicationConfiguration.Initialize
 3. SetUnhandledExceptionMode
@@ -165,73 +133,7 @@ MF15. InstallShellHookIfNeeded done
 MF-OnShown end (UI lista)
 MF-OnShown HandleExternalAsync(startup) start
 --- transfer.log (últimas 120 líneas)
-2026-11-24 23:15:38  Sustitución real: se activa el arranque de XoPy con Windows para que Ctrl+V siga pasando por XoPy tras reiniciar.
-2026-11-24 23:15:38  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
-2026-11-24 23:15:38  Arranque: destinos extra=[] guardados=[]
-2026-11-24 23:15:43  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
-2026-11-24 23:15:43  Arranque: destinos extra=[] guardados=[]
-2026-11-24 23:15:53  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
-2026-11-24 23:15:53  Arranque: destinos extra=[] guardados=[]
-2026-11-24 23:15:58  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
-2026-11-24 23:15:58  Arranque: destinos extra=[] guardados=[]
-2026-11-24 23:16:02  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
-2026-11-24 23:16:02  Arranque: destinos extra=[] guardados=[]
-2026-11-24 23:16:06  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
-2026-11-24 23:16:06  Arranque: destinos extra=[] guardados=[]
-2026-11-24 23:16:10  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
-2026-11-24 23:16:10  Arranque: destinos extra=[] guardados=[]
-2026-11-24 23:16:15  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
-2026-11-24 23:16:15  Arranque: destinos extra=[] guardados=[]
-2026-11-24 23:16:15  Inicio: 4 elementos, destinos=C:\xopytest\destino, verificar=False (Sha256), reanudar=False
-2026-11-24 23:16:15  Copia nativa: C:\xopytest\informe.pdf -> C:\xopytest\destino\informe.pdf
-2026-11-24 23:16:15  Copia nativa: C:\xopytest\carpeta\foto1.jpg -> C:\xopytest\destino\carpeta\foto1.jpg
-2026-11-24 23:16:15  Copia nativa: C:\xopytest\carpeta\foto3.jpg -> C:\xopytest\destino\carpeta\foto3.jpg
-2026-11-24 23:16:15  Copia nativa: C:\xopytest\carpeta\foto2.jpg -> C:\xopytest\destino\carpeta\foto2.jpg
-2026-11-24 23:16:15  Fin: 22536 bytes en 0.0s, errores=0
-2026-11-24 23:16:31  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
-2026-11-24 23:16:31  Arranque: destinos extra=[] guardados=[]
-2026-11-24 23:16:31  Inicio: 1 elementos, destinos=C:\xopytest\destino, verificar=True (Sha256), reanudar=False
-2026-11-24 23:16:31  Fin: 20482 bytes en 0.1s, errores=0
-2026-11-24 23:16:43  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
-2026-11-24 23:16:43  Arranque: destinos extra=[] guardados=[]
-2026-11-24 23:16:43  Inicio: 1 elementos, destinos=C:\xopytest\destino, verificar=True (Sha256), reanudar=False
-2026-11-24 23:16:43  Fin: 20482 bytes en 0.0s, errores=0
-2026-11-24 23:16:53  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
-2026-11-24 23:16:53  Arranque: destinos extra=[] guardados=[]
-2026-11-24 23:16:58  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
-2026-11-24 23:16:59  Arranque: destinos extra=[] guardados=[]
-2026-11-24 23:16:59  Inicio: 1 elementos, destinos=C:\xopytest\destino2, verificar=True (Sha256), reanudar=False
-2026-11-24 23:16:59  Fin: 5002 bytes en 0.1s, errores=0
-2026-11-24 23:17:11  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
-2026-11-24 23:17:11  Arranque: destinos extra=[] guardados=[]
-2026-11-24 23:17:11  Inicio: 2 elementos, destinos=C:\xopytest\destino2, verificar=True (Sha256), reanudar=False
-2026-11-24 23:17:11  Fin: 8196 bytes en 0.1s, errores=0
-2026-11-24 23:17:11  Carpeta de origen eliminada tras mover: C:\xopytest\movercarpeta
-2026-11-24 23:17:25  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
-2026-11-24 23:17:25  Arranque: destinos extra=[] guardados=[]
-2026-11-24 23:17:25  Inicio: 1 elementos, destinos=C:\xopytest\dest-rbcopy, verificar=True (Sha256), reanudar=False
-2026-11-24 23:17:25  Copia con Robocopy: C:\xopytest\rbcopy.bin -> C:\xopytest\dest-rbcopy\rbcopy.bin
-2026-11-24 23:17:25  Fin: 200002 bytes en 0.2s, errores=0
-2026-11-24 23:17:39  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
-2026-11-24 23:17:39  Arranque: destinos extra=[C:\xopytest\dest4] guardados=[C:\xopytest\dest4]
-2026-11-24 23:17:40  Inicio: 4 elementos, destinos=C:\xopytest\dest3 | C:\xopytest\dest4, verificar=True (Sha256), reanudar=False
-2026-11-24 23:17:40  Fin: 40972 bytes en 0.1s, errores=0
-2026-11-24 23:17:40  Archivo de checksums creado: C:\xopytest\dest3\XoPy-checksums-20261124-231740.sha256
-2026-11-24 23:17:44  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
-2026-11-24 23:17:44  Arranque: destinos extra=[] guardados=[C:\xopytest\dest4]
-2026-11-24 23:17:44  Inicio: 1 elementos, destinos=C:\xopytest\dest5 | C:\xopytest\dest4, verificar=True (Sha256), reanudar=False
-2026-11-24 23:17:44  Fin: 600000 bytes en 0.1s, errores=0
-2026-11-24 23:17:44  Archivo de checksums creado: C:\xopytest\dest5\XoPy-checksums-20261124-231744.sha256
-2026-11-24 23:18:00  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
-2026-11-24 23:18:00  Arranque: destinos extra=[] guardados=[C:\xopytest\dest4]
-2026-11-24 23:18:00  Inicio: 1 elementos, destinos=C:\xopytest\perf-destino | C:\xopytest\dest4, verificar=True (Sha256), reanudar=False
-2026-11-24 23:18:01  Fin: 419430400 bytes en 0.5s, errores=0
-2026-11-24 23:18:01  Archivo de checksums creado: C:\xopytest\perf-destino\XoPy-checksums-20261124-231801.sha256
-2026-11-24 23:18:03  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
-2026-11-24 23:18:03  Arranque: destinos extra=[] guardados=[C:\xopytest\dest4]
-2026-11-24 23:18:03  Inicio: 300 elementos, destinos=C:\xopytest\perf-destino | C:\xopytest\dest4, verificar=True (Sha256), reanudar=False
-2026-11-24 23:18:05  Fin: 1228800 bytes en 1.3s, errores=0
-2026-11-24 23:18:05  Archivo de checksums creado: C:\xopytest\perf-destino\XoPy-checksums-20261124-231805.sha256
-2026-11-24 23:18:07  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
-2026-11-24 23:18:07  Arranque: destinos extra=[] guardados=[C:\xopytest\dest4]
-2026-11-24 23:18:07  Inicio: 1 elementos, destinos=C:\xopytest\misma | C:\xopytest\dest4, verificar=True (Sha256), reanudar=False
+2026-11-24 23:24:15  Sustitución real: se activa el arranque de XoPy con Windows para que Ctrl+V siga pasando por XoPy tras reiniciar.
+2026-11-24 23:24:15  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
+2026-11-24 23:24:15  Arranque: destinos extra=[] guardados=[]
+2026-11-24 23:24:15  Inicio: 1 elementos, destinos=C:\xopytest\misma, verificar=False (Sha256), reanudar=False
