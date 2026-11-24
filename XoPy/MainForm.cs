@@ -2347,6 +2347,7 @@ public sealed partial class MainForm : Form
     /// </summary>
     private async Task HandleExternalFiles(IReadOnlyList<string> files, string? detectedDestination, bool move)
     {
+        FileLog.Write($"HandleExternalFiles: {files?.Count ?? 0} ruta(s), destino={(detectedDestination ?? "(ninguno)")}, captura={_startupRequest.Screenshot}");
         if (files == null || files.Count == 0) return;
         if (IsDisposed) return;
 
@@ -2398,6 +2399,7 @@ public sealed partial class MainForm : Form
         // El destino ya lo eligió el Explorer/--to: no se vuelve a preguntar.
         await AddPathsAsync(files, askDestination: false);
 
+        FileLog.Write($"HandleExternalFiles: tras AddPathsAsync, elementos={_items.Count}");
         // En modo captura solo se rellena la lista para la imagen: no se abre el selector de
         // carpeta ni se arranca una copia (eso bloqueaba la captura y salía vacía).
         if (_startupRequest.Screenshot) return;
