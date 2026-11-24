@@ -101,9 +101,7 @@ jobs:
             if (-not $process.WaitForExit(60000)) { $process.Kill(); $ok = $false }
             if (-not (Test-Path $pair[1])) { $ok = $false }
           }
-          Copy-Item 'C:\xopytest\options*.png' 'docs\' -ErrorAction SilentlyContinue
-          Move-Item 'docs\options.png' 'docs\xopy-options.png' -Force -ErrorAction SilentlyContinue
-          Get-ChildItem 'docs\options-*.png' | ForEach-Object { Move-Item $_.FullName ("docs\xopy-options-" + $_.Name.Replace('options-','')) -Force }
+          Copy-Item 'C:\xopytest\options.png' 'docs\xopy-options.png' -Force -ErrorAction SilentlyContinue
           Copy-Item 'C:\xopytest\conflict.png' 'docs\xopy-conflict.png' -ErrorAction SilentlyContinue
           $process = Start-Process -FilePath $exe -ArgumentList @('--screenshot-history', 'C:\xopytest\history.png') -PassThru
           if (-not $process.WaitForExit(60000)) { $process.Kill(); $ok = $false }
@@ -281,7 +279,7 @@ jobs:
         run: |
           git config user.name "XoPy Bot"
           git config user.email "xopy-bot@users.noreply.github.com"
-          git add docs/xopy-preview.png docs/xopy-tab-*.png docs/xopy-dropdown.png docs/xopy-contextmenu.png docs/xopy-options*.png docs/xopy-conflict.png docs/xopy-verify.png docs/xopy-history.png
+          git add docs/xopy-preview.png docs/xopy-tab-*.png docs/xopy-dropdown.png docs/xopy-contextmenu.png docs/xopy-options.png docs/xopy-conflict.png docs/xopy-verify.png docs/xopy-history.png
           git diff --cached --quiet
           if ($LASTEXITCODE -ne 0) {
             git commit -m "Añadir captura automática de la interfaz"
