@@ -43,6 +43,9 @@ Name: "replacecopier"; Description: "Sustituir Ctrl+V del Explorador por XoPy"; 
 
 [Files]
 Source: "..\publish\XoPy.exe"; DestDir: "{app}"; Flags: ignoreversion
+; Extensión del Explorador que añade «Pegar» al menú contextual de las carpetas.
+; Sin ella, el instalador prometía el comando pegar y luego no quedaba registrado.
+Source: "..\publish\XoPyShell.dll"; DestDir: "{app}"; Flags: ignoreversion 64bit
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [InstallDelete]
@@ -58,6 +61,12 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\XoPy.ex
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\XoPy.exe"; ValueType: string; ValueName: "Path"; ValueData: "{app}"; Flags: uninsdeletekey
 ; Inicio automático opcional — SIN comillas en ValueData (se borra con uninsdeletevalue)
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "XoPy"; ValueData: {app}\XoPy.exe; Flags: uninsdeletevalue; Tasks: autostart
+; Extensión COM del comando «Pegar» (CLSID 3B1E92A7-7AD6-4E71-A218-75449CE13061).
+Root: HKCU; Subkey: "Software\Classes\CLSID\{{3B1E92A7-7AD6-4E71-A218-75449CE13061}"; ValueType: string; ValueData: "XoPy Shell Extension"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\CLSID\{{3B1E92A7-7AD6-4E71-A218-75449CE13061}\InprocServer32"; ValueType: string; ValueData: "{app}\XoPyShell.dll"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\CLSID\{{3B1E92A7-7AD6-4E71-A218-75449CE13061}\InprocServer32"; ValueType: string; ValueName: "ThreadingModel"; ValueData: "Apartment"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\Directory\Background\shellex\ContextMenuHandlers\XoPyPaste"; ValueType: string; ValueData: "{{3B1E92A7-7AD6-4E71-A218-75449CE13061}}"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved"; ValueType: string; ValueName: "{{3B1E92A7-7AD6-4E71-A218-75449CE13061}}"; ValueData: "XoPy Pegar"; Flags: uninsdeletevalue
 
 [Run]
 ; «--install-hooks» fija en el registro de XoPy el copiador integrado y el arranque con
