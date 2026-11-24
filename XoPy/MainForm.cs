@@ -224,10 +224,13 @@ public sealed partial class MainForm : Form
             _rootLayout.SuspendLayout();
             _rootLayout.RowStyles[1].Height = compact ? 44 : 48;
             _rootLayout.RowStyles[2].Height = 72;
-            _rootLayout.RowStyles[3].Height = compact ? 0 : 34;
-            _rootLayout.RowStyles[4].SizeType = compact ? SizeType.Absolute : SizeType.Percent;
-            _rootLayout.RowStyles[4].Height = compact ? 0 : 100;
-            _rootLayout.RowStyles[5].Height = compact ? 74 : 96;
+            _rootLayout.RowStyles[3].Height = 34;
+            // La lista se queda visible también en reducido (como TeraCopy): es donde se ve la
+            // barra de progreso de CADA archivo, que era justo lo que faltaba. Con cuatro filas
+            // fijas basta sin comerse la ventana.
+            _rootLayout.RowStyles[4].SizeType = SizeType.Absolute;
+            _rootLayout.RowStyles[4].Height = compact ? 108 : 220;
+            _rootLayout.RowStyles[5].Height = compact ? 78 : 96;
             if (_transferHeader is not null && _transferHeader.RowStyles.Count >= 4)
             {
                 // Las dos líneas (origen y destino) y sus barras siguen visibles en compacto.
@@ -252,7 +255,9 @@ public sealed partial class MainForm : Form
         // La ventana NUNCA se ajusta sola: se recortaba. Como en TeraCopy, es redimensionable
         // a mano en los dos modos y el tamaño mínimo se calcula para que quepa todo lo visible.
         AutoSize = false;
-        MinimumSize = compact ? new Size(560, 230) : new Size(820, 470);
+        // La lista ya está visible en la vista reducida, así que el mínimo crece para que
+        // quepan las cuatro filas sin recortar la cabecera ni el pie.
+        MinimumSize = compact ? new Size(620, 430) : new Size(820, 560);
         if (persist)
         {
             if (compact)
@@ -266,7 +271,8 @@ public sealed partial class MainForm : Form
                 var height = 0;
                 if (_rootLayout is not null)
                 {
-                    foreach (var index in new[] { 0, 1, 2, 5 })
+                    // Se suman TODAS las filas visibles (la lista incluida, con sus cuatro filas).
+                    foreach (var index in new[] { 0, 1, 2, 3, 4, 5 })
                     {
                         var style = _rootLayout.RowStyles[index];
                         var value = style.SizeType == SizeType.Absolute ? style.Height : 0;
