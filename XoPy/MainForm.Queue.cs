@@ -492,6 +492,7 @@ public sealed partial class MainForm
         RefreshFolders();
         SyncRows();
         UpdateHashColumns();
+        UpdateScrollCover();
     }
 
     private void SyncRows()

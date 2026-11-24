@@ -1392,6 +1392,35 @@ public sealed partial class MainForm
         return Math.Clamp(item.TransferredBytes * 100d / item.SizeBytes, 0, 100);
     }
 
+    /// <summary>
+    /// Coloca el panel que tapa la barra de desplazamiento vertical nativa de la lista, que
+    /// en el tema oscuro se dibuja en blanco. Solo se muestra si la barra va a ser visible.
+    /// </summary>
+    private void UpdateScrollCover()
+    {
+        if (_scrollCover is null || _list is null || !_list.IsHandleCreated) return;
+        var width = SystemInformation.VerticalScrollBarWidth;
+        var reallyVisible = _list.Items.Count > 0;
+        if (!reallyVisible)
+        {
+            _scrollCover.Visible = false;
+            return;
+        }
+        try
+        {
+            var origin = _list.PointToScreen(Point.Empty);
+            var local = PointToClient(origin);
+            _scrollCover.Bounds = new Rectangle(local.X + _list.ClientSize.Width - width,
+                local.Y, width, _list.ClientSize.Height);
+            _scrollCover.Visible = true;
+            _scrollCover.BringToFront();
+        }
+        catch
+        {
+            _scrollCover.Visible = false;
+        }
+    }
+
     private void ResizeColumns()
     {
         if (_list is null || _list.Columns.Count < 7 || _updatingColumns) return;
@@ -1447,6 +1476,8 @@ public sealed partial class MainForm
                 }
                 _list.Scrollable = !empty;
             }
+
+            UpdateScrollCover();
 
             // Con las columnas ajustadas al ancho no hace falta desplazarse en horizontal:
             // su barra (blanca en el tema oscuro) aparecía como una línea al pie de la lista.

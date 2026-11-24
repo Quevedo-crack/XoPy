@@ -81,6 +81,8 @@ public sealed partial class MainForm : Form
     private Button _tabStatus = null!;
     private Button _tabLog = null!;
     private Panel _tabsHost = null!;
+    /// <summary>Tapa la barra de desplazamiento nativa de la lista (blanca en tema oscuro).</summary>
+    private Panel? _scrollCover;
     private Control[] _pages = Array.Empty<Control>();
     private int _tabIndex;
 
@@ -1063,6 +1065,12 @@ public sealed partial class MainForm : Form
             using var brush = new SolidBrush(_palette.Surface);
             e.Graphics.FillRectangle(brush, new Rectangle(right, 0, size, _list.ClientSize.Height));
         };
+
+        // El ListView nativo pinta su barra de desplazamiento vertical con el color del sistema
+        // y el tema oscuro de Windows no la colorea; SetWindowTheme la ignora. Se cubre con un
+        // panel del color del fondo, colocado sobre el borde derecho de la lista.
+        _scrollCover = new Panel { BackColor = _palette.Surface, Visible = false };
+        Controls.Add(_scrollCover);
 
         _list.DrawColumnHeader += ListDrawColumnHeader;
         _list.DrawItem += (_, e) => { if (_list.View != View.Details) e.DrawDefault = true; };
