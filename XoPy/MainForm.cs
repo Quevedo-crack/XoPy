@@ -2392,6 +2392,10 @@ public sealed partial class MainForm : Form
 
         // El destino ya lo eligió el Explorer/--to: no se vuelve a preguntar.
         await AddPathsAsync(files, askDestination: false);
+
+        // En modo captura solo se rellena la lista para la imagen: no se abre el selector de
+        // carpeta ni se arranca una copia (eso bloqueaba la captura y salía vacía).
+        if (_startupRequest.Screenshot) return;
         if (!_engine.IsRunning)
             StartTransfer(move ? OperationType.Move : OperationType.Copy);
     }
