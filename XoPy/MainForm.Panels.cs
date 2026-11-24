@@ -1412,8 +1412,11 @@ public sealed partial class MainForm
         {
             var origin = _list.PointToScreen(Point.Empty);
             var local = PointToClient(origin);
-            _scrollCover.Bounds = new Rectangle(local.X + _list.ClientSize.Width - width,
-                local.Y, width, _list.ClientSize.Height);
+            // Se cubre un poco más de ancho que la barra: el control nativo deja un borde de
+            // 4 px fuera del ancho estándar del scrollbar que también salía en blanco.
+            var cover = width + 4;
+            _scrollCover.Bounds = new Rectangle(local.X + _list.ClientSize.Width - cover,
+                local.Y, cover, _list.ClientSize.Height);
             _scrollCover.Visible = true;
             _scrollCover.BringToFront();
         }
