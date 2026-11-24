@@ -358,6 +358,11 @@ jobs:
             if (Test-Path $file) { $out += "--- $file"; $out += Get-Content $file }
           }
           # Registro propio de la aplicación (destinos, conflictos y errores de copia).
+          $startupLog = Join-Path $env:LOCALAPPDATA 'XoPy\startup.log'
+          if (Test-Path $startupLog) {
+            $out += '--- startup.log (últimas 80 líneas)'
+            $out += Get-Content $startupLog -Tail 80
+          }
           $log = Join-Path $env:LOCALAPPDATA 'XoPy\transfer.log'
           if (Test-Path $log) {
             $out += "--- transfer.log (últimas 120 líneas)"
