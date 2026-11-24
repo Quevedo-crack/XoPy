@@ -1669,8 +1669,10 @@ public sealed partial class MainForm : Form
         using var dialog = new OptionsDialog(_settings, _palette);
         dialog.StartPosition = FormStartPosition.Manual;
         dialog.Location = new Point(Location.X + 30, Location.Y + 30);
+        dialog.Show(this);
         try
         {
+            for (var pass = 0; pass < 8; pass++) { Application.DoEvents(); Thread.Sleep(60); }
             var button = FindButtonByText(dialog, "Opciones avanzadas");
             if (button is null)
             {
