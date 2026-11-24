@@ -249,10 +249,17 @@ public sealed partial class MainForm : Form
             _rootLayout.ResumeLayout(true);
         }
 
-        // En la vista reducida la ventana se ajusta sola a su contenido (nada de recortar);
-        // en la normal vuelve a ser redimensionable a mano y conserva el tamaño del usuario.
-        AutoSize = compact;
-        AutoSizeMode = AutoSizeMode.GrowAndShrink;
+        // El ajuste automático de tamaño solo se aplica al pulsar «Ocultar»/«Mostrar»
+        // (persist): al arrancar se respeta el tamaño de la ventana, también en modo captura.
+        if (persist)
+        {
+            AutoSize = compact;
+            AutoSizeMode = AutoSizeMode.GrowAndShrink;
+        }
+        else if (compact)
+        {
+            AutoSize = false;
+        }
         MinimumSize = compact ? new Size(560, 150) : new Size(860, 480);
         if (persist)
         {
