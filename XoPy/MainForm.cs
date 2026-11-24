@@ -249,18 +249,10 @@ public sealed partial class MainForm : Form
             _rootLayout.ResumeLayout(true);
         }
 
-        // El ajuste automático de tamaño solo se aplica al pulsar «Ocultar»/«Mostrar»
-        // (persist): al arrancar se respeta el tamaño de la ventana, también en modo captura.
-        if (persist)
-        {
-            AutoSize = compact;
-            AutoSizeMode = AutoSizeMode.GrowAndShrink;
-        }
-        else if (compact)
-        {
-            AutoSize = false;
-        }
-        MinimumSize = compact ? new Size(560, 150) : new Size(860, 480);
+        // La ventana NUNCA se ajusta sola: se recortaba. Como en TeraCopy, es redimensionable
+        // a mano en los dos modos y el tamaño mínimo se calcula para que quepa todo lo visible.
+        AutoSize = false;
+        MinimumSize = compact ? new Size(560, 230) : new Size(820, 470);
         if (persist)
         {
             if (compact)
@@ -282,7 +274,9 @@ public sealed partial class MainForm : Form
                     }
                 }
                 height += SystemInformation.FrameBorderSize.Height * 2 + SystemInformation.CaptionHeight;
-                Height = Math.Max(MinimumSize.Height, height);
+                // Se acerca al tamaño justo, pero nunca por debajo de lo que necesita el contenido.
+                Height = Math.Max(height, MinimumSize.Height);
+                Width = Math.Max(Width, MinimumSize.Width);
             }
             else if (_expandedBounds.Width > 0)
             {
@@ -466,7 +460,9 @@ public sealed partial class MainForm : Form
         _compactButton = BarButton("Ocultar", Icons.ChevronRight, (_, _) => ToggleCompactView());
         _compactButton.Margin = new Padding(2, 0, 4, 0);
         _compactButton.ToolTipText = "Ocultar la lista y dejar visibles los controles y el progreso";
+        // Único acceso a Preferencias (el menú «⋯» tenía la misma opción y sobraba).
         _optionsButton = BarButton("Opciones", Icons.Settings, (_, _) => ShowOptions(), false, true);
+        _optionsButton.ToolTipText = "Preferencias…";
         _optionsButton.Margin = new Padding(6, 0, 4, 0);
         _menuButton = BarButton("Menú", Icons.More, (_, _) => ShowMainMenu(), false, true);
         _menuButton.Margin = new Padding(0);
@@ -521,8 +517,10 @@ public sealed partial class MainForm : Form
         {
             Dock = DockStyle.Fill,
             GripStyle = ToolStripGripStyle.Hidden,
+            // Sin desplegable: pausar/reanudar/detener deben verse siempre como botones.
+            // Antes se iban al menú «» en cuanto la barra se quedaba estrecha.
             LayoutStyle = ToolStripLayoutStyle.HorizontalStackWithOverflow,
-            CanOverflow = true,
+            CanOverflow = false,
             AutoSize = false,
             BackColor = _palette.Surface,
             Font = new Font("Segoe UI", 8.75f, FontStyle.Bold),
@@ -552,7 +550,7 @@ public sealed partial class MainForm : Form
             new ToolStripLabel("Modo:"), modeHost,
             new ToolStripControlHost(_verifyCheck) { Margin = new Padding(2, 2, 4, 0), AutoSize = true },
             _removeFromListButton,
-            _compactButton, _optionsButton, _menuButton
+            _compactButton, _optionsButton
         });
 
         bar.Controls.Add(left, 0, 0);
@@ -1809,7 +1807,15 @@ public sealed partial class MainForm : Form
             Program.Log("MF2. LoadSettingsIntoUi done");
 
             Program.Log("MF3. ApplyCompactView");
-            ApplyCompactView(_settings.CompactView, persist: false);
+            // Modo de ventana de Preferencias: 0 reducida (por defecto, como TeraCopy),
+            // 1 completa, 2 automático (completa si hay archivos, reducida si no).
+            var compactOnStart = _settings.WindowMode switch
+            {
+                1 => false,
+                2 => _startupRequest.Paths.Count == 0 && _startupRequest.Operation is null,
+                _ => true
+            };
+            ApplyCompactView(compactOnStart, persist: false);
             Program.Log("MF3. ApplyCompactView done");
 
             Program.Log("MF4. ApplyJobsCollapsed");
