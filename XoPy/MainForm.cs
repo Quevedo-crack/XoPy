@@ -185,7 +185,7 @@ public sealed partial class MainForm : Form
         };
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 72));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 90));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 96));
@@ -227,7 +227,8 @@ public sealed partial class MainForm : Form
         {
             _rootLayout.SuspendLayout();
             _rootLayout.RowStyles[1].Height = compact ? 44 : 48;
-            _rootLayout.RowStyles[2].Height = 72;
+            // 24+16+24+16 = 80 de contenido + relleno vertical de la cabecera.
+            _rootLayout.RowStyles[2].Height = 90;
             // En reducido se ocultan las pestañas (como TeraCopy: solo metadatos y lista) y
             // la lista SÍ queda a la vista: ahí está la barra de progreso de cada archivo.
             // Sin pestañas en reducido: la fila se queda a cero (antes dejaba un hueco de 34 px).
@@ -245,9 +246,9 @@ public sealed partial class MainForm : Form
                 // Las dos líneas (origen y destino) y sus barras siguen visibles en compacto,
                 // con la misma altura que en la ventana completa para que la barra se vea.
                 _transferHeader.RowStyles[0].Height = 24;
-                _transferHeader.RowStyles[1].Height = 12;
+                _transferHeader.RowStyles[1].Height = 16;
                 _transferHeader.RowStyles[2].Height = 24;
-                _transferHeader.RowStyles[3].Height = 12;
+                _transferHeader.RowStyles[3].Height = 16;
             }
             UpdateToolbarForCompact(compact);
             if (_compactButton is not null)
@@ -791,9 +792,9 @@ public sealed partial class MainForm : Form
         _transferHeader = host;
         // La barra ocupa 12 px de alto (antes 4, prácticamente invisible).
         host.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
-        host.RowStyles.Add(new RowStyle(SizeType.Absolute, 12));
+        host.RowStyles.Add(new RowStyle(SizeType.Absolute, 16));
         host.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
-        host.RowStyles.Add(new RowStyle(SizeType.Absolute, 12));
+        host.RowStyles.Add(new RowStyle(SizeType.Absolute, 16));
 
         host.Controls.Add(BuildHeaderLine("Copiando", out _hdrCopyState, out _hdrCopyPath, out _hdrCopyInfo, out _hdrCopyPercent), 0, 0);
         host.Controls.Add(BuildHeaderBar(out _hdrCopyBar), 0, 1);
@@ -804,8 +805,9 @@ public sealed partial class MainForm : Form
 
     private Control BuildHeaderBar(out ProgressStrip bar)
     {
-        var host = new Panel { Dock = DockStyle.Fill, BackColor = _palette.Surface, Margin = new Padding(0, 1, 0, 1) };
-        bar = new ProgressStrip(_palette) { Dock = DockStyle.Fill, Height = 10, MinimumSize = new Size(0, 8) };
+        var host = new Panel { Dock = DockStyle.Fill, BackColor = _palette.Surface, Margin = new Padding(0, 2, 0, 3), Padding = new Padding(0) };
+        // 14 px de alto: las barras de 4 px no se veían y parecían una raya del borde.
+        bar = new ProgressStrip(_palette) { Dock = DockStyle.Fill, Height = 14, MinimumSize = new Size(0, 10) };
         host.Controls.Add(bar);
         return host;
     }
