@@ -61,6 +61,8 @@ jobs:
           if (-not (Test-Path 'C:\xopytest\shot.png')) {
             throw "No se generó la captura (código $($process.ExitCode))"
           }
+          $startup = Join-Path $env:LOCALAPPDATA 'XoPy\startup.log'
+          if (Test-Path $startup) { Write-Host '--- startup.log'; Get-Content $startup | Select-Object -Last 80 }
           $legacy = @(
             '*\shell\XoPyCopy', '*\shell\XoPyCopyTo', '*\shell\XoPyMove', '*\shell\XoPyMoveTo', '*\shell\XoPyVerify',
             'Directory\shell\XoPyCopy', 'Directory\shell\XoPyCopyTo', 'Directory\shell\XoPyMove', 'Directory\shell\XoPyMoveTo', 'Directory\shell\XoPyVerify',
