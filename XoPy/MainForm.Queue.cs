@@ -792,6 +792,39 @@ public sealed partial class MainForm
             if (row.Tag is TransferItem item && set.Contains(item.Id)) row.Selected = true;
     }
 
+    /// <summary>Confirma el nombre editado en la lista (el archivo del disco no se toca).</summary>
+    private void ListAfterLabelEdit(object? sender, LabelEditEventArgs e)
+    {
+        if (e.Label is null || e.Item < 0 || e.Item >= _list.Items.Count) return;
+        var name = e.Label.Trim();
+        if (name.Length == 0) { e.CancelEdit = true; return; }
+        if (name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+        {
+            e.CancelEdit = true;
+            SetStatus("Ese nombre tiene caracteres que no se permiten.");
+            return;
+        }
+        if (_list.Items[e.Item].Tag is not TransferItem item) { e.CancelEdit = true; return; }
+        item.Name = name;
+        FileLog.Write($"Elemento renombrado en la lista: {item.SourcePath} -> {name}");
+        SetStatus("Nombre cambiado en la lista (el archivo del disco no se ha tocado).");
+    }
+
+    /// <summary>
+    /// Edición en línea de la lista: renombra el elemento (solo el nombre visible, el archivo
+    /// del disco no se toca). F2 o «Renombrar el elemento…» del menú contextual.
+    /// </summary>
+    private void BeginRenameSelected()
+    {
+        if (_list is null || _list.SelectedItems.Count == 0) return;
+        if (_engine.IsRunning)
+        {
+            SetStatus("No se puede renombrar con una transferencia en marcha.");
+            return;
+        }
+        _list.SelectedItems[0].BeginEdit();
+    }
+
     private void ListKeyDown(object? sender, KeyEventArgs e)
     {
         if (e.KeyCode == Keys.A && e.Control)
@@ -802,6 +835,11 @@ public sealed partial class MainForm
         else if (e.KeyCode == Keys.Delete)
         {
             RemoveSelected();
+            e.Handled = true;
+        }
+        else if (e.KeyCode == Keys.F2)
+        {
+            BeginRenameSelected();
             e.Handled = true;
         }
         else if (e.KeyCode == Keys.Up && e.Alt)
@@ -1155,9 +1193,34 @@ public sealed partial class MainForm
         }
 
         var required = leaves.Sum(item => Math.Max(0, item.SizeBytes));
+        _freeSpaceMode = FreeSpaceMode.Ignore;
         // La comprobación de espacio se puede desactivar en Preferencias (como en TeraCopy).
         if (_settings.CheckFreeSpace && operation is OperationType.Copy or OperationType.Move
             && required > 0 && !ConfirmFreeSpace(destination, required)) return;
+
+        // «Copiar solo lo que quepa»: se descartan los archivos que no entrarían, en vez de
+        // empezar y dejar media copia fallida.
+        if (_freeSpaceMode == FreeSpaceMode.FitOnly)
+        {
+            var free = FreeBytesFor(destination);
+            if (free > 0)
+            {
+                var budget = free;
+                var kept = new List<TransferItem>();
+                foreach (var leaf in leaves)
+                {
+                    var size = Math.Max(0, leaf.SizeBytes);
+                    if (size > budget) continue;
+                    budget -= size;
+                    kept.Add(leaf);
+                }
+                var dropped = leaves.Except(kept).ToList();
+                foreach (var leaf in dropped) leaf.State = ItemState.Skipped;
+                leaves = kept;
+                SetStatus($"No caben {dropped.Count} archivo(s): se copian solo los que entran.");
+            }
+        }
+        _freeSpaceMode = FreeSpaceMode.Ignore;
 
         foreach (var leaf in leaves)
         {
@@ -1546,6 +1609,22 @@ public sealed partial class MainForm
         UpdateButtons();
     }
 
+    /// <summary>Espacio libre en la unidad del destino (0 si no se puede saber).</summary>
+    private static long FreeBytesFor(string destination)
+    {
+        try
+        {
+            var root = Path.GetPathRoot(Path.GetFullPath(destination));
+            if (string.IsNullOrEmpty(root)) return 0;
+            var drive = new DriveInfo(root);
+            return drive.IsReady ? drive.AvailableFreeSpace : 0;
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
     private bool ConfirmFreeSpace(string destination, long requiredBytes)
     {
         try
@@ -1556,8 +1635,22 @@ public sealed partial class MainForm
             if (!drive.IsReady || requiredBytes <= 0) return true;
             if (drive.AvailableFreeSpace >= requiredBytes) return true;
 
-            var message = $"En el destino quedan {Format.Bytes(drive.AvailableFreeSpace)} libres y necesitas {Format.Bytes(requiredBytes)}.\n\n¿Quieres continuar de todos modos?";
-            return MessageBox.Show(this, message, "Espacio insuficiente", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) == DialogResult.Yes;
+            var message = $"En el destino quedan {Format.Bytes(drive.AvailableFreeSpace)} libres y necesitas {Format.Bytes(requiredBytes)}.\n\n" +
+                          "Elige cómo continuar:";
+            // Antes solo había Sí/No. Ahora se ofrecen las salidas reales, como TeraCopy:
+            // continuar (fallarán los archivos que no quepan), copiar solo lo que quepa o
+            // cancelar para liberar espacio.
+            var choice = PromptDialog.Ask(this, _palette, "Espacio insuficiente", message,
+                $"Faltan {Format.Bytes(requiredBytes - drive.AvailableFreeSpace)}.",
+                new[] { "Continuar de todos modos", "Copiar solo lo que quepa", "Cancelar" });
+            // 0 = continuar · 1 = solo lo que quepa · 2 (o cerrar) = cancelar.
+            _freeSpaceMode = choice switch
+            {
+                0 => FreeSpaceMode.Ignore,
+                1 => FreeSpaceMode.FitOnly,
+                _ => FreeSpaceMode.Cancel
+            };
+            return _freeSpaceMode != FreeSpaceMode.Cancel;
         }
         catch
         {
@@ -1747,22 +1840,38 @@ public sealed partial class MainForm
             return;
         }
 
+        // «Cerrar al terminar» solo cierra la VENTANA de la copia; el proceso, el icono de la
+        // bandeja y el interceptor de Ctrl+V siguen activos para las próximas copias. Antes se
+        // hacía Application.Exit(), que mataba la aplicación entera y dejaba de funcionar.
         if (failed == 0 && cancelled == 0 && _settings.CloseWhenDone && _lastOperation is OperationType.Copy or OperationType.Move)
         {
-            // Cerrar de verdad, aunque MinimizeToTray esté activo: Close() con
-            // CloseReason.UserClosing se cancelaba y la ventana se quedaba «desaparecida»
-            // en la bandeja, que es lo que el usuario veía como «se cierra sola».
-            _exitRequested = true;
-            BeginInvoke(new Action(() =>
+            BeginInvoke(new Action(() => HideAfterTransfer()));
+        }
+    }
+
+    /// <summary>
+    /// Oculta la ventana al terminar una copia dejando XoPy en marcha: el icono de la bandeja,
+    /// el interceptor de Ctrl+V y la escucha IPC siguen activos para las próximas copias.
+    /// Antes esto llamaba a Application.Exit() y la aplicación dejaba de responder.
+    /// </summary>
+    private void HideAfterTransfer()
+    {
+        try
+        {
+            SaveWindowGeometry();
+            EnsureTrayIcon();
+            Hide();
+            if (!_settings.MinimizeToTray)
             {
-                try
-                {
-                    SaveWindowGeometry();
-                    _tray.Visible = false;
-                    Application.Exit();
-                }
-                catch { }
-            }));
+                // Sin bandeja no habría forma de recuperar la ventana: se deja minimizada.
+                WindowState = FormWindowState.Minimized;
+                ShowInTaskbar = true;
+            }
+            SetStatus("Copia terminada. XoPy sigue en marcha para las próximas copias.");
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write("No se pudo ocultar la ventana: " + ex.Message);
         }
     }
 

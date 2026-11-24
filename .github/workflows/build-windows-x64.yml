@@ -101,6 +101,10 @@ jobs:
             "entradas_antiguas=$($remaining.Count)" | Add-Content $log
             $handler = [Microsoft.Win32.Registry]::GetValue('HKEY_CURRENT_USER\Software\Classes\Directory\Background\shellex\ContextMenuHandlers\XoPyPaste', '', $null)
             "extensio_pegar=$handler" | Add-Content $log
+            # La clave CLSID es la que hace que Ctrl+V abra XoPy: si desaparece al arrancar la
+            # aplicación, la integración no sustituye al copiador de Windows.
+            $inproc = [Microsoft.Win32.Registry]::GetValue('HKEY_CURRENT_USER\Software\Classes\CLSID\{3B1E92A7-7AD6-4E71-A218-75449CE13061}\InprocServer32', '', $null)
+            "clsid_inproc=$inproc" | Add-Content $log
             $dll = Join-Path $env:ProgramFiles 'XoPy\XoPyShell.dll'
             "dll_extension=$(Test-Path $dll)" | Add-Content $log
             if ($remaining.Count -gt 0) { throw 'El instalador dejó entradas de menú contextual antiguas' }
@@ -141,6 +145,12 @@ jobs:
             $app = Start-Process -FilePath $exe -ArgumentList @('--screenshot', $shot) -PassThru
             if (-not $app.WaitForExit(60000)) { $app.Kill(); throw 'La aplicación instalada no respondió' }
             "captura_instalada=$(Test-Path $shot)" | Add-Content $log
+
+            # Arrancar la aplicación no debe eliminar la extensión registrada.
+            $after = [Microsoft.Win32.Registry]::GetValue('HKEY_CURRENT_USER\Software\Classes\CLSID\{3B1E92A7-7AD6-4E71-A218-75449CE13061}\InprocServer32', '', $null)
+            "clsid_tras_arrancar=$after" | Add-Content $log
+            if (-not $after) { throw 'La aplicación borró la extensión Pegar al arrancar' }
+            if (-not $inproc) { throw 'El instalador no registró la extensión Pegar' }
 
             $uninstaller = Join-Path $env:ProgramFiles 'XoPy\unins000.exe'
             "desinstalador=$(Test-Path $uninstaller)" | Add-Content $log

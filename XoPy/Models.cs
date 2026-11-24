@@ -1,3 +1,4 @@
+using System.IO;
 using System.Text.Json.Serialization;
 
 namespace XoPy;
@@ -5,6 +6,14 @@ namespace XoPy;
 public enum OperationType { Copy = 0, Move = 1, Delete = 2, Test = 3 }
 
 public enum ItemKind { File = 0, Folder = 1, DirectoryEntry = 2 }
+
+/// <summary>Decisión del usuario cuando el destino no tiene espacio suficiente.</summary>
+public enum FreeSpaceMode
+{
+    Ignore,
+    FitOnly,
+    Cancel
+}
 
 public enum ItemState { Pending = 0, Measuring = 1, Running = 2, Paused = 3, Verifying = 4, Completed = 5, Failed = 6, Skipped = 7, Cancelled = 8 }
 
@@ -56,8 +65,17 @@ public sealed class TransferItem
     [JsonIgnore]
     public bool IsFolder => Kind == ItemKind.Folder;
 
+    /// <summary>Nombre visible. Se puede cambiar desde la lista (el archivo del disco no se toca).</summary>
+    private string? _displayName;
+
     [JsonIgnore]
-    public string Name => Path.GetFileName(Path.TrimEndingDirectorySeparator(SourcePath));
+    public string Name
+    {
+        get => string.IsNullOrEmpty(_displayName)
+            ? Path.GetFileName(Path.TrimEndingDirectorySeparator(SourcePath))
+            : _displayName!;
+        set => _displayName = string.IsNullOrWhiteSpace(value) ? null : value;
+    }
 
     [JsonIgnore]
     public double Percent
@@ -310,10 +328,12 @@ public sealed class StartupRequest
                         "--screenshot-history" => "history",
                         _ => "window"
                     };
-                    if (i + 1 < args.Length && !args[i + 1].StartsWith("-", StringComparison.Ordinal))
+                    // Solo se consume el argumento siguiente si es la ruta del PNG. Antes se
+                    // hacía «i++» también cuando no había ruta y se saltaba el primer archivo.
+                    if (i + 1 < args.Length && !args[i + 1].StartsWith("-", StringComparison.Ordinal)
+                        && (args[i + 1].EndsWith(".png", StringComparison.OrdinalIgnoreCase)
+                            || !File.Exists(args[i + 1])))
                         request.ScreenshotPath = Normalize(args[++i]);
-                    else
-                        i++;
                     break;
                 case "--to":
                     if (i + 1 < args.Length) request.Destination = Normalize(args[++i]);

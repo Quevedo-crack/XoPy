@@ -131,7 +131,10 @@ public static class Icons
     public static Icon PercentBadge(int percent, bool dark, bool paused = false, bool error = false)
     {
         var clamped = Math.Clamp(percent, 0, 100);
-        using var bitmap = new Bitmap(32, 32);
+        // 64 px en lugar de 32: en pantallas con escalado alto el número de la barra de tareas
+        // se veía diminuto. Se dibuja grande y Windows lo reduce con buena calidad.
+        const int size = 64;
+        using var bitmap = new Bitmap(size, size);
         using (var graphics = Graphics.FromImage(bitmap))
         {
             graphics.SmoothingMode = SmoothingMode.AntiAlias;
@@ -142,18 +145,18 @@ public static class Icons
                 : clamped >= 100 ? Color.FromArgb(38, 160, 96)
                 : Color.FromArgb(48, 140, 240);
             using var background = new SolidBrush(color);
-            using var path = RoundedRect(new Rectangle(0, 0, 32, 32), 7);
+            using var path = RoundedRect(new Rectangle(0, 0, size, size), 14);
             graphics.FillPath(background, path);
             using var format = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
             using var text = new SolidBrush(Color.White);
             var label = clamped >= 100 ? "100" : clamped.ToString();
-            // Números grandes: 2 dígitos a 17 px, 3 a 13 px para que se lean en la barra de tareas.
-            using var font = new Font("Segoe UI", label.Length >= 3 ? 13f : 17f, FontStyle.Bold, GraphicsUnit.Pixel);
-            graphics.DrawString(label, font, text, new RectangleF(0, 0, 32, 32), format);
+            // Números grandes y consistentes: el número ocupa casi todo el icono.
+            using var font = new Font("Segoe UI", label.Length >= 3 ? 26f : 34f, FontStyle.Bold, GraphicsUnit.Pixel);
+            graphics.DrawString(label, font, text, new RectangleF(0, 0, size, size), format);
             if (clamped < 100)
             {
-                using var small = new Font("Segoe UI", 9f, FontStyle.Bold, GraphicsUnit.Pixel);
-                graphics.DrawString("%", small, text, new RectangleF(14, 12, 17, 17), format);
+                using var small = new Font("Segoe UI", 18f, FontStyle.Bold, GraphicsUnit.Pixel);
+                graphics.DrawString("%", small, text, new RectangleF(28, 24, 34, 34), format);
             }
         }
 

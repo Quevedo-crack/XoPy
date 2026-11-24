@@ -54,11 +54,10 @@ public sealed class SettingsStore
             settings.Favorites.Add(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos));
         }
 
-        // El destino NO se rellena solo. En una apertura limpia debe quedar vacío para que
-        // XoPy pregunte a dónde copiar; prefijar «Descargas» hacía que la copia fuera al sitio
-        // equivocado sin preguntar. Solo se descarta una ruta guardada que ya no exista.
-        if (!string.IsNullOrWhiteSpace(settings.Destination) && !Directory.Exists(settings.Destination))
-            settings.Destination = string.Empty;
+        // El destino NO se rellena solo. Siempre queda vacío al arrancar: así XoPy pregunta
+        // a dónde copiar en lugar de usar una carpeta heredada (el escritorio, «Descargas»…,
+        // que era justo lo que hacía copiar al sitio equivocado sin preguntar).
+        settings.Destination = string.Empty;
 
         settings.Parallelism = Math.Clamp(settings.Parallelism, 1, 16);
         settings.BufferKiB = Math.Clamp(settings.BufferKiB, 64, 8192);
