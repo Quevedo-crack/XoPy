@@ -175,6 +175,22 @@ internal sealed class OptionsDialog : Form
     private readonly NumericUpDown _securePasses;
     private readonly TextBox _completionScript;
     private readonly ListBox _extraDestinations;
+    // Opciones del estilo TeraCopy (una sola pantalla, todo en español).
+    private readonly CheckBox _registerCopyManager;
+    private readonly CheckBox _confirmDragDrop;
+    private readonly CheckBox _defaultCopyManager;
+    private readonly CheckBox _onlyWhenDropOff;
+    private readonly CheckBox _addExplorerMenu;
+    private readonly CheckBox _verifyWithChecksum;
+    private readonly CheckBox _alwaysOnTop;
+    private readonly CheckBox _checkFreeSpace;
+    private readonly CheckBox _systemWriteCache;
+    private readonly CheckBox _notifyDone;
+    private readonly CheckBox _showHashes;
+    private readonly NumericUpDown _maxJobs;
+    private readonly TextBox _fastDevices;
+    private readonly TextBox _slowDevices;
+    private readonly ChoiceButton _language;
 
     public AppSettings Result { get; }
 
@@ -185,29 +201,36 @@ internal sealed class OptionsDialog : Form
         _favorites = new ListBox();
         _extraDestinations = new ListBox();
 
-        Text = "Preferencias de XoPy";
+        Text = "Preferencias";
         BackColor = palette.Canvas;
         ForeColor = palette.Text;
         Font = new Font("Segoe UI", 9f);
-        FormBorderStyle = FormBorderStyle.FixedDialog;
+        // Ventana redimensionable, como las Preferencias de TeraCopy 4.
+        FormBorderStyle = FormBorderStyle.Sizable;
         StartPosition = FormStartPosition.CenterParent;
         ShowInTaskbar = false;
         MinimizeBox = false;
-        MaximizeBox = false;
+        MaximizeBox = true;
         var workArea = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1280, 720);
-        ClientSize = new Size(Math.Min(900, Math.Max(720, workArea.Width - 80)),
-            Math.Min(760, Math.Max(500, workArea.Height - 60)));
+        ClientSize = new Size(Math.Min(1000, Math.Max(820, workArea.Width - 120)),
+            Math.Min(740, Math.Max(520, workArea.Height - 40)));
+        MinimumSize = new Size(840, 560);
+
 
         _tabs = new TabControl
         {
             Dock = DockStyle.Fill,
             SizeMode = TabSizeMode.Fixed,
-            ItemSize = new Size(92, 28),
+            ItemSize = new Size(112, 30),
             Padding = new Point(12, 6),
             DrawMode = TabDrawMode.OwnerDrawFixed,
             Font = new Font("Segoe UI", 9f)
         };
         _tabs.DrawItem += DrawTab;
+        _tabs.HandleCreated += (_, _) => FitTabWidths();
+        // La vista principal es de una sola pantalla (estilo TeraCopy); las pestañas siguen
+        // existiendo solo para las opciones avanzadas, que se abren desde un botón.
+        _tabs.Visible = false;
 
         _destination = TextBox(settings.Destination);
         _theme = new ChoiceButton(palette, new[] { "Oscuro", "Claro" }, settings.DarkTheme ? 0 : 1);
@@ -222,7 +245,7 @@ internal sealed class OptionsDialog : Form
         _preserveTimestamps = Check("Conservar las fechas de modificación", settings.PreserveTimestamps);
         _recycleBin = Check("Enviar a la Papelera de reciclaje al eliminar", settings.UseRecycleBin);
         _copyLocked = Check("Copiar archivos bloqueados o en uso", settings.CopyLockedFiles);
-        _engine = new ChoiceButton(palette, new[] { "Nativo (CopyFileEx, recomendado)", "Robocopy (muchos archivos y redes)", "Administrado (máxima compatibilidad)" }, (int)settings.Engine);
+        _engine = new ChoiceButton(palette, new[] { "Nativo — CopyFileEx (recomendado)", "Robocopy — muchos archivos y redes", "Administrado — máxima compatibilidad" }, (int)settings.Engine);
         _engine.SelectedIndexChanged += (_, _) => { };
         _resumePartials = Check("Reanudar copias parciales al reintentar", settings.ResumePartials);
         _writeChecksums = Check("Crear un archivo de checksums al terminar", settings.WriteChecksumFile);
@@ -257,6 +280,27 @@ internal sealed class OptionsDialog : Form
 
         _favorites.Items.AddRange(settings.Favorites.Cast<object>().ToArray());
 
+        // --- Opciones de la pantalla principal (equivalentes a las de TeraCopy, en español) ---
+        _registerCopyManager = Check("Registrar XoPy como gestor de copia", settings.ReplaceWindowsCopier);
+        _confirmDragDrop = Check("Confirmar al arrastrar y soltar", settings.ConfirmDragDrop);
+        _defaultCopyManager = Check("Usar XoPy como gestor de copias predeterminado", settings.ReplaceWindowsCopier);
+        _onlyWhenDropOff = Check("Solo cuando BLOQ DESPL está apagado", settings.OnlyWhenScrollLockOff);
+        _addExplorerMenu = Check("Añadir al menú contextual del Explorador", settings.ExplorerIntegration);
+        _verifyWithChecksum = Check("Verificar cada archivo contra una suma de comprobación", settings.VerifyAfterCopy);
+        _alwaysOnTop = Check("Siempre visible", settings.AlwaysOnTop);
+        _checkFreeSpace = Check("Comprobar el espacio libre", settings.CheckFreeSpace);
+        _systemWriteCache = Check("Usar caché de escritura del sistema", settings.UseSystemWriteCache);
+        _notifyDone = Check("Notificar al terminar", settings.PlaySoundWhenDone || settings.OpenDestinationWhenDone);
+        _showHashes = Check("Mostrar las columnas de suma de comprobación", settings.ShowHashes);
+        _maxJobs = Numeric(settings.Parallelism, 1, 32, 1);
+        _maxJobs.Width = 62;
+        _fastDevices = TextBox(settings.FastDevices);
+        _fastDevices.PlaceholderText = @"Ejemplo: C:, C:\Ruta, \\Servidor\recurso";
+        _slowDevices = TextBox(settings.SlowDevices);
+        _slowDevices.PlaceholderText = @"Ejemplo: D:, \\PC-lento\datos";
+        _language = new ChoiceButton(palette, new[] { "Español", "English" }, settings.Language == "en" ? 1 : 0);
+        _language.Width = 170;
+
         BuildPages();
         _tabs.SelectedIndex = 0;
 
@@ -285,26 +329,293 @@ internal sealed class OptionsDialog : Form
             Dock = DockStyle.Fill,
             ColumnCount = 1,
             BackColor = palette.Canvas,
-            RowCount = 2
+            RowCount = 3
         };
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 0));   // pestañas: solo avanzadas
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 62));
-        root.Controls.Add(_tabs, 0, 0);
-        root.Controls.Add(buttons, 0, 1);
+        root.Controls.Add(BuildMainSettings(), 0, 0);
+        root.Controls.Add(_tabs, 0, 1);
+        root.Controls.Add(buttons, 0, 2);
         Controls.Add(root);
 
         AcceptButton = ok;
         CancelButton = cancel;
     }
 
+    /// <summary>
+    /// Con el escalado DPI del sistema, el tamaño fijado en el constructor se multiplica y
+    /// el diálogo acababa más alto que la pantalla (los botones quedaban bajo la barra de
+    /// tareas). Ya cargado, se recorta al área de trabajo real.
+    /// </summary>
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+        var area = Screen.FromControl(this).WorkingArea;
+        var maxWidth = area.Width - 24;
+        var maxHeight = area.Height - 24;
+        if (Width > maxWidth || Height > maxHeight)
+        {
+            Width = Math.Min(Width, maxWidth);
+            Height = Math.Min(Height, maxHeight);
+        }
+        Location = new Point(
+            area.X + Math.Max(0, (area.Width - Width) / 2),
+            area.Y + Math.Max(0, (area.Height - Height) / 2));
+    }
+
+    /// <summary>
+    /// Pantalla principal de Preferencias, con la misma distribución que TeraCopy 4
+    /// (Integración con Shell · Ventana · Al finalizar · Cola · Idioma · Dispositivos)
+    /// pero con todos los textos en español.
+    /// </summary>
+    private Control BuildMainSettings()
+    {
+        var page = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            RowCount = 1,
+            BackColor = _palette.Canvas,
+            Padding = new Padding(16, 14, 16, 8)
+        };
+        page.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 52));
+        page.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 48));
+        page.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+
+        // ---------------- columna izquierda ----------------
+        var left = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            BackColor = _palette.Canvas,
+            Margin = new Padding(0, 0, 14, 0)
+        };
+        left.Controls.Add(SectionTitle("Integración con el Explorador"));
+        left.Controls.Add(Stack(_registerCopyManager, Indent(_defaultCopyManager)));
+        left.Controls.Add(Hint("Añade XoPy a los comandos de copiar y pegar del Explorador. " +
+                               "Con el gestor predeterminado, Ctrl+V abre XoPy en lugar de la copia de Windows."));
+        left.Controls.Add(Stack(_confirmDragDrop, _onlyWhenDropOff));
+        left.Controls.Add(Stack(_addExplorerMenu));
+        left.Controls.Add(Stack(_verifyWithChecksum));
+        left.Controls.Add(Spacer(14));
+        left.Controls.Add(SectionTitle("Cola"));
+        left.Controls.Add(Stack(Inline("Trabajos activos como máximo:", _maxJobs)));
+        left.Controls.Add(Spacer(10));
+        left.Controls.Add(SectionTitle("Dispositivos rápidos"));
+        left.Controls.Add(_fastDevices);
+        left.Controls.Add(Hint("Ejemplo: C:, C:\\Ruta, \\\\Servidor\\recurso. Varios, separados por punto y coma."));
+        left.Controls.Add(Spacer(10));
+        left.Controls.Add(SectionTitle("Dispositivos lentos"));
+        left.Controls.Add(_slowDevices);
+        left.Controls.Add(Hint("Ejemplo: D:, \\\\PC-lento\\datos. Se procesan después que los rápidos."));
+
+        // ---------------- columna derecha ----------------
+        var right = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            BackColor = _palette.Canvas,
+            Margin = new Padding(0)
+        };
+        right.Controls.Add(SectionTitle("Ventana"));
+        right.Controls.Add(Stack(_alwaysOnTop));
+        right.Controls.Add(Inline("Idioma:", _language));
+        right.Controls.Add(Inline("Tema:", _theme));
+        right.Controls.Add(Spacer(12));
+        right.Controls.Add(SectionTitle("Al finalizar"));
+        right.Controls.Add(Stack(_notifyDone));
+        right.Controls.Add(Stack(_sound));
+        right.Controls.Add(Stack(_openDestination));
+        right.Controls.Add(Spacer(12));
+        right.Controls.Add(SectionTitle("Comportamiento"));
+        right.Controls.Add(Stack(_checkFreeSpace));
+        right.Controls.Add(Stack(_systemWriteCache));
+        right.Controls.Add(Stack(_showHashes));
+        right.Controls.Add(Stack(_minimizeToTray, _startWithWindows));
+
+        var columns = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            RowCount = 1,
+            BackColor = _palette.Canvas
+        };
+        columns.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 52));
+        columns.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 48));
+
+        // Cada columna en un panel con scroll: en pantallas bajas (como la del CI, 577 px)
+        // todo el contenido sigue siendo accesible sin tapar los botones inferiores.
+        var leftScroll = new Panel { Dock = DockStyle.Fill, BackColor = _palette.Canvas, AutoScroll = true };
+        left.AutoScroll = false;
+        left.Dock = DockStyle.Top;
+        left.AutoSize = true;
+        left.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+        leftScroll.Controls.Add(left);
+
+        var rightScroll = new Panel { Dock = DockStyle.Fill, BackColor = _palette.Canvas, AutoScroll = true };
+        right.AutoScroll = false;
+        right.Dock = DockStyle.Top;
+        right.AutoSize = true;
+        right.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+        rightScroll.Controls.Add(right);
+
+        columns.Controls.Add(leftScroll, 0, 0);
+        columns.Controls.Add(rightScroll, 1, 0);
+
+        var advanced = Ui.DialogButton("Opciones avanzadas…", _palette);
+        advanced.Size = new Size(180, 30);
+        advanced.Anchor = AnchorStyles.Left | AnchorStyles.Bottom;
+        advanced.Margin = new Padding(0, 8, 0, 0);
+        advanced.Click += (_, _) => ShowAdvanced();
+
+        var bottom = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
+            BackColor = _palette.Canvas,
+            Margin = new Padding(0)
+        };
+        bottom.Controls.Add(advanced);
+
+        page.RowStyles.Clear();
+        page.RowCount = 2;
+        page.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 40));
+        page.Controls.Add(columns, 0, 0);
+        page.SetColumnSpan(columns, 2);
+        page.Controls.Add(bottom, 0, 1);
+        page.SetColumnSpan(bottom, 2);
+        return page;
+    }
+
+    /// <summary>Muestra las pestañas de opciones avanzadas (destino, motor, verificación…).</summary>
+    private void ShowAdvanced()
+    {
+        var tabs = _tabs;
+        tabs.Visible = true;
+        tabs.BringToFront();
+        var host = tabs.Parent as TableLayoutPanel;
+        if (host is not null)
+        {
+            host.RowStyles[0].Height = 0;
+            host.RowStyles[1].Height = 100;
+            host.RowStyles[1].SizeType = SizeType.Percent;
+            var main = host.GetControlFromPosition(0, 0);
+            if (main is not null) main.Visible = false;
+        }
+        FitTabWidths();
+
+        // Al cerrar las pestañas se vuelve a la pantalla principal.
+        var back = Ui.DialogButton("← Volver", _palette);
+        back.Size = new Size(110, 28);
+        back.Location = new Point(14, 8);
+        back.Click += (_, _) =>
+        {
+            tabs.Visible = false;
+            if (host is not null)
+            {
+                host.RowStyles[0].SizeType = SizeType.Percent;
+                host.RowStyles[0].Height = 100;
+                host.RowStyles[1].SizeType = SizeType.Absolute;
+                host.RowStyles[1].Height = 0;
+                var main = host.GetControlFromPosition(0, 0);
+                if (main is not null) main.Visible = true;
+            }
+            back.Visible = false;
+        };
+        tabs.Controls.Add(back);
+        back.Parent = tabs;
+        back.BringToFront();
+    }
+
+    private Label SectionTitle(string text) => new()
+    {
+        Text = text,
+        AutoSize = true,
+        ForeColor = _palette.Text,
+        Font = new Font("Segoe UI", 9.25f, FontStyle.Bold),
+        BackColor = Color.Transparent,
+        Margin = new Padding(0, 2, 0, 6)
+    };
+
+    private Label Hint(string text) => new()
+    {
+        Text = text,
+        AutoSize = true,
+        MaximumSize = new Size(430, 0),
+        ForeColor = _palette.Muted,
+        Font = new Font("Segoe UI", 8.25f),
+        BackColor = Color.Transparent,
+        Margin = new Padding(0, 1, 0, 8)
+    };
+
+    private static Control Spacer(int height) => new Panel
+    {
+        Height = height,
+        Width = 1,
+        BackColor = Color.Transparent,
+        Margin = new Padding(0)
+    };
+
+    private Control Indent(Control control)
+    {
+        control.Margin = new Padding(22, 2, 0, 4);
+        return control;
+    }
+
+    private static FlowLayoutPanel Stack(params Control[] controls)
+    {
+        var panel = new FlowLayoutPanel
+        {
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            FlowDirection = FlowDirection.TopDown,
+            WrapContents = false,
+            BackColor = Color.Transparent,
+            Margin = new Padding(0, 0, 0, 4)
+        };
+        foreach (var control in controls)
+        {
+            control.Margin = new Padding(0, 2, 0, 2);
+            panel.Controls.Add(control);
+        }
+        return panel;
+    }
+
+    private FlowLayoutPanel Inline(string labelText, Control control)
+    {
+        var panel = new FlowLayoutPanel
+        {
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
+            BackColor = Color.Transparent,
+            Margin = new Padding(0, 4, 0, 6)
+        };
+        var label = new Label
+        {
+            Text = labelText,
+            AutoSize = true,
+            ForeColor = _palette.Text,
+            BackColor = Color.Transparent,
+            Margin = new Padding(0, 8, 10, 0)
+        };
+        control.Margin = new Padding(0, 2, 0, 2);
+        panel.Controls.Add(label);
+        panel.Controls.Add(control);
+        return panel;
+    }
+
     private void BuildPages()
     {
-        _tabs.TabPages.Add(Page("General", 6,
+        // La pestaña «General» ya no existe: sus opciones están en la pantalla principal.
+        _tabs.TabPages.Add(Page("Destino predeterminado", 4,
             ("Carpeta de destino predeterminada", _destination, 48),
             ("Tema de la interfaz", _theme, 48),
             ("", _confirmDelete, 40),
-            ("", _minimizeToTray, 40),
-            ("", _startWithWindows, 40),
             ("", _startMinimized, 40)));
 
         var extraPanel = new TableLayoutPanel
@@ -366,7 +677,7 @@ internal sealed class OptionsDialog : Form
             ("Carpetas que reciben una copia de todo", extraPanel, 260),
             ("", new Label
             {
-                Text = "Cada destino adicional recibe una copia completa de lo que se copie o mueva.\n" +
+                Text = "Cada destino adicional recibe una copia completa de lo que se copie o mueva. " +
                        "El script final recibe la carpeta de destino, los errores y la operación.",
                 AutoSize = true,
                 ForeColor = _palette.Muted,
@@ -379,9 +690,9 @@ internal sealed class OptionsDialog : Form
             ("", _verifyAfterCopy, 40),
             ("", new Label
             {
-                Text = "La verificación compara el archivo copiado con el original. Con SHA-256\n" +
-                       "puedes estar seguro de que la copia es idéntica bit a bit, a costa de\n" +
-                       "leer los archivos dos veces. Desactívala para copiar a máxima velocidad.",
+                Text = "La verificación compara el archivo copiado con el original. Con SHA-256 puedes " +
+                       "estar seguro de que la copia es idéntica bit a bit, a costa de leer los archivos dos " +
+                       "veces. Desactívala para copiar a máxima velocidad.",
                 AutoSize = true,
                 ForeColor = _palette.Muted,
                 Font = new Font("Segoe UI", 8.5f),
@@ -398,12 +709,12 @@ internal sealed class OptionsDialog : Form
             ("", _replaceCopier, 60),
             ("", new Label
             {
-                Text = "Ctrl+V y Mayús+Insert en el Explorador y el escritorio se transfieren con XoPy.\n" +
-                       "«Enviar a → XoPy» abre el selector de destino. Si el portapapeles contiene\n" +
-                       "elementos cortados, XoPy los mueve y elimina el origen al finalizar.\n\n" +
-                       "El pegado nativo del menú contextual de Windows se conserva: Windows no ofrece\n" +
-                       "una forma compatible de reemplazarlo globalmente. XoPy no añade otra opción\n" +
-                       "«Pegar» al menú contextual; así se evita el duplicado y no se reinicia Explorer.", 
+                Text = "Ctrl+V y Mayús+Insert en el Explorador y el escritorio se transfieren con XoPy. " +
+                       "«Enviar a → XoPy» abre el selector de destino. Si el portapapeles contiene elementos " +
+                       "cortados, XoPy los mueve y elimina el origen al finalizar." + Environment.NewLine + Environment.NewLine +
+                       "El pegado nativo del menú contextual de Windows se conserva: Windows no ofrece una " +
+                       "forma compatible de reemplazarlo globalmente. XoPy no añade otra opción «Pegar» al " +
+                       "menú contextual; así se evita el duplicado y no se reinicia Explorer.", 
                 AutoSize = true,
                 ForeColor = _palette.Muted,
                 Font = new Font("Segoe UI", 8.5f),
@@ -466,7 +777,7 @@ internal sealed class OptionsDialog : Form
 
     private TabPage Page(string title, int rows, params (string Label, Control Control, int Height)[] items)
     {
-        var page = new TabPage(title) { BackColor = _palette.Canvas, Padding = new Padding(18), AutoScroll = true };
+        var page = new TabPage(title) { BackColor = _palette.Canvas, Padding = new Padding(14, 12, 14, 12), AutoScroll = true };
         var layout = new TableLayoutPanel
         {
             Dock = DockStyle.Top,
@@ -474,16 +785,24 @@ internal sealed class OptionsDialog : Form
             AutoSizeMode = AutoSizeMode.GrowAndShrink,
             ColumnCount = 2,
             BackColor = _palette.Canvas,
-            GrowStyle = TableLayoutPanelGrowStyle.FixedSize
+            GrowStyle = TableLayoutPanelGrowStyle.FixedSize,
+            Padding = new Padding(0)
         };
-        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 300));
+        // Columnas: rótulo estrecho + control que aprovecha todo el ancho restante.
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 236));
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
 
-        layout.RowCount = items.Length + 1;
+        var descriptions = new List<Label>();
+        layout.RowCount = items.Length;
         var row = 0;
         foreach (var (label, control, height) in items)
         {
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, height));
+            // Las descripciones largas crecen solas: fila automática y ajuste de línea real,
+            // en lugar de un alto fijo que recortaba el texto a media frase.
+            var isDescription = control is Label && string.IsNullOrEmpty(label);
+            layout.RowStyles.Add(isDescription
+                ? new RowStyle(SizeType.AutoSize)
+                : new RowStyle(SizeType.Absolute, height));
             var text = new Label
             {
                 Text = label,
@@ -491,29 +810,68 @@ internal sealed class OptionsDialog : Form
                 Dock = DockStyle.Fill,
                 TextAlign = ContentAlignment.MiddleLeft,
                 AutoEllipsis = true,
+                UseMnemonic = false,
                 ForeColor = _palette.Muted,
                 BackColor = Color.Transparent,
-                Margin = new Padding(0, 0, 14, 0)
+                Font = new Font("Segoe UI", 8.75f),
+                Margin = new Padding(0, 0, 16, 0)
             };
             if (control is Label description)
             {
-                description.AutoSize = false;
-                description.Dock = DockStyle.Fill;
-                description.TextAlign = ContentAlignment.MiddleLeft;
+                description.AutoSize = true;
+                description.Dock = DockStyle.None;
+                description.TextAlign = ContentAlignment.TopLeft;
                 description.AutoEllipsis = false;
+                description.UseMnemonic = false;
+                description.MaximumSize = new Size(520, 0);
+                description.Margin = new Padding(0, 8, 8, 8);
+                descriptions.Add(description);
+            }
+            else if (control is CheckBox)
+            {
+                control.Anchor = AnchorStyles.Left;
+                control.Margin = new Padding(0, 0, 8, 0);
             }
             else
             {
-                control.Anchor = AnchorStyles.Left;
+                // Combos, cajas de texto, numéricos y paneles: ocupan el ancho útil.
+                control.Anchor = AnchorStyles.Left | AnchorStyles.Right;
+                control.Margin = new Padding(0, 2, 8, 2);
             }
-            control.Margin = new Padding(0, 0, 0, 0);
             layout.Controls.Add(text, 0, row);
             layout.Controls.Add(control, 1, row);
             row++;
         }
-        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+
+        // El ancho de las descripciones sigue al ancho real de la pestaña para que el
+        // texto se reparta en varias líneas sin huecos ni cortes.
+        page.Resize += (_, _) =>
+        {
+            // ColumnStyle.Width es float: sin el cast, WinForms no puede restar int - float.
+            var available = Math.Max(280, page.ClientSize.Width - (int)layout.ColumnStyles[0].Width - 40);
+            foreach (var description in descriptions) description.MaximumSize = new Size(available, 0);
+        };
+
         page.Controls.Add(layout);
         return page;
+    }
+
+    /// <summary>
+    /// Ajusta el ancho de TODAS las pestañas al título más largo. Con un ancho fijo de 92 px
+    /// se cortaban «Transferencia», «Verificación» e «Integración» y el diálogo parecía roto.
+    /// </summary>
+    private void FitTabWidths()
+    {
+        if (_tabs.TabPages.Count == 0) return;
+        var widest = 0;
+        foreach (TabPage tab in _tabs.TabPages)
+        {
+            var measured = TextRenderer.MeasureText(tab.Text, _tabs.Font,
+                new Size(int.MaxValue, int.MaxValue), TextFormatFlags.NoPrefix);
+            widest = Math.Max(widest, measured.Width);
+        }
+        var width = Math.Max(84, widest + 34);
+        _tabs.ItemSize = new Size(width, 30);
     }
 
     private void DrawTab(object? sender, DrawItemEventArgs e)
@@ -610,6 +968,24 @@ internal sealed class OptionsDialog : Form
         Result.ShutdownWhenDone = _shutdown.Checked;
         Result.Favorites = _favorites.Items.Cast<object>().Select(entry => entry.ToString() ?? string.Empty)
             .Where(path => path.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+        // Pantalla principal estilo TeraCopy.
+        Result.ConfirmDragDrop = _confirmDragDrop.Checked;
+        Result.OnlyWhenScrollLockOff = _onlyWhenDropOff.Checked;
+        Result.ExplorerIntegration = _addExplorerMenu.Checked;
+        Result.VerifyAfterCopy = _verifyWithChecksum.Checked;
+        Result.AlwaysOnTop = _alwaysOnTop.Checked;
+        Result.CheckFreeSpace = _checkFreeSpace.Checked;
+        Result.UseSystemWriteCache = _systemWriteCache.Checked;
+        Result.Parallelism = (int)_maxJobs.Value;
+        Result.FastDevices = _fastDevices.Text.Trim();
+        Result.SlowDevices = _slowDevices.Text.Trim();
+        Result.Language = _language.SelectedIndex == 1 ? "en" : "es";
+        // El gestor predeterminado y el registro del gestor de copia son la misma casilla
+        // de integración: si cualquiera está marcada, el copiador queda sustituido.
+        Result.ReplaceWindowsCopier = _registerCopyManager.Checked || _defaultCopyManager.Checked;
+        // «Notificar al terminar» avisa con el sonido; el resto de acciones se eligen aparte.
+        if (_notifyDone.Checked) Result.PlaySoundWhenDone = true;
     }
 
     public void ApplyTo(AppSettings target)
@@ -646,6 +1022,15 @@ internal sealed class OptionsDialog : Form
         target.CloseWhenDone = Result.CloseWhenDone;
         target.ShutdownWhenDone = Result.ShutdownWhenDone;
         target.Favorites = Result.Favorites.ToList();
+        target.ConfirmDragDrop = Result.ConfirmDragDrop;
+        target.OnlyWhenScrollLockOff = Result.OnlyWhenScrollLockOff;
+        target.AlwaysOnTop = Result.AlwaysOnTop;
+        target.CheckFreeSpace = Result.CheckFreeSpace;
+        target.UseSystemWriteCache = Result.UseSystemWriteCache;
+        target.FastDevices = Result.FastDevices;
+        target.SlowDevices = Result.SlowDevices;
+        target.Language = Result.Language;
+        target.ShowHashes = Result.ShowHashes;
     }
 
     public static AppSettings CloneSettings(AppSettings source) => new()
@@ -681,7 +1066,16 @@ internal sealed class OptionsDialog : Form
         OpenDestinationWhenDone = source.OpenDestinationWhenDone,
         CloseWhenDone = source.CloseWhenDone,
         ShutdownWhenDone = source.ShutdownWhenDone,
-        Favorites = source.Favorites.ToList()
+        Favorites = source.Favorites.ToList(),
+        ConfirmDragDrop = source.ConfirmDragDrop,
+        OnlyWhenScrollLockOff = source.OnlyWhenScrollLockOff,
+        AlwaysOnTop = source.AlwaysOnTop,
+        CheckFreeSpace = source.CheckFreeSpace,
+        UseSystemWriteCache = source.UseSystemWriteCache,
+        FastDevices = source.FastDevices,
+        SlowDevices = source.SlowDevices,
+        Language = source.Language,
+        ShowHashes = source.ShowHashes
     };
 }
 

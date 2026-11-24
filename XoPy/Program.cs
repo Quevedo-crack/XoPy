@@ -56,6 +56,15 @@ internal static class Program
                 try { File.AppendAllText(_logPath, e.ExceptionObject?.ToString() ?? "null exception object\n"); } catch { }
             };
 
+            // El instalador llama con --install-hooks: deja XoPy como copiador por defecto
+            // (Ctrl+V interceptado) y guarda el arranque con Windows. Así la sustitución del
+            // copiador queda activa desde la instalación, sin pasos manuales.
+            if (args.Any(arg => string.Equals(arg, "--install-hooks", StringComparison.OrdinalIgnoreCase)))
+            {
+                ConfigureDefaultCopier();
+                if (args.Length == 1) return;
+            }
+
             Log("8. StartupRequest.Parse");
             var request = StartupRequest.Parse(args);
 
@@ -97,6 +106,40 @@ internal static class Program
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
             catch { }
+        }
+    }
+
+    /// <summary>
+    /// Deja XoPy configurado como copiador predeterminado: activa la sustitución del
+    /// copiador de Windows, el arranque con el equipo (para que el interceptor de Ctrl+V
+    /// exista) y aplica los cambios en el registro. Se invoca desde el instalador.
+    /// </summary>
+    private static void ConfigureDefaultCopier()
+    {
+        try
+        {
+            var store = new SettingsStore();
+            var settings = store.Load();
+            settings.ReplaceWindowsCopier = true;
+            settings.StartWithWindows = true;
+            settings.MinimizeToTray = true;
+            store.Save(settings);
+
+            try { ShellIntegration.Apply(true); } catch { }
+            try { ShellIntegration.SetAutoStart(true); } catch { }
+
+            // Se registra en el log para poder diagnosticarlo desde el equipo del usuario.
+            try
+            {
+                Directory.CreateDirectory(store.DataFolder);
+                File.AppendAllText(Path.Combine(store.DataFolder, "install-hooks.log"),
+                    $"{DateTime.Now:O} copiador predeterminado configurado{Environment.NewLine}");
+            }
+            catch { }
+        }
+        catch (Exception ex)
+        {
+            try { File.AppendAllText(_logPath, "ConfigureDefaultCopier: " + ex + "\n"); } catch { }
         }
     }
 }

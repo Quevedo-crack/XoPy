@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Diagnostics.CodeAnalysis;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Text;
@@ -101,6 +102,7 @@ public static class Icons
     public const string Down = "\uE70D";
     public const string Refresh = "\uE72C";
     public const string Expand = "\uE710";
+    public const string SortAsc = "\uE8CB";   // flechas arriba/abajo: ordenar
 
     public static Image Glyph(string glyph, Color color, int size = 20)
     {
@@ -145,12 +147,13 @@ public static class Icons
             using var format = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
             using var text = new SolidBrush(Color.White);
             var label = clamped >= 100 ? "100" : clamped.ToString();
-            using var font = new Font("Segoe UI", label.Length >= 3 ? 12f : 14f, FontStyle.Bold, GraphicsUnit.Pixel);
-            graphics.DrawString(label, font, text, new RectangleF(0, -1, 32, 32), format);
+            // Números grandes: 2 dígitos a 17 px, 3 a 13 px para que se lean en la barra de tareas.
+            using var font = new Font("Segoe UI", label.Length >= 3 ? 13f : 17f, FontStyle.Bold, GraphicsUnit.Pixel);
+            graphics.DrawString(label, font, text, new RectangleF(0, 0, 32, 32), format);
             if (clamped < 100)
             {
-                using var small = new Font("Segoe UI", 8f, FontStyle.Bold, GraphicsUnit.Pixel);
-                graphics.DrawString("%", small, text, new RectangleF(15, 13, 16, 16), format);
+                using var small = new Font("Segoe UI", 9f, FontStyle.Bold, GraphicsUnit.Pixel);
+                graphics.DrawString("%", small, text, new RectangleF(14, 12, 17, 17), format);
             }
         }
 
@@ -203,13 +206,18 @@ public static class Icons
             if (paused)
             {
                 using var bar = new SolidBrush(color);
-                graphics.FillRectangle(bar, 12, 11, 3, 10);
-                graphics.FillRectangle(bar, 17, 11, 3, 10);
+                graphics.FillRectangle(bar, 12, 10, 3, 12);
+                graphics.FillRectangle(bar, 17, 10, 3, 12);
             }
             else
             {
-                using var font = new Font("Segoe UI", clamped >= 100 ? 10f : 12f, FontStyle.Bold, GraphicsUnit.Pixel);
-                graphics.DrawString(clamped.ToString(), font, text, new RectangleF(1, 1, 30, 30), format);
+                // Números grandes y legibles: en 32 px caben 2 dígitos a 15 px y 3 a 11 px.
+                // Antes se dibujaban a 12/10 px dentro del anillo y apenas se leían.
+                var label = clamped.ToString();
+                var fontPixels = label.Length >= 3 ? 11f : label.Length == 2 ? 15f : 18f;
+                using var font = new Font("Segoe UI", fontPixels, FontStyle.Bold, GraphicsUnit.Pixel);
+                graphics.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
+                graphics.DrawString(label, font, text, new RectangleF(0.5f, 0.5f, 31f, 31f), format);
             }
         }
 
@@ -360,6 +368,16 @@ public static class Ui
         menu.BackColor = palette.Surface;
         menu.ForeColor = palette.Text;
         menu.Font = new Font("Segoe UI", 9f);
+
+        // El renderer profesional no colorea el texto de los menús de primer nivel y quedaba
+        // casi negro sobre negro. Se fija el color a mano en cada elemento.
+        foreach (ToolStripItem item in menu.Items)
+            item.ForeColor = palette.Text;
+        // ToolStrip solo expone ItemAdded (ToolStripItemEventHandler), no ItemsAdded.
+        menu.ItemAdded += (_, e) =>
+        {
+            if (e.Item is not null) e.Item.ForeColor = palette.Text;
+        };
     }
 }
 
@@ -405,6 +423,7 @@ internal sealed class DarkMenuRenderer : ToolStripProfessionalRenderer
         using var brush = new SolidBrush(e.ToolStrip is MenuStrip ? _palette.Canvas : _palette.Surface);
         e.Graphics.FillRectangle(brush, e.AffectedBounds);
     }
+
 
     protected override void OnRenderToolStripBorder(ToolStripRenderEventArgs e)
     {
@@ -458,7 +477,10 @@ internal sealed class DarkMenuRenderer : ToolStripProfessionalRenderer
     {
         var item = e.Item;
         var selected = item.Selected && item.Enabled;
-        var background = selected ? _palette.Hover : _palette.Surface;
+        // Los elementos de la barra de menús (Archivo, Cola…) comparten el fondo del menú
+        // superior; si se pintan como el desplegable, el texto claro se pierde.
+        var onMenuBar = item.Owner is MenuStrip;
+        var background = selected ? _palette.Hover : onMenuBar ? _palette.Canvas : _palette.Surface;
         using var brush = new SolidBrush(background);
         var bounds = new Rectangle(2, 0, Math.Max(0, e.Item.Width - 4), e.Item.Height);
         e.Graphics.FillRectangle(brush, bounds);
@@ -540,6 +562,66 @@ internal sealed class ProgressStrip : Control
     {
         e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
         Ui.DrawProgress(e.Graphics, new Rectangle(0, 0, Width - 1, Height - 1), _value, _palette, _fill);
+    }
+}
+
+/// <summary>
+/// Etiqueta con forma de píldora, como los rótulos «Copiando»/«Destino» de TeraCopy.
+/// Se dibuja a mano para que el redondeo y el color coincidan exactamente con el tema.
+/// </summary>
+internal sealed class PillLabel : Control
+{
+    private readonly Palette _palette;
+    private string _text;
+
+    public PillLabel(string text, Palette palette)
+    {
+        _palette = palette;
+        _text = text;
+        SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer
+                 | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
+        Font = new Font("Segoe UI", 8.25f, FontStyle.Regular);
+        Height = 22;
+    }
+
+    [AllowNull]
+    public override string Text
+    {
+        get => _text;
+        set
+        {
+            var next = value ?? string.Empty;
+            if (string.Equals(_text, next, StringComparison.Ordinal)) return;
+            _text = next;
+            Invalidate();
+        }
+    }
+
+    /// <summary>Color de acento de la píldora (por defecto, gris del tema).</summary>
+    /// <remarks>
+    /// El diseñador de WinForms exige declarar explícitamente cómo se serializa una
+    /// propiedad propia en un control (WFO1000); se oculta porque no se edita en el diseñador.
+    /// </remarks>
+    [Browsable(false)]
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public Color Accent { get; set; } = Color.Empty;
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        var graphics = e.Graphics;
+        graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        using (var background = new SolidBrush(_palette.Canvas)) graphics.FillRectangle(background, ClientRectangle);
+
+        var accent = Accent.IsEmpty ? _palette.Raised : Accent;
+        var bounds = new Rectangle(0, Math.Max(0, (Height - 20) / 2), Math.Max(1, Width - 1), 20);
+        using var path = Ui.RoundedRectangle(bounds, 10);
+        using (var fill = new SolidBrush(accent)) graphics.FillPath(fill, path);
+        using var border = new Pen(_palette.Border);
+        graphics.DrawPath(border, path);
+
+        TextRenderer.DrawText(graphics, _text, Font, bounds, _palette.Text,
+            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter
+            | TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis);
     }
 }
 
@@ -648,8 +730,11 @@ internal sealed class ChoiceButton : Button
         BackColor = palette.Surface;
         ForeColor = palette.Text;
         Font = new Font("Segoe UI", 9f);
-        Height = 32;
-        Width = 340;
+        Height = 30;
+        // Ancho mínimo: el texto debe caber entero sin cortarse; crece con el ancho del diálogo.
+        Width = 380;
+        MinimumSize = new Size(300, 30);
+        AutoEllipsis = true;
         Cursor = Cursors.Hand;
         Image = Icons.Glyph(Icons.ChevronDown, palette.Muted, 12);
         ImageAlign = ContentAlignment.MiddleRight;

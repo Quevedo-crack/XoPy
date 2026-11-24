@@ -42,7 +42,7 @@ public sealed partial class MainForm : Form
     private ToolStripButton _stopButton = null!;
     private ToolStripButton _optionsButton = null!;
     private ToolStripButton _menuButton = null!;
-    private ToolStripComboBox _copyMode = null!;
+    private ComboBox _copyMode = null!;
     private Button _removeButton = null!;
     private Button _clearButton = null!;
     private Button _upButton = null!;
@@ -50,8 +50,9 @@ public sealed partial class MainForm : Form
     private ListView _list = null!;
     private Label _countLabel = null!;
     private Button _sortButton = null!;
-    private Label _hdrCopyState = null!, _hdrCopyPath = null!, _hdrCopyInfo = null!, _hdrCopyPercent = null!;
-    private Label _hdrTargetState = null!, _hdrTargetPath = null!, _hdrTargetInfo = null!, _hdrTargetPercent = null!;
+    private PillLabel _hdrCopyState = null!, _hdrTargetState = null!;
+    private Label _hdrCopyPath = null!, _hdrCopyInfo = null!, _hdrCopyPercent = null!;
+    private Label _hdrTargetPath = null!, _hdrTargetInfo = null!, _hdrTargetPercent = null!;
     private ProgressStrip _hdrCopyBar = null!, _hdrTargetBar = null!;
     private SpeedGraph _footerGraph = null!;
     private TableLayoutPanel _rootLayout = null!;
@@ -80,6 +81,8 @@ public sealed partial class MainForm : Form
     private Button _tabStatus = null!;
     private Button _tabLog = null!;
     private Panel _tabsHost = null!;
+    /// <summary>Tapa la barra de desplazamiento nativa de la lista (blanca en tema oscuro).</summary>
+    private Panel? _scrollCover;
     private Control[] _pages = Array.Empty<Control>();
     private int _tabIndex;
 
@@ -109,9 +112,13 @@ public sealed partial class MainForm : Form
     private CheckBox _optShowHashes = null!;
 
     private Icon? _baseIcon;
+    private bool _trayBuilt;
     private Icon? _percentIcon;
     private bool _wasRunning;
     private bool _exitRequested;
+    private bool _loadingUi;
+    private Label _metaFilter = null!, _metaCount = null!, _metaOrigin = null!, _metaOriginSize = null!;
+    private Label _metaDestination = null!, _metaDestinationSize = null!;
     private bool _shown;
     /// <summary>La interfaz está construida y los controles existen (fin de OnShown).</summary>
     private volatile bool _uiReady;
@@ -137,7 +144,7 @@ public sealed partial class MainForm : Form
 
     private readonly List<TransferList> _lists = new();
     private TransferList? _activeList;
-    private ToolStripComboBox _listSelector = null!;
+    private ComboBox _listSelector = null!;
     private ToolStripButton _newListButton = null!;
     private ToolStripButton _deleteListButton = null!;
     private ToolStripButton _removeFromListButton = null!;
@@ -160,7 +167,8 @@ public sealed partial class MainForm : Form
         BackColor = _palette.Canvas;
         ForeColor = _palette.Text;
         Font = new Font("Segoe UI", 9f);
-        MinimumSize = new Size(1024, 640);
+        // Ventana compacta tipo TeraCopy: antes 1024x640 ocupaba media pantalla.
+        MinimumSize = new Size(860, 520);
         DoubleBuffered = true;
         KeyPreview = true;
         AllowDrop = true;
@@ -173,12 +181,12 @@ public sealed partial class MainForm : Form
             RowCount = 6,
             Padding = new Padding(0)
         };
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 58));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 68));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 72));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 112));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 96));
         _rootLayout = root;
 
         InitializeDestinationState();
@@ -212,17 +220,19 @@ public sealed partial class MainForm : Form
         if (_rootLayout is not null)
         {
             _rootLayout.SuspendLayout();
-            _rootLayout.RowStyles[1].Height = compact ? 44 : 52;
-            _rootLayout.RowStyles[2].Height = compact ? 56 : 64;
-            _rootLayout.RowStyles[3].Height = compact ? 0 : 38;
+            _rootLayout.RowStyles[1].Height = compact ? 44 : 48;
+            _rootLayout.RowStyles[2].Height = 72;
+            _rootLayout.RowStyles[3].Height = compact ? 0 : 34;
             _rootLayout.RowStyles[4].SizeType = compact ? SizeType.Absolute : SizeType.Percent;
             _rootLayout.RowStyles[4].Height = compact ? 0 : 100;
-            _rootLayout.RowStyles[5].Height = compact ? 88 : 112;
-            if (_transferHeader is not null && _transferHeader.RowStyles.Count > 1)
+            _rootLayout.RowStyles[5].Height = compact ? 74 : 96;
+            if (_transferHeader is not null && _transferHeader.RowStyles.Count >= 4)
             {
-                // Ambas barras (general y del archivo actual) siguen visibles aunque la lista esté oculta.
-                _transferHeader.RowStyles[0].Height = compact ? 24 : 30;
-                _transferHeader.RowStyles[1].Height = compact ? 24 : 30;
+                // Las dos líneas (origen y destino) y sus barras siguen visibles en compacto.
+                _transferHeader.RowStyles[0].Height = 26;
+                _transferHeader.RowStyles[1].Height = 7;
+                _transferHeader.RowStyles[2].Height = 26;
+                _transferHeader.RowStyles[3].Height = 7;
             }
             UpdateToolbarForCompact(compact);
             if (_compactButton is not null)
@@ -237,7 +247,7 @@ public sealed partial class MainForm : Form
             _rootLayout.ResumeLayout(true);
         }
 
-        MinimumSize = compact ? new Size(1024, 230) : new Size(1024, 560);
+        MinimumSize = compact ? new Size(860, 210) : new Size(860, 480);
         if (persist)
         {
             if (compact)
@@ -245,7 +255,7 @@ public sealed partial class MainForm : Form
                 _expandedWasMaximized = WindowState == FormWindowState.Maximized;
                 _expandedBounds = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
                 WindowState = FormWindowState.Normal;
-                Height = 230;
+                Height = 210;
             }
             else if (_expandedBounds.Width > 0)
             {
@@ -314,22 +324,33 @@ public sealed partial class MainForm : Form
         queue.DropDownItems.Add(MenuItem("Subir el elemento  (Alt+↑)", (_, _) => MoveSelected(-1)));
         queue.DropDownItems.Add(MenuItem("Bajar el elemento  (Alt+↓)", (_, _) => MoveSelected(1)));
         queue.DropDownItems.Add(new ToolStripSeparator());
-        queue.DropDownItems.Add(MenuItem("Ordenar por nombre", (_, _) => SortQueue(QueueSortField.Name)));
-        queue.DropDownItems.Add(MenuItem("Ordenar por tamaño", (_, _) => SortQueue(QueueSortField.Size)));
-        queue.DropDownItems.Add(MenuItem("Ordenar por tipo", (_, _) => SortQueue(QueueSortField.Type)));
-        queue.DropDownItems.Add(MenuItem("Ordenar por carpeta de destino", (_, _) => SortQueue(QueueSortField.Destination)));
-        queue.DropDownItems.Add(MenuItem("Ordenar por carpeta de origen", (_, _) => SortQueue(QueueSortField.Source)));
-        queue.DropDownItems.Add(MenuItem("Ordenar por estado", (_, _) => SortQueue(QueueSortField.State)));
-        queue.DropDownItems.Add(MenuItem("Invertir el orden", (_, _) => SortQueue(QueueSortField.Name, invert: true)));
-        queue.DropDownItems.Add(new ToolStripSeparator());
-        queue.DropDownItems.Add(MenuItem("Expandir todo", (_, _) => ExpandAll(true)));
-        queue.DropDownItems.Add(MenuItem("Contraer todo", (_, _) => ExpandAll(false)));
+        // Un solo submenú «Ordenar» en vez de ocho líneas sueltas: así el menú Cola queda
+        // corto y ordenado, como el menú contextual de TeraCopy.
+        var sortMenu = SubMenu("Ordenar");
+        sortMenu.DropDownItems.Add(MenuItem("Nombre (A → Z)", (_, _) => SortQueue(QueueSortField.Name)));
+        sortMenu.DropDownItems.Add(MenuItem("Nombre (Z → A)", (_, _) => SortQueue(QueueSortField.Name, invert: true)));
+        sortMenu.DropDownItems.Add(new ToolStripSeparator());
+        sortMenu.DropDownItems.Add(MenuItem("Tamaño, dentro de cada carpeta", (_, _) => SortQueue(QueueSortField.Size)));
+        sortMenu.DropDownItems.Add(MenuItem("Tamaño total de la carpeta", (_, _) => SortQueue(QueueSortField.FolderSize, invert: true)));
+        sortMenu.DropDownItems.Add(MenuItem("TODOS los archivos por tamaño (menor → mayor)", (_, _) => SortAllFilesBySize(false)));
+        sortMenu.DropDownItems.Add(MenuItem("TODOS los archivos por tamaño (mayor → menor)", (_, _) => SortAllFilesBySize(true)));
+        sortMenu.DropDownItems.Add(new ToolStripSeparator());
+        sortMenu.DropDownItems.Add(MenuItem("Tipo de archivo", (_, _) => SortQueue(QueueSortField.Type)));
+        sortMenu.DropDownItems.Add(MenuItem("Carpeta de destino", (_, _) => SortQueue(QueueSortField.Destination)));
+        sortMenu.DropDownItems.Add(MenuItem("Carpeta de origen", (_, _) => SortQueue(QueueSortField.Source)));
+        sortMenu.DropDownItems.Add(MenuItem("Estado", (_, _) => SortQueue(QueueSortField.State)));
+        queue.DropDownItems.Add(sortMenu);
+
+        var viewMenu = SubMenu("Ver lista");
+        viewMenu.DropDownItems.Add(MenuItem("Expandir todo", (_, _) => ExpandAll(true)));
+        viewMenu.DropDownItems.Add(MenuItem("Contraer todo", (_, _) => ExpandAll(false)));
+        viewMenu.DropDownItems.Add(new ToolStripSeparator());
+        viewMenu.DropDownItems.Add(MenuItem("Ocultar o mostrar la lista de copia", (_, _) => ToggleCompactView()));
+        viewMenu.DropDownItems.Add(MenuItem("Mostrar u ocultar la columna de trabajos", (_, _) => ToggleJobsPanel()));
+        queue.DropDownItems.Add(viewMenu);
         queue.DropDownItems.Add(new ToolStripSeparator());
         queue.DropDownItems.Add(MenuItem("Quitar seleccionados", (_, _) => RemoveSelected()));
         queue.DropDownItems.Add(MenuItem("Limpiar la lista", (_, _) => ClearList()));
-        queue.DropDownItems.Add(new ToolStripSeparator());
-        queue.DropDownItems.Add(MenuItem("Ocultar o mostrar la lista de copia", (_, _) => ToggleCompactView()));
-        queue.DropDownItems.Add(MenuItem("Mostrar u ocultar la columna de trabajos", (_, _) => ToggleJobsPanel()));
 
         var tools = new ToolStripMenuItem("Herramientas");
         tools.DropDownItems.Add(MenuItem("Preferencias…", (_, _) => ShowOptions()));
@@ -345,6 +366,12 @@ public sealed partial class MainForm : Form
         menu.Items.AddRange(new ToolStripItem[] { file, transfer, queue, tools, help });
         return menu;
     }
+
+    /// <summary>Texto de cada opción del selector de modo de copia.</summary>
+    private static string ModeLabel(bool multi, int threads) =>
+        multi ? $"Multihilo · {threads} a la vez" : "Secuencial · 1 a la vez";
+
+    private static ToolStripMenuItem SubMenu(string text) => new(text);
 
     private static ToolStripMenuItem MenuItem(string text, EventHandler handler, Keys shortcut = Keys.None)
     {
@@ -376,17 +403,37 @@ public sealed partial class MainForm : Form
         _pauseButton = BarButton("Pausar", Icons.Pause, (_, _) => TogglePause());
         _skipButton = BarButton("Saltar", Icons.ChevronRight, (_, _) => SkipCurrent());
         _stopButton = BarButton("Detener", Icons.Stop, (_, _) => StopTransfer());
-        _copyMode = new ToolStripComboBox
+        // ComboBox normal dentro de un ToolStripControlHost: un ToolStripComboBox con
+        // AutoSize=false se recortaba y el texto quedaba cortado por arriba.
+        var modeCombo = new ComboBox
+        {
+            DropDownStyle = ComboBoxStyle.DropDownList,
+            FlatStyle = FlatStyle.Flat,
+            Font = new Font("Segoe UI", 8.75f),
+            BackColor = _palette.Raised,
+            ForeColor = _palette.Text,
+            Width = 168,
+            Height = 26,
+            IntegralHeight = false,
+            MaxDropDownItems = 8
+        };
+        // Se listan los hilos concretos, no un simple «Multihilo»: así se ajusta el número
+        // (2, 4, 8…) sin abrir Preferencias, como en TeraCopy.
+        modeCombo.Items.Add(ModeLabel(false, 1));
+        foreach (var threads in new[] { 2, 4, 6, 8, 12, 16 })
+            modeCombo.Items.Add(ModeLabel(true, threads));
+        modeCombo.SelectedIndex = _settings.MultiThreadCopy
+            ? Math.Max(0, modeCombo.Items.IndexOf(ModeLabel(true, _settings.Parallelism)))
+            : 0;
+        modeCombo.SelectedIndexChanged += (_, _) => ChangeCopyMode();
+        var modeHost = new ToolStripControlHost(modeCombo)
         {
             AutoSize = false,
-            Width = 116,
-            DropDownStyle = ComboBoxStyle.DropDownList,
-            Font = new Font("Segoe UI", 8.5f),
-            ToolTipText = "Modo de copia: secuencial o varios archivos en paralelo"
+            Margin = new Padding(12, 3, 10, 0),
+            Size = new Size(168, 26),
+            ToolTipText = "Modo de copia: secuencial (un archivo a la vez) o multihilo con N archivos en paralelo"
         };
-        _copyMode.Items.AddRange(new object[] { "Secuencial", "Multihilo" });
-        _copyMode.SelectedIndex = _settings.MultiThreadCopy ? 1 : 0;
-        _copyMode.SelectedIndexChanged += (_, _) => ChangeCopyMode();
+        _copyMode = modeCombo;
         _compactButton = BarButton("Ocultar", Icons.ChevronRight, (_, _) => ToggleCompactView());
         _compactButton.Margin = new Padding(2, 0, 4, 0);
         _compactButton.ToolTipText = "Ocultar la lista y dejar visibles los controles y el progreso";
@@ -395,16 +442,30 @@ public sealed partial class MainForm : Form
         _menuButton = BarButton("Menú", Icons.More, (_, _) => ShowMainMenu(), false, true);
         _menuButton.Margin = new Padding(0);
 
-        _listSelector = new ToolStripComboBox
+        // Igual que el modo: ComboBox normal para que el texto no se recorte.
+        _listSelector = new ComboBox
         {
             DropDownStyle = ComboBoxStyle.DropDownList,
-            Width = 220,
-            ToolTipText = "Lista de copia activa. Cada instancia externa se agrega como una lista independiente en esta misma pestaña."
+            FlatStyle = FlatStyle.Flat,
+            Font = new Font("Segoe UI", 8.75f),
+            BackColor = _palette.Raised,
+            ForeColor = _palette.Text,
+            Width = 176,
+            Height = 26,
+            IntegralHeight = false
         };
-        _listSelector.ComboBox.DisplayMember = nameof(TransferList.DisplayName);
+        _listSelector.DisplayMember = nameof(TransferList.DisplayName);
         _listSelector.SelectedIndexChanged += (_, _) =>
         {
+            if (_refreshingSelector) return;
             if (_listSelector.SelectedItem is TransferList list) SwitchToList(list);
+        };
+        var listHost = new ToolStripControlHost(_listSelector)
+        {
+            AutoSize = false,
+            Margin = new Padding(2, 3, 4, 0),
+            Size = new Size(176, 26),
+            ToolTipText = "Lista de copia activa. Cada instancia externa se agrega como una lista independiente en esta misma pestaña."
         };
 
         _newListButton = BarButton("Nueva lista", Icons.Add, (_, _) =>
@@ -459,10 +520,10 @@ public sealed partial class MainForm : Form
         };
         right.Items.AddRange(new ToolStripItem[]
         {
-            new ToolStripLabel("Modo:"), _copyMode,
+            new ToolStripLabel("Modo:"), modeHost,
             new ToolStripControlHost(_verifyCheck) { Margin = new Padding(2, 2, 4, 0), AutoSize = true },
             new ToolStripLabel("  Lista:"),
-            _listSelector, _newListButton, _deleteListButton,
+            listHost, _newListButton, _deleteListButton,
             _removeFromListButton,
             _compactButton, _optionsButton, _menuButton
         });
@@ -481,7 +542,8 @@ public sealed partial class MainForm : Form
     {
         var foreground = accent ? Color.White : _palette.Text;
         var font = new Font("Segoe UI", 8.75f, FontStyle.Bold);
-        var width = iconOnly ? 40 : TextRenderer.MeasureText(text, font).Width + 44;
+        // Más holgura: con +44 el texto quedaba pegado al borde y «Verificar» se recortaba.
+        var width = iconOnly ? 40 : TextRenderer.MeasureText(text, font).Width + 58;
         var button = new ToolStripButton(text)
         {
             Image = Icons.Glyph(glyph, foreground, 18),
@@ -494,7 +556,7 @@ public sealed partial class MainForm : Form
             AutoSize = false,
             Size = new Size(width, 36),
             Margin = new Padding(0, 0, 3, 0),
-            Padding = new Padding(6, 0, 6, 0),
+            Padding = new Padding(8, 0, 8, 0),
             TextAlign = ContentAlignment.MiddleCenter,
             AccessibleName = text,
             ToolTipText = TooltipFor(text)
@@ -509,7 +571,7 @@ public sealed partial class MainForm : Form
         "Carpeta" => "Añadir una carpeta completa (Ctrl+Mayús+O)",
         "Copiar" => "Copiar los elementos seleccionados (F5)",
         "Mover" => "Mover los elementos seleccionados (Ctrl+F5)",
-        "Test" => "Comprobar la copia comparando hashes (F6)",
+        "Verificar" => "Comprobar la copia comparando hashes (F6)",
         "Eliminar" => "Eliminar los archivos del disco (no es lo mismo que quitarlos de la lista)",
         "Saltar" => "Saltar el archivo que se está copiando",
         _ => text
@@ -519,7 +581,8 @@ public sealed partial class MainForm : Form
     {
         // Destination is an internal target selected from the active Explorer window
         // or the Destino tab; keep it out of the always-visible toolbar.
-        _destination = new TextBox { Text = _settings.Destination };
+        // Arranca vacío: el destino no se prefija nunca al abrir el programa.
+        _destination = new TextBox { Text = string.Empty };
         _destination.TextChanged += (_, _) =>
         {
             if (_activeList is not null) _activeList.Destination = _destination.Text.Trim();
@@ -693,52 +756,56 @@ public sealed partial class MainForm : Form
 
     private Control BuildTransferHeader()
     {
+        // Estilo TeraCopy: dos bloques (origen y destino) apilados. Cada uno lleva a la
+        // izquierda la etiqueta en forma de píldora, después la ruta completa, luego las
+        // métricas y el porcentaje a la derecha, y debajo una barra de progreso a lo ancho.
         var host = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 2,
+            RowCount = 4,
             BackColor = _palette.Surface,
-            Padding = new Padding(12, 4, 12, 2),
-            Margin = new Padding(0)
+            Padding = new Padding(10, 5, 10, 3),
+            Margin = new Padding(0, 0, 0, 0)
         };
         _transferHeader = host;
-        host.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
-        host.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
+        host.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));
+        host.RowStyles.Add(new RowStyle(SizeType.Absolute, 7));
+        host.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));
+        host.RowStyles.Add(new RowStyle(SizeType.Absolute, 7));
 
-        host.Controls.Add(BuildHeaderRow("Copiando", out _hdrCopyState, out _hdrCopyPath, out _hdrCopyInfo, out _hdrCopyBar, out _hdrCopyPercent), 0, 0);
-        host.Controls.Add(BuildHeaderRow("Destino", out _hdrTargetState, out _hdrTargetPath, out _hdrTargetInfo, out _hdrTargetBar, out _hdrTargetPercent), 0, 1);
+        host.Controls.Add(BuildHeaderLine("Copiando", out _hdrCopyState, out _hdrCopyPath, out _hdrCopyInfo, out _hdrCopyPercent), 0, 0);
+        host.Controls.Add(BuildHeaderBar(out _hdrCopyBar), 0, 1);
+        host.Controls.Add(BuildHeaderLine("Destino", out _hdrTargetState, out _hdrTargetPath, out _hdrTargetInfo, out _hdrTargetPercent), 0, 2);
+        host.Controls.Add(BuildHeaderBar(out _hdrTargetBar), 0, 3);
         return host;
     }
 
-    private TableLayoutPanel BuildHeaderRow(string title, out Label state, out Label path, out Label info,
-        out ProgressStrip bar, out Label percent)
+    private Control BuildHeaderBar(out ProgressStrip bar)
+    {
+        var host = new Panel { Dock = DockStyle.Fill, BackColor = _palette.Surface, Margin = new Padding(0, 0, 0, 4) };
+        bar = new ProgressStrip(_palette) { Dock = DockStyle.Fill, Height = 4 };
+        host.Controls.Add(bar);
+        return host;
+    }
+
+    private TableLayoutPanel BuildHeaderLine(string title, out PillLabel state, out Label path, out Label info, out Label percent)
     {
         var row = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            ColumnCount = 5,
+            ColumnCount = 4,
             RowCount = 1,
             BackColor = _palette.Surface,
             Margin = new Padding(0)
         };
-        row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 92));
+        row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 84));
         row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 250));
-        row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 240));
-        row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 64));
+        row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 214));
+        row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 56));
 
-        state = new Label
-        {
-            Text = title,
-            AutoSize = false,
-            Dock = DockStyle.Fill,
-            TextAlign = ContentAlignment.MiddleCenter,
-            ForeColor = _palette.Text,
-            BackColor = _palette.SurfaceAlt,
-            Font = new Font("Segoe UI", 8.5f, FontStyle.Bold),
-            Margin = new Padding(0, 3, 8, 3)
-        };
+        // Píldora redondeada con el estado, como en TeraCopy.
+        state = new PillLabel(title, _palette) { Dock = DockStyle.Fill, Margin = new Padding(0, 2, 8, 2) };
         path = new Label
         {
             Text = "—",
@@ -748,7 +815,8 @@ public sealed partial class MainForm : Form
             ForeColor = _palette.Text,
             Font = new Font("Segoe UI", 8.75f),
             AutoEllipsis = true,
-            Margin = new Padding(0, 3, 10, 3)
+            UseMnemonic = false,
+            Margin = new Padding(0, 0, 10, 0)
         };
         info = new Label
         {
@@ -759,9 +827,9 @@ public sealed partial class MainForm : Form
             ForeColor = _palette.Muted,
             Font = new Font("Segoe UI", 8.25f),
             AutoEllipsis = true,
-            Margin = new Padding(0, 3, 10, 3)
+            UseMnemonic = false,
+            Margin = new Padding(0, 0, 8, 0)
         };
-        bar = new ProgressStrip(_palette) { Dock = DockStyle.Fill, Height = 10, Margin = new Padding(0, 10, 10, 10) };
         percent = new Label
         {
             Text = "—",
@@ -770,16 +838,17 @@ public sealed partial class MainForm : Form
             TextAlign = ContentAlignment.MiddleRight,
             ForeColor = _palette.Text,
             Font = new Font("Segoe UI", 9f, FontStyle.Bold),
-            Margin = new Padding(0, 3, 0, 3)
+            UseMnemonic = false,
+            Margin = new Padding(0)
         };
 
         row.Controls.Add(state, 0, 0);
         row.Controls.Add(path, 1, 0);
         row.Controls.Add(info, 2, 0);
-        row.Controls.Add(bar, 3, 0);
-        row.Controls.Add(percent, 4, 0);
+        row.Controls.Add(percent, 3, 0);
         return row;
     }
+
 
     private void ShowSortMenu(Control anchor)
     {
@@ -796,6 +865,8 @@ public sealed partial class MainForm : Form
         Add("Tamaño (menor → mayor)", () => SortQueue(QueueSortField.Size));
         Add("Tamaño (mayor → menor)", () => SortQueue(QueueSortField.Size, invert: true));
         Add("Tamaño de carpeta, por el total de su contenido", () => SortQueue(QueueSortField.FolderSize, invert: true));
+        Add("Tamaño de TODOS los archivos (menor → mayor)", () => SortAllFilesBySize(false));
+        Add("Tamaño de TODOS los archivos (mayor → menor)", () => SortAllFilesBySize(true));
         Add("Tipo de archivo (A → Z)", () => SortQueue(QueueSortField.Type));
         Add("Carpeta de destino (A → Z)", () => SortQueue(QueueSortField.Destination));
         Add("Carpeta de destino (Z → A)", () => SortQueue(QueueSortField.Destination, invert: true));
@@ -938,7 +1009,9 @@ public sealed partial class MainForm : Form
             BackColor = _palette.SurfaceAlt,
             Padding = new Padding(0, 2, 4, 0)
         };
-        _sortButton = Ui.IconButton("\u21C5", _palette, "Ordenar la cola por nombre, tamaño, tipo o carpeta de destino");
+        // Icono nativo de «Segoe MDL2 Assets»: U+21C5 no existe en esa fuente y salía
+        // rasterizado como un amasijo de puntos.
+        _sortButton = Ui.IconButton(Icons.SortAsc, _palette, "Ordenar la cola por nombre, tamaño, tipo o carpeta de destino");
         _sortButton.Click += (_, _) => ShowSortMenu(_sortButton);
 
         _collapseButton = Ui.IconButton("\u00AB", _palette, "Mostrar u ocultar la columna de trabajos");
@@ -981,6 +1054,23 @@ public sealed partial class MainForm : Form
         _list.Columns.Add("Progreso", 190);
         _list.Columns.Add("Hash origen", 0);
         _list.Columns.Add("Hash destino", 0);
+
+        // La esquina entre las dos barras de desplazamiento nativas se pinta con el color del
+        // sistema (blanco) y SetWindowTheme no la toca: se repinta con el fondo oscuro.
+        _list.Paint += (_, e) =>
+        {
+            var size = SystemInformation.VerticalScrollBarWidth;
+            var right = _list.ClientSize.Width - size;
+            if (right <= 0) return;
+            using var brush = new SolidBrush(_palette.Surface);
+            e.Graphics.FillRectangle(brush, new Rectangle(right, 0, size, _list.ClientSize.Height));
+        };
+
+        // El ListView nativo pinta su barra de desplazamiento vertical con el color del sistema
+        // y el tema oscuro de Windows no la colorea; SetWindowTheme la ignora. Se cubre con un
+        // panel del color del fondo, colocado sobre el borde derecho de la lista.
+        _scrollCover = new Panel { BackColor = _palette.Surface, Visible = false };
+        Controls.Add(_scrollCover);
 
         _list.DrawColumnHeader += ListDrawColumnHeader;
         _list.DrawItem += (_, e) => { if (_list.View != View.Details) e.DrawDefault = true; };
@@ -1033,18 +1123,26 @@ public sealed partial class MainForm : Form
         _listMenu.Items.Add(new ToolStripSeparator());
         _listMenu.Items.Add("Copiar…", null, (_, _) => StartTransfer(OperationType.Copy));
         _listMenu.Items.Add("Mover…", null, (_, _) => StartTransfer(OperationType.Move));
-        _listMenu.Items.Add("Test (verificar)", null, (_, _) => StartTransfer(OperationType.Test));
+        _listMenu.Items.Add("Verificar", null, (_, _) => StartTransfer(OperationType.Test));
         _listMenu.Items.Add("Eliminar del disco…", null, (_, _) => StartTransfer(OperationType.Delete));
         _listMenu.Items.Add(new ToolStripSeparator());
         _listMenu.Items.Add("Expandir / contraer", null, (_, _) => ToggleSelectedFolders());
         _listMenu.Items.Add("Subir", null, (_, _) => MoveSelected(-1));
         _listMenu.Items.Add("Bajar", null, (_, _) => MoveSelected(1));
+
+        // «Enviar a»: cambio de carpeta de destino de lo seleccionado, igual que en TeraCopy.
+        var sendTo = new ToolStripMenuItem("Enviar a");
+        sendTo.Name = "send-to";
+        sendTo.DropDownItems.Add("Elegir destino…", null, (_, _) => SendSelectionTo(null));
+        sendTo.DropDownItems.Add(new ToolStripSeparator());
+        _listMenu.Items.Add(sendTo);
+        _listMenu.Items.Add("Cambiar el destino de la lista…", null, (_, _) => BrowseDestination());
         _listMenu.Items.Add(new ToolStripSeparator());
         var pauseItem = new ToolStripMenuItem("Pausar archivo seleccionado");
         pauseItem.Click += (_, _) => ToggleSelectedFilePause();
         pauseItem.Name = "pause-single-file";
         _listMenu.Items.Add(pauseItem);
-        _listMenu.Opening += (_, _) => UpdateListMenuState();
+        _listMenu.Opening += (_, _) => { RefreshSendToMenu(); UpdateListMenuState(); };
         _listMenu.Items.Add(new ToolStripSeparator());
         _listMenu.Items.Add("Quitar de la lista (Supr)", null, (_, _) => RemoveSelected());
         _listMenu.Items.Add("Reintentar los fallidos", null, (_, _) => RetryFailed());
@@ -1097,6 +1195,21 @@ public sealed partial class MainForm : Form
             }
             catch { }
         }
+
+        // La lista y el cuadro de registro son controles nativos: sus barras de desplazamiento
+        // no heredan el tema y dejaban una esquina blanca. Se aplica también a cada hijo nativo.
+        foreach (var parent in new Control?[] { _list, _logBox })
+        {
+            if (parent is null || !parent.IsHandleCreated) continue;
+            foreach (Control child in parent.Controls)
+            {
+                try
+                {
+                    if (child.IsHandleCreated) SetWindowTheme(child.Handle, "DarkMode_Explorer", null);
+                }
+                catch { }
+            }
+        }
     }
 
     /// <summary>Selecciona una pestaña (0 Lista, 1 Destino, 2 Opciones, 3 Estado, 4 Registro).</summary>
@@ -1135,8 +1248,11 @@ public sealed partial class MainForm : Form
     private void ApplyWindowGeometry()
     {
         var workingArea = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1920, 1080);
-        var width = _settings.WindowWidth >= MinimumSize.Width ? _settings.WindowWidth : 1200;
-        var height = _compactView ? MinimumSize.Height : _settings.WindowHeight >= MinimumSize.Height ? _settings.WindowHeight : 740;
+        var width = _settings.WindowWidth >= MinimumSize.Width ? Math.Min(_settings.WindowWidth, 1080) : 940;
+        // En vista compacta el alto mínimo es 210 px (lista oculta), pero la ventana debe
+        // abrirse con el alto normal: si se usaba MinimumSize.Height, la ventana arrancaba
+        // recortada y con la barra de botones y la lista cortadas por abajo.
+        var height = _settings.WindowHeight >= 480 ? Math.Min(_settings.WindowHeight, 660) : 600;
         if (!_startupRequest.Screenshot)
         {
             width = Math.Min(width, workingArea.Width - 20);
@@ -1151,6 +1267,234 @@ public sealed partial class MainForm : Form
         StartPosition = FormStartPosition.Manual;
         Bounds = new Rectangle(x, y, width, height);
         if (_settings.WindowMaximized) WindowState = FormWindowState.Maximized;
+    }
+
+    /// <summary>
+    /// Genera un PNG con el aspecto real de la ventana y cierra la aplicación. Se usa desde
+    /// el workflow «UI preview» para revisar la interfaz en Windows sin tocar el equipo.
+    /// </summary>
+    /// <summary>
+    /// Comprueba el reordenamiento de la cola sin intervención humana: añade tres archivos
+    /// de tamaños distintos, los mueve, ordena por tamaño y los quita. Deja el resultado en
+    /// el archivo indicado y devuelve true si todo fue bien.
+    /// </summary>
+    private bool RunQueueSelfTest(string reportPath)
+    {
+        var report = new List<string>();
+        var ok = true;
+        var folder = Path.Combine(Path.GetTempPath(), "xopy-colatest");
+        try
+        {
+            Directory.CreateDirectory(folder);
+            for (var i = 1; i <= 3; i++)
+                File.WriteAllBytes(Path.Combine(folder, $"archivo{i}.bin"), new byte[i * 1024]);
+
+            EnsureDefaultList();
+            _settings.Destination = Path.Combine(folder, "destino");
+            Directory.CreateDirectory(_settings.Destination);
+            _destination.Text = _settings.Destination;
+
+            var paths = Enumerable.Range(1, 3).Select(i => Path.Combine(folder, $"archivo{i}.bin")).ToList();
+            AddPathsAsync(paths, askDestination: false).GetAwaiter().GetResult();
+
+            var initial = _items.Where(item => item.Kind == ItemKind.File).Select(item => item.Name).ToList();
+            report.Add("inicial=" + string.Join(",", initial));
+            if (initial.Count != 3) { report.Add("error=se esperaban 3 archivos"); ok = false; }
+
+            _list.SelectedItems.Clear();
+            var firstItem = _items.FirstOrDefault(item => item.Kind == ItemKind.File);
+            if (firstItem is not null && _rows.TryGetValue(firstItem.Id, out var firstRow)) firstRow.Selected = true;
+            MoveSelected(1);
+            var listOrder = _list.Items.Cast<ListViewItem>()
+                .Select(row => (row.Tag as TransferItem)?.Name ?? "?").ToList();
+            report.Add("lista_tras_mover=" + string.Join(",", listOrder));
+            report.Add("visual_tras_mover=" + string.Join(",", _visualOrder.Select(id => _items.First(i => i.Id == id).Name)));
+            // Lo que importa es el orden VISUAL (lo que copia la cola), no _items.
+            var afterMove = _list.Items.Cast<ListViewItem>()
+                .Select(row => (row.Tag as TransferItem)?.Name ?? "?")
+                .Where(name => name.EndsWith(".bin", StringComparison.OrdinalIgnoreCase)).ToList();
+            report.Add("tras_mover=" + string.Join(",", afterMove));
+            if (afterMove.SequenceEqual(initial))
+            {
+                report.Add("error=mover no cambio el orden | items=" + string.Join(",", _items.Select(i => i.Name))
+                    + " | visual=" + string.Join(",", _visualOrder.Select(id => _items.First(i => i.Id == id).Name)));
+                ok = false;
+            }
+
+            SortAllFilesBySize(invert: true);
+            var afterSort = _list.Items.Cast<ListViewItem>()
+                .Select(row => (row.Tag as TransferItem)?.Name ?? "?")
+                .Where(name => name.EndsWith(".bin", StringComparison.OrdinalIgnoreCase)).ToList();
+            report.Add("tras_ordenar=" + string.Join(",", afterSort));
+            // «Mayor → menor» debe dejar arriba el archivo más grande (archivo3).
+            if (afterSort.Count > 0 && afterSort[0] != "archivo3.bin")
+            { report.Add("error=el orden por tamano no puso primero al mayor"); ok = false; }
+
+            var before = _items.Count(item => item.Kind == ItemKind.File);
+            RemoveItems(_items.Where(item => item.Kind == ItemKind.File).ToList());
+            var after = _items.Count(item => item.Kind == ItemKind.File);
+            report.Add($"quitados={before - after}");
+            if (before - after != before) { report.Add("error=no se quitaron todos"); ok = false; }
+        }
+        catch (Exception ex)
+        {
+            report.Add("excepcion=" + ex.GetType().Name + ": " + ex.Message);
+            ok = false;
+        }
+
+        report.Add(ok ? "resultado=OK" : "resultado=FALLO");
+        try { File.WriteAllLines(reportPath, report); } catch { }
+        return ok;
+    }
+
+    /// <summary>Espera a que no haya transferencia en curso y guarda la captura.</summary>
+    private async Task WaitForEngineIdleAndCaptureAsync()
+    {
+        for (var waited = 0; waited < 60000 && _engine.IsRunning; waited += 250)
+            await Task.Delay(250);
+        // Un margen generoso para que la ventana esté totalmente pintada antes de fotografiar.
+        await Task.Delay(2000);
+        try { CaptureScreenshot(_startupRequest.ScreenshotPath); }
+        catch (Exception ex) { Program.Log("MF16. CaptureScreenshot FATAL: " + ex.Message); }
+    }
+
+    private void CaptureScreenshot(string? path)
+    {
+        var target = string.IsNullOrWhiteSpace(path)
+            ? Path.Combine(Path.GetTempPath(), "xopy.png")
+            : path!;
+        try { Directory.CreateDirectory(Path.GetDirectoryName(target) ?? "."); } catch { }
+
+        var mode = _startupRequest.ScreenshotMode;
+        try
+        {
+            // Traer la ventana al frente: si está detrás, CopyFromScreen captura otro programa.
+            Application.DoEvents();
+            Activate();
+            BringToFront();
+            SetForegroundWindow(Handle);
+            Update();
+            Application.DoEvents();
+
+            switch (mode)
+            {
+                case "tabs":
+                    // Una imagen por pestaña: tab-0.png, tab-1.png, …
+                    var stem = Path.Combine(Path.GetDirectoryName(target) ?? ".",
+                        Path.GetFileNameWithoutExtension(target));
+                    for (var index = 0; index < 5; index++)
+                    {
+                        SelectTab(index);
+                        Application.DoEvents();
+                        Update();
+                        SaveWindowPng($"{stem}-{index}.png");
+                    }
+                    break;
+
+                case "menus":
+                    // Ventana + desplegable principal y menú contextual de la lista.
+                    SaveWindowPng(target + "-menu.png");
+                    SaveControlPng(_listMenu, target + "-context.png");
+                    break;
+
+                case "options":
+                    CaptureDialogPng(() => new OptionsDialog(_settings, _palette), target);
+                    break;
+
+                case "conflict":
+                    CaptureDialogPng(() => new PromptDialog(_palette, "Archivo ya existente",
+                        "El archivo «informe.pdf» ya existe en la carpeta de destino. ¿Qué quieres hacer?",
+                        "Puedes aplicar la decisión a todos los archivos de esta transferencia.",
+                        new[] { "Sobrescribir", "Omitir", "Cambiar nombre", "Cancelar" }, null), target);
+                    break;
+
+                case "history":
+                    CaptureDialogPng(() => new HistoryDialog(_history, _palette), target);
+                    break;
+
+                default:
+                    SaveWindowPng(target);
+                    break;
+            }
+            Program.Log("MF16. Capturas guardadas con modo " + mode);
+        }
+        catch (Exception ex)
+        {
+            try { File.WriteAllText(target + ".error.txt", ex.ToString()); } catch { }
+            Program.Log("MF16. No se pudo capturar: " + ex.Message);
+        }
+
+        // La imagen ya está escrita: quien llama decide cuándo cerrar (OnShown).
+        try { _timer.Stop(); } catch { }
+    }
+
+    private void SaveWindowPng(string target)
+    {
+        // Se fuerza un repintado completo: al arrancar, la ventana aún no había pintado la
+        // barra ni la lista y la captura salía recortada por abajo.
+        // Ajuste final de columnas: si la ventana se redimensionó al abrirse, el reparto
+        // podía quedarse atrás y el ListView mostraba su barra de desplazamiento horizontal
+        // (una línea blanca) al pie de la lista. Se reparten y se deja repintar.
+        Application.DoEvents();
+        ResizeColumns();
+        Application.DoEvents();
+        Thread.Sleep(150);
+        ResizeColumns();
+        Refresh();
+        foreach (Control child in Controls) child.Refresh();
+        // Varios ciclos de mensajes: la ventana acaba de crearse y Windows todavía está
+        // enviando WM_PAINT; con una sola pasada la captura salía a medio pintar.
+        for (var pass = 0; pass < 12; pass++)
+        {
+            // Se reaplica el reparto en cada ciclo: al asentarse el layout la lista podía
+            // recuperar su alto completo y aparecer la barra de desplazamiento blanca.
+            ResizeColumns();
+            Application.DoEvents();
+            Thread.Sleep(80);
+        }
+        Update();
+
+        using var bitmap = new Bitmap(Math.Max(1, Width), Math.Max(1, Height));
+        using (var graphics = Graphics.FromImage(bitmap)) graphics.CopyFromScreen(Location, Point.Empty, Size);
+        bitmap.Save(target, System.Drawing.Imaging.ImageFormat.Png);
+    }
+
+    private static void SaveControlPng(Control? control, string target)
+    {
+        if (control is null) return;
+        using var bitmap = new Bitmap(Math.Max(1, control.Width), Math.Max(1, control.Height));
+        control.DrawToBitmap(bitmap, new Rectangle(0, 0, control.Width, control.Height));
+        bitmap.Save(target, System.Drawing.Imaging.ImageFormat.Png);
+    }
+
+    private void CaptureDialogPng(Func<Form> factory, string target)
+    {
+        using var dialog = factory();
+        dialog.StartPosition = FormStartPosition.Manual;
+        dialog.Location = new Point(Location.X + 40, Location.Y + 40);
+        dialog.Show(this);
+        // El diálogo se dibuja con el tema oscuro, pero tarda varios ciclos de mensajes en
+        // pintarse: sin esta espera la captura salía en blanco y a medio construir.
+        dialog.Activate();
+        for (var pass = 0; pass < 14; pass++)
+        {
+            Application.DoEvents();
+            dialog.Update();
+            Thread.Sleep(70);
+        }
+        try
+        {
+            // Se captura también el borde y la sombra del formulario (Bounds, no Size).
+            var area = dialog.Bounds;
+            using var bitmap = new Bitmap(Math.Max(1, area.Width), Math.Max(1, area.Height));
+            using (var graphics = Graphics.FromImage(bitmap))
+                graphics.CopyFromScreen(area.Location, Point.Empty, area.Size);
+            bitmap.Save(target, System.Drawing.Imaging.ImageFormat.Png);
+        }
+        finally
+        {
+            dialog.Close();
+        }
     }
 
     private void SaveWindowGeometry()
@@ -1173,12 +1517,45 @@ public sealed partial class MainForm : Form
 
     private void LoadSettingsIntoUi()
     {
-        _destination.Text = _settings.Destination;
+        _loadingUi = true;
+        try
+        {
+        // El destino NUNCA se rellena solo: el usuario lo elige al añadir o al copiar.
+        // (Antes se pintaba el último destino guardado y por eso aparecía «Descargas».)
+        if (_activeList is not null && string.IsNullOrWhiteSpace(_activeList.Destination))
+            _destination.Text = string.Empty;
+        else
+            _destination.Text = _settings.Destination;
+
+        // Opciones de la pantalla de Preferencias (estilo TeraCopy).
+        // «Siempre visible» se aplica en el acto.
+        try { TopMost = _settings.AlwaysOnTop; } catch { }
+
+        // El selector de modo refleja lo guardado en Preferencias sin volver a guardar.
+        if (_copyMode is not null)
+        {
+            var index = 0;
+            if (_settings.MultiThreadCopy)
+            {
+                index = _settings.Parallelism switch
+                {
+                    <= 2 => 1, <= 4 => 2, <= 6 => 3, <= 8 => 4, <= 12 => 5, _ => 6
+                };
+                _copyMode.Items[index] = ModeLabel(true, _settings.Parallelism);
+            }
+            if (_copyMode.SelectedIndex != index) _copyMode.SelectedIndex = index;
+        }
+
         _verifyCheck.Checked = _settings.VerifyAfterCopy;
         _verifyCheck.Text = _settings.VerifyAfterCopy
             ? $"Verificar ({Format.Algorithm(_settings.Verify)})"
             : "Verificar";
         SyncQuickOptions();
+        }
+        finally
+        {
+            _loadingUi = false;
+        }
     }
 
     private void AddFavorite()
@@ -1326,7 +1703,16 @@ public sealed partial class MainForm : Form
 
     private void BuildTray()
     {
-        _baseIcon = Icons.AppIcon();
+        // Idempotente: si ya está construida (EnsureTrayIcon puede llamarla otra vez)
+        // no se duplican elementos de menú ni manejadores de eventos.
+        if (_trayBuilt)
+        {
+            _tray.Visible = true;
+            return;
+        }
+        _trayBuilt = true;
+
+        _baseIcon ??= Icons.AppIcon();
         _tray.Icon = _baseIcon;
         _tray.Text = "XoPy";
         _tray.Visible = true;
@@ -1353,7 +1739,7 @@ public sealed partial class MainForm : Form
 
     // ---------------------------------------------------------------- arranque externo
 
-    protected override void OnShown(EventArgs e)
+    protected override async void OnShown(EventArgs e)
     {
         if (_shown) return;
         _shown = true;
@@ -1451,6 +1837,29 @@ public sealed partial class MainForm : Form
             Program.Log("MF15. InstallShellHookIfNeeded start");
             try { InstallShellHookIfNeeded(); Program.Log("MF15. InstallShellHookIfNeeded done"); }
             catch (Exception ex) { Program.Log("MF15. InstallShellHookIfNeeded FATAL: " + ex.GetType().FullName + " - " + ex.Message); }
+
+            // Prueba automática de la cola: reordenar, ordenar por tamaño y quitar.
+            if (_startupRequest.SelfTestQueue)
+            {
+                var reportPath = _startupRequest.ScreenshotPath
+                    ?? Path.Combine(Path.GetTempPath(), "cola.txt");
+                var ok = RunQueueSelfTest(reportPath);
+                Environment.Exit(ok ? 0 : 1);
+                return;
+            }
+
+            // Modo captura (solo CI): guarda la ventana como PNG y cierra. Se hace al final
+            // del arranque para que la imagen muestre la interfaz ya completa.
+            if (_startupRequest.Screenshot)
+            {
+                // Si además se pidió una transferencia (--test/--copy), la captura debe
+                // esperar a que termine; si no, el PNG sale a medias.
+                Program.Log("MF16. CaptureScreenshot start");
+                await WaitForEngineIdleAndCaptureAsync();
+                Program.Log("MF16. CaptureScreenshot end");
+                // Proceso de un solo uso: se termina sin pasar por el flujo de la bandeja.
+                Environment.Exit(0);
+            }
         }
         catch (Exception ex)
         {
@@ -1466,6 +1875,28 @@ public sealed partial class MainForm : Form
 
         _uiReady = true;
         Program.Log("MF-OnShown end (UI lista)");
+
+        // Petición recibida al arrancar (--copy/--move/--to, archivos del Explorador…).
+        // Sin esto, abrir XoPy con archivos solo mostraba la ventana vacía.
+        if (_startupRequest.Paths.Count > 0 || _startupRequest.PasteFromClipboard ||
+            !string.IsNullOrWhiteSpace(_startupRequest.Destination))
+        {
+            Program.Log("MF-OnShown HandleExternalAsync(startup) start");
+            // Primero se aplican destinos, política de conflicto y motor; después se arranca
+            // la transferencia desde el llamador, cuando todo está ya fijado.
+            try
+            {
+                await ApplyStartupRequestSettingsAsync();
+                if (_startupRequest.Paths.Count > 0 && _startupRequest.Operation is { } startupOperation
+                    && !_startupRequest.Screenshot && !_engine.IsRunning)
+                {
+                    Program.Log("MF-OnShown start transfer " + startupOperation);
+                    StartTransfer(startupOperation);
+                }
+            }
+            catch (Exception ex) { Program.Log("MF-OnShown startup request FATAL: " + ex.Message); }
+        }
+
     }
 
     public void HandleExternalRequest(StartupRequest request)
@@ -1507,21 +1938,19 @@ public sealed partial class MainForm : Form
         ScheduleRetry();
     }
 
-    private async Task HandleExternalAsync(StartupRequest request, bool isStartup)
+    /// <summary>
+    /// Aplica todo lo pedido por línea de comandos ANTES de iniciar ninguna copia:
+    /// destino principal, destinos adicionales (--to2), política de conflicto y motor.
+    /// </summary>
+    private async Task ApplyStartupRequestSettingsAsync()
     {
-        if (!isStartup) RestoreWindow();
-
-        if (!string.IsNullOrWhiteSpace(request.Destination) && _activeList is not null)
-            _activeList.Destination = request.Destination;
-
-        if (request.Paths.Count > 0)
-            await HandleExternalFiles(request.Paths, request.Destination, request.Operation == OperationType.Move);
-        else if (!string.IsNullOrWhiteSpace(request.Destination))
+        var request = _startupRequest;
+        if (!string.IsNullOrWhiteSpace(request.Destination))
         {
-            _destination.Text = request.Destination!;
-            UpdateTargetTab();
+            EnsureDefaultList();
+            if (_activeList is not null) _activeList.Destination = request.Destination!;
+            if (_destination is not null) _destination.Text = request.Destination!;
         }
-        if (request.PasteFromClipboard) PasteFromClipboard(request.Destination);
 
         if (request.Conflict is not null) _settings.Conflict = request.Conflict.Value;
         if (request.VerifyAlgorithm is not null) _settings.Verify = request.VerifyAlgorithm.Value;
@@ -1534,11 +1963,69 @@ public sealed partial class MainForm : Form
             _settings.WriteChecksumFile = true;
             if (_settings.Verify == VerifyAlgorithm.None) _settings.Verify = VerifyAlgorithm.Sha256;
         }
-        if (request.SecureDeletePasses is not null) _settings.SecureDeletePasses = Math.Clamp(request.SecureDeletePasses.Value, 0, 7);
-        if (!string.IsNullOrWhiteSpace(request.CompletionScript)) _settings.CompletionScript = request.CompletionScript!;
         foreach (var extra in request.ExtraDestinations.Where(Directory.Exists))
             if (!_settings.ExtraDestinations.Contains(extra, StringComparer.OrdinalIgnoreCase))
                 _settings.ExtraDestinations.Add(extra);
+        RefreshExtraDestinations();
+        FileLog.Write($"Arranque: destinos extra=[{string.Join(" | ", request.ExtraDestinations)}] " +
+                      $"guardados=[{string.Join(" | ", _settings.ExtraDestinations)}]");
+
+        // Con todo ya aplicado se añaden los archivos: el motor leerá --to2 al arrancar.
+        if (request.Paths.Count > 0)
+            await HandleExternalFiles(request.Paths, request.Destination, request.Operation == OperationType.Move);
+        if (request.PasteFromClipboard) PasteFromClipboard(request.Destination);
+    }
+
+    private async Task HandleExternalAsync(StartupRequest request, bool isStartup)
+    {
+        if (!isStartup) RestoreWindow();
+
+        // El destino pedido con --to se aplica a la lista y al cuadro de destino antes de
+        // añadir los archivos, para que la transferencia arranque sin preguntar nada.
+        if (!string.IsNullOrWhiteSpace(request.Destination))
+        {
+            EnsureDefaultList();
+            if (_activeList is not null) _activeList.Destination = request.Destination!;
+            if (_destination is not null) _destination.Text = request.Destination!;
+        }
+
+        // Las opciones de la línea de comandos (--overwrite, --skip, --algo…) se aplican
+        // ANTES de la transferencia: si no, se usaba la política guardada y no sobrescribía.
+        if (request.Conflict is not null) _settings.Conflict = request.Conflict.Value;
+        if (request.VerifyAlgorithm is not null) _settings.Verify = request.VerifyAlgorithm.Value;
+        if (request.VerifyAfterCopy) _settings.VerifyAfterCopy = true;
+        if (request.CopyLockedFiles) _settings.CopyLockedFiles = true;
+
+        if (request.Paths.Count > 0)
+            await HandleExternalFiles(request.Paths, request.Destination, request.Operation == OperationType.Move);
+        else if (!string.IsNullOrWhiteSpace(request.Destination))
+        {
+            _destination.Text = request.Destination!;
+            UpdateTargetTab();
+        }
+        if (request.PasteFromClipboard) PasteFromClipboard(request.Destination);
+
+        if (!request.ResumePartials) _settings.ResumePartials = false;
+        if (request.Engine is not null) _engineOverride = request.Engine.Value;
+        if (request.WriteChecksumFile)
+        {
+            _settings.WriteChecksumFile = true;
+            if (_settings.Verify == VerifyAlgorithm.None) _settings.Verify = VerifyAlgorithm.Sha256;
+        }
+        if (request.SecureDeletePasses is not null) _settings.SecureDeletePasses = Math.Clamp(request.SecureDeletePasses.Value, 0, 7);
+        if (!string.IsNullOrWhiteSpace(request.CompletionScript)) _settings.CompletionScript = request.CompletionScript!;
+        FileLog.Write($"Comando: destinos extra recibidos=[{string.Join(" | ", request.ExtraDestinations)}] " +
+                      $"existen=[{string.Join(" | ", request.ExtraDestinations.Where(Directory.Exists))}] " +
+                      $"guardados=[{string.Join(" | ", _settings.ExtraDestinations)}]");
+        foreach (var extra in request.ExtraDestinations.Where(Directory.Exists))
+            if (!_settings.ExtraDestinations.Contains(extra, StringComparer.OrdinalIgnoreCase))
+                _settings.ExtraDestinations.Add(extra);
+
+        // La transferencia pedida por línea de comandos arranca AHORA, cuando --to2, --algo,
+        // --overwrite y el motor ya están aplicados. Antes arrancaba dentro del bloque de
+        // rutas y por eso el segundo destino (--to2) nunca se copiaba.
+        if (!isStartup && request.Paths.Count > 0 && request.Operation is { } cliOperation && !_engine.IsRunning)
+            StartTransfer(cliOperation);
         RefreshExtraDestinations();
 
         var op = request.Operation;
@@ -1572,8 +2059,10 @@ public sealed partial class MainForm : Form
             var list = new TransferList
             {
                 Name = "Lista de copia",
-                // Sin destino prefijado: se pregunta al copiar o al pegar desde el Explorador.
-                Destination = string.IsNullOrWhiteSpace(_settings.Destination) ? string.Empty : _settings.Destination
+                // Nunca se hereda el último destino: cada lista empieza sin destino y se
+                // pregunta al añadir elementos. Antes se reutilizaba _settings.Destination y
+                // por eso la pantalla de elegir carpeta casi nunca aparecía.
+                Destination = string.Empty
             };
             _lists.Add(list);
             _activeList = list;
@@ -1868,50 +2357,41 @@ public sealed partial class MainForm : Form
         }
 
         SwitchToList(target);
-        if (changeDestination && !string.IsNullOrEmpty(resolvedDestination))
+        if (changeDestination && !string.IsNullOrEmpty(resolvedDestination) && target is not null)
         {
             target.Destination = resolvedDestination;
             _destination.Text = resolvedDestination;
             UpdateTargetTab();
         }
 
-        await AddPathsAsync(files);
+        // El destino ya lo eligió el Explorer/--to: no se vuelve a preguntar.
+        await AddPathsAsync(files, askDestination: false);
         if (!_engine.IsRunning)
             StartTransfer(move ? OperationType.Move : OperationType.Copy);
     }
 
     private void PromptDestinationAndStart(OperationType operation)
     {
-        // En lugar de abrir directamente el selector, se ofrece qué hacer con el destino.
+        // Siempre se abre el selector vacío: nunca se propone una carpeta guardada ni
+        // Descargas, que es el «destino prefijado» que el usuario no quiere.
         var verb = operation == OperationType.Move ? "mover" : "copiar";
-        var choice = PromptDialog.Ask(this, _palette,
-            "Falta la carpeta de destino",
-            $"¿A qué carpeta quieres {verb} los elementos?",
-            null,
-            new[] { "Elegir carpeta…", "Usar carpeta predeterminada", "Cancelar" });
-        if (choice == 2) return;
-        if (choice == 1)
+        using var dialog = new FolderBrowserDialog
         {
-            var downloads = AppSettings.DefaultDestination();
-            _destination.Text = downloads;
-            _settings.Destination = downloads;
-            _store.Save(_settings);
-            StartTransfer(operation);
-            return;
-        }
+            Description = $"¿A qué carpeta quieres {verb} los elementos?",
+            UseDescriptionForTitle = true,
+            ShowNewFolderButton = true,
+            SelectedPath = string.Empty
+        };
+        if (dialog.ShowDialog(this) != DialogResult.OK) return;
 
-        try
-        {
-            if (Directory.Exists(_destination.Text.Trim())) _pickDestination.SelectedPath = _destination.Text.Trim();
-        }
-        catch { }
-        _pickDestination.Description = operation == OperationType.Move
-            ? "¿A qué carpeta quieres mover los elementos?"
-            : "¿A qué carpeta quieres copiar los elementos?";
-        if (_pickDestination.ShowDialog(this) != DialogResult.OK) return;
-        _destination.Text = _pickDestination.SelectedPath;
-        _settings.Destination = _pickDestination.SelectedPath;
+        var path = dialog.SelectedPath?.Trim() ?? string.Empty;
+        if (path.Length == 0) return;
+        try { Directory.CreateDirectory(path); } catch { }
+
+        _destination.Text = path;
+        _settings.Destination = path;
         _store.Save(_settings);
+        UpdateTargetTab();
         StartTransfer(operation);
     }
 
@@ -1969,7 +2449,7 @@ public sealed partial class MainForm : Form
         _destination.Text = destination;
         _settings.Destination = destination;
         _store.Save(_settings);
-        _ = AddPathsAsync(files);
+        _ = AddPathsAsync(files, askDestination: false);
         var operation = ShellPasteHook.ClipboardIsCut() ? OperationType.Move : OperationType.Copy;
         StartTransfer(operation);
     }

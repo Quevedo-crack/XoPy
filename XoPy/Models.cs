@@ -175,10 +175,22 @@ public sealed class AppSettings
     public int WindowY { get; set; } = int.MinValue;
     public bool WindowMaximized { get; set; }
     public bool CollapseJobs { get; set; } = true;
-    public bool CompactView { get; set; } = true;
+    // Falso: la ventana abre con la lista de archivos visible, como TeraCopy. La vista
+    // compacta queda como opción («Ocultar»), no como estado inicial.
+    public bool CompactView { get; set; }
     public bool ReplaceWindowsCopier { get; set; } = true;
     public bool AskWhenBusy { get; set; } = true;
     public List<string> Favorites { get; set; } = new();
+
+    // Opciones con equivalente en TeraCopy (todas se aplican de forma conservadora).
+    public bool ConfirmDragDrop { get; set; }
+    public bool OnlyWhenScrollLockOff { get; set; }
+    public bool AlwaysOnTop { get; set; }
+    public bool CheckFreeSpace { get; set; } = true;
+    public bool UseSystemWriteCache { get; set; } = true;
+    public string FastDevices { get; set; } = string.Empty;
+    public string SlowDevices { get; set; } = string.Empty;
+    public string Language { get; set; } = "es";
 
     public static string DefaultDestination()
     {
@@ -209,6 +221,20 @@ public sealed class StartupRequest
     public bool NoShellHook { get; set; }
     public bool AskDestination { get; set; }
     public bool Screenshot { get; set; }
+    /// <summary>Ruta del PNG que se genera con --screenshot (solo para las capturas de CI).</summary>
+    public string? ScreenshotPath { get; set; }
+
+    /// <summary>
+    /// Qué captura pedir: window (por defecto), tabs, menus, options, conflict o history.
+    /// Lo usan los flujos de CI para revisar la interfaz en Windows.
+    /// </summary>
+    public string ScreenshotMode { get; set; } = "window";
+
+    /// <summary>Cerrar al terminar la transferencia pedida por línea de comandos (--exit).</summary>
+    public bool ExitWhenDone { get; set; }
+
+    /// <summary>Prueba automática de la cola (--self-test-queue); no abre la ventana.</summary>
+    public bool SelfTestQueue { get; set; }
     public ConflictPolicy? Conflict { get; set; }
     public VerifyAlgorithm? VerifyAlgorithm { get; set; }
     public bool VerifyAfterCopy { get; set; }
@@ -235,6 +261,12 @@ public sealed class StartupRequest
                 case "--paste": request.PasteFromClipboard = true; break;
                 case "--no-shell-hook": request.NoShellHook = true; break;
                 case "--tray": request.StartMinimized = true; break;
+                case "--exit": request.ExitWhenDone = true; break;
+                case "--self-test-queue":
+                    request.SelfTestQueue = true;
+                    if (i + 1 < args.Length && !args[i + 1].StartsWith("-", StringComparison.Ordinal))
+                        request.ScreenshotPath = Normalize(args[++i]);
+                    break;
                 case "--ask-destination": request.AskDestination = true; break;
                 case "--locked": request.CopyLockedFiles = true; break;
                 case "--no-resume": request.ResumePartials = false; break;
@@ -265,8 +297,23 @@ public sealed class StartupRequest
                 case "--screenshot-conflict":
                 case "--screenshot-tabs":
                 case "--screenshot-menus":
+                case "--screenshot-history":
+                    // El argumento siguiente es la ruta del PNG: se guarda para escribir ahí
+                    // y NO se trata como archivo que copiar.
                     request.Screenshot = true;
-                    i++;
+                    request.ScreenshotMode = arg switch
+                    {
+                        "--screenshot-tabs" => "tabs",
+                        "--screenshot-menus" => "menus",
+                        "--screenshot-options" => "options",
+                        "--screenshot-conflict" => "conflict",
+                        "--screenshot-history" => "history",
+                        _ => "window"
+                    };
+                    if (i + 1 < args.Length && !args[i + 1].StartsWith("-", StringComparison.Ordinal))
+                        request.ScreenshotPath = Normalize(args[++i]);
+                    else
+                        i++;
                     break;
                 case "--to":
                     if (i + 1 < args.Length) request.Destination = Normalize(args[++i]);

@@ -3,6 +3,7 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows.Forms;
 
@@ -24,7 +25,99 @@ public sealed partial class MainForm
 
     // ---------------------------------------------------------------- pestaña: lista
 
-    private Control BuildFilesPage() => BuildListShell();
+    private Control BuildFilesPage()
+    {
+        // Estilo TeraCopy 4: encima de la lista, un bloque de tres filas con la etiqueta en
+        // una cajita a la izquierda y el valor a la derecha. Es lo que hace que la ventana
+        // se reconozca al instante como TeraCopy, en lugar de solo una tabla suelta.
+        var page = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 2,
+            BackColor = _palette.Surface,
+            Padding = new Padding(0),
+            Margin = new Padding(0)
+        };
+        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 94));
+        page.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        page.Controls.Add(BuildMetaBlock(), 0, 0);
+        page.Controls.Add(BuildListShell(), 0, 1);
+        return page;
+    }
+
+    /// <summary>Bloque «Procesar archivos / Origen / Destino» con etiquetas en caja.</summary>
+    private Control BuildMetaBlock()
+    {
+        var block = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 3,
+            RowCount = 3,
+            BackColor = _palette.Surface,
+            Padding = new Padding(8, 5, 8, 3),
+            Margin = new Padding(0)
+        };
+        block.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 96));
+        block.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        block.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 96));
+        for (var i = 0; i < 3; i++) block.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
+
+        block.Controls.Add(MetaTag("Filtro"), 0, 0);
+        _metaFilter = MetaValue("Todos los archivos");
+        block.Controls.Add(_metaFilter, 1, 0);
+        _metaCount = MetaValue("0 / 0");
+        _metaCount.TextAlign = ContentAlignment.MiddleRight;
+        _metaCount.ForeColor = _palette.Muted;
+        block.Controls.Add(_metaCount, 2, 0);
+
+        block.Controls.Add(MetaTag("Origen"), 0, 1);
+        _metaOrigin = MetaValue("Sin origen");
+        block.Controls.Add(_metaOrigin, 1, 1);
+        _metaOriginSize = MetaValue("0 B");
+        _metaOriginSize.TextAlign = ContentAlignment.MiddleRight;
+        _metaOriginSize.ForeColor = _palette.Muted;
+        block.Controls.Add(_metaOriginSize, 2, 1);
+
+        block.Controls.Add(MetaTag("Destino"), 0, 2);
+        _metaDestination = MetaValue("Sin destino");
+        block.Controls.Add(_metaDestination, 1, 2);
+        _metaDestinationSize = MetaValue(string.Empty);
+        _metaDestinationSize.TextAlign = ContentAlignment.MiddleRight;
+        _metaDestinationSize.ForeColor = _palette.Muted;
+        block.Controls.Add(_metaDestinationSize, 2, 2);
+        return block;
+    }
+
+    /// <summary>Etiqueta pequeña en caja, como «Origen» o «Destino» de TeraCopy.</summary>
+    private Control MetaTag(string text)
+    {
+        var tag = new Label
+        {
+            Text = text,
+            AutoSize = false,
+            Dock = DockStyle.Fill,
+            TextAlign = ContentAlignment.MiddleCenter,
+            ForeColor = _palette.Muted,
+            BackColor = _palette.Raised,
+            Font = new Font("Segoe UI", 8f),
+            Margin = new Padding(0, 3, 8, 3)
+        };
+        return tag;
+    }
+
+    private Label MetaValue(string text) => new()
+    {
+        Text = text,
+        AutoSize = false,
+        Dock = DockStyle.Fill,
+        TextAlign = ContentAlignment.MiddleLeft,
+        ForeColor = _palette.Text,
+        Font = new Font("Segoe UI", 8.75f),
+        AutoEllipsis = true,
+        UseMnemonic = false,
+        Margin = new Padding(0, 3, 8, 3)
+    };
 
     // ---------------------------------------------------------------- pestaña: destino
 
@@ -731,6 +824,10 @@ public sealed partial class MainForm
             : _items.Any(item => item.State == ItemState.Failed) ? "Con errores" : "Preparado";
 
         _hdrCopyState.Text = stateText;
+        if (_hdrCopyState is PillLabel pillCopy)
+            pillCopy.Accent = _items.Any(item => item.State == ItemState.Failed) ? _palette.Danger
+                : running ? _palette.AccentSoft
+                : _palette.Raised;
         // Fila de arriba: el ORIGEN real que se está leyendo (ruta completa del archivo).
         var current = runningLeaf?.SourcePath;
         if (string.IsNullOrWhiteSpace(current) && !string.IsNullOrWhiteSpace(runningLeaf?.CurrentFile))
@@ -763,6 +860,8 @@ public sealed partial class MainForm
         _hdrCopyBar.FillColor = _items.Any(item => item.State == ItemState.Failed) && !running ? _palette.Warning : _palette.Accent;
 
         _hdrTargetState.Text = "Destino";
+        if (_hdrTargetState is PillLabel pillTarget)
+            pillTarget.Accent = running && !string.IsNullOrWhiteSpace(_destination.Text) ? _palette.AccentSoft : _palette.Raised;
         // Fila de en medio: la CARPETA REAL de destino del archivo en curso, no la raíz.
         var destination = string.IsNullOrWhiteSpace(_destination.Text)
             ? "Sin destino — se preguntará al copiar"
@@ -1293,15 +1392,52 @@ public sealed partial class MainForm
         return Math.Clamp(item.TransferredBytes * 100d / item.SizeBytes, 0, 100);
     }
 
+    /// <summary>
+    /// Coloca el panel que tapa la barra de desplazamiento vertical nativa de la lista, que
+    /// en el tema oscuro se dibuja en blanco. Solo se muestra si la barra va a ser visible.
+    /// </summary>
+    private void UpdateScrollCover()
+    {
+        if (_scrollCover is null || _list is null || !_list.IsHandleCreated) return;
+        var width = SystemInformation.VerticalScrollBarWidth;
+        // El recuadro blanco aparece en la cabecera cuando la lista NO tiene filas: el control
+        // nativo mantiene igualmente su franja de desplazamiento. Con filas de verdad la barra
+        // es necesaria y se deja ver, así que la tapa solo actúa con la lista vacía.
+        if (_list.Items.Count > 0)
+        {
+            _scrollCover.Visible = false;
+            return;
+        }
+        try
+        {
+            var origin = _list.PointToScreen(Point.Empty);
+            var local = PointToClient(origin);
+            // Se cubre un poco más de ancho que la barra: el control nativo deja un borde de
+            // 4 px fuera del ancho estándar del scrollbar que también salía en blanco.
+            var cover = width + 4;
+            _scrollCover.Bounds = new Rectangle(local.X + _list.ClientSize.Width - cover,
+                local.Y, cover, _list.ClientSize.Height);
+            _scrollCover.Visible = true;
+            _scrollCover.BringToFront();
+        }
+        catch
+        {
+            _scrollCover.Visible = false;
+        }
+    }
+
     private void ResizeColumns()
     {
         if (_list is null || _list.Columns.Count < 7 || _updatingColumns) return;
         _updatingColumns = true;
         try
         {
+            // Se reserva el ancho de la barra vertical: si las columnas ocupan el ancho
+            // completo, el ListView activa el desplazamiento horizontal (una barra blanca).
+            var scrollbar = SystemInformation.VerticalScrollBarWidth;
             var used = _list.Columns[1].Width + _list.Columns[2].Width + _list.Columns[3].Width
                        + _list.Columns[4].Width + _list.Columns[5].Width + _list.Columns[6].Width;
-            var available = _list.ClientSize.Width - used - 4;
+            var available = _list.ClientSize.Width - used - 4 - scrollbar;
             if (available < 300)
             {
                 // En ventanas pequeñas se reduce el resto para que quepa el nombre.
@@ -1311,9 +1447,46 @@ public sealed partial class MainForm
                 SetWidth(_list.Columns[4], 124);
                 used = _list.Columns[1].Width + _list.Columns[2].Width + _list.Columns[3].Width
                        + _list.Columns[4].Width + _list.Columns[5].Width + _list.Columns[6].Width;
-                available = _list.ClientSize.Width - used - 4;
+                available = _list.ClientSize.Width - used - 4 - scrollbar;
             }
             SetWidth(_list.Columns[0], Math.Max(150, available));
+
+            // Si sobra espacio a la derecha de la última columna, el ListView pinta esa
+            // franja con el color del sistema (blanco). Se la come la última columna
+            // visible para que el fondo oscuro llegue hasta el borde.
+            var total = 0;
+            for (var index = 0; index < 7; index++) total += _list.Columns[index].Width;
+            var spare = _list.ClientSize.Width - total - 4 - scrollbar;
+            var last = _list.Columns[6].Width > 0 ? 6 : _list.Columns[5].Width > 0 ? 5 : 4;
+            if (spare > 0) SetWidth(_list.Columns[last], _list.Columns[last].Width + spare);
+            else if (spare < -12) SetWidth(_list.Columns[last], Math.Max(60, _list.Columns[last].Width + spare));
+
+            // Con la lista vacía, el ListView nativo seguía mostrando el pulgar de la barra
+            // vertical y el tema oscuro de Windows no lo colorea (rectángulo blanco). Si no hay
+            // filas, la lista se queda con el alto justo de la cabecera y sobra espacio abajo:
+            // sin nada que desplazar, no hay barra. Al añadir archivos recupera todo el alto.
+            var host = _list.Parent as TableLayoutPanel;
+            if (host is not null && host.RowStyles.Count >= 2)
+            {
+                var empty = _list.Items.Count == 0;
+                var style = host.RowStyles[1];
+                var wantedType = empty ? SizeType.Absolute : SizeType.Percent;
+                var wantedHeight = empty ? 24f : 100f;
+                if (style.SizeType != wantedType || Math.Abs(style.Height - wantedHeight) > 0.5f)
+                {
+                    host.SuspendLayout();
+                    style.SizeType = wantedType;
+                    style.Height = wantedHeight;
+                    host.ResumeLayout(true);
+                }
+                _list.Scrollable = !empty;
+            }
+
+            UpdateScrollCover();
+
+            // Con las columnas ajustadas al ancho no hace falta desplazarse en horizontal:
+            // su barra (blanca en el tema oscuro) aparecía como una línea al pie de la lista.
+
         }
         finally
         {
