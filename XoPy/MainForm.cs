@@ -1902,8 +1902,10 @@ public sealed partial class MainForm : Form
 
         // Petición recibida al arrancar (--copy/--move/--to, archivos del Explorador…).
         // Sin esto, abrir XoPy con archivos solo mostraba la ventana vacía.
+        // En modo captura también se añaden los archivos: antes la lista salía siempre vacía
+        // en las imágenes porque no había destino y esta condición no se cumplía.
         if (_startupRequest.Paths.Count > 0 || _startupRequest.PasteFromClipboard ||
-            !string.IsNullOrWhiteSpace(_startupRequest.Destination))
+            !string.IsNullOrWhiteSpace(_startupRequest.Destination) || _startupRequest.Screenshot)
         {
             Program.Log("MF-OnShown HandleExternalAsync(startup) start");
             // Primero se aplican destinos, política de conflicto y motor; después se arranca
