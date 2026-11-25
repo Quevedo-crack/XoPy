@@ -131,6 +131,17 @@ XoPy.exe --multi --copy --to "D:\Copias" "C:\Datos\informe.pdf"
 
 **Prueba nueva en cada compilación**: con el interceptor activo se pulsa Ctrl+V varias veces y se exige que XoPy, el Bloc de notas y la apertura de otras aplicaciones **sigan respondiendo**. Si el sistema se atasca, no se publica la versión.
 
+### Si el ejecutable no llega ni a arrancar
+
+Algunos equipos no ejecutan el formato de **archivo único** (se descomprime en una carpeta temporal al abrirlo, y si el antivirus o el sistema lo impiden no aparece ni el proceso). Por eso cada versión publica ahora:
+
+- `XoPy-portable-carpeta-win-x64.zip` — la misma aplicación **en carpeta**, sin archivo único ni compresión: se descomprime y se abre `XoPy.exe`. Es la opción más compatible.
+- `SHA256.txt` — huellas de los tres archivos, para comprobar que la descarga no se ha corrompido.
+- `DIAGNOSTICO-XoPy.bat` — genera un informe en el Escritorio con lo que impide arrancar (bloqueo por descarga de Internet, detecciones de Windows Defender, errores del sistema y registro de arranque).
+- `RESCATAR-XoPy.bat` — deja el equipo limpio de la integración si algo se atasca.
+
+El ejecutable único también se genera **sin compresión**, que es lo que más desconfianza genera en los antivirus y una causa frecuente de que un programa «no abra» sin dar ningún error.
+
 ## Novedades de la versión 2.5.8
 
 **Arreglo urgente: la 2.5.7 podía quedarse sin abrir.** Tres fallos encadenados, los tres corregidos:

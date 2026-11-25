@@ -31,7 +31,7 @@ jobs:
         run: |
           dotnet publish XoPy/XoPy.csproj -c Release -r win-x64 --self-contained true `
             -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=false `
-            -p:EnableCompressionInSingleFile=true -p:DebugType=none -p:DebugSymbols=false `
+            -p:EnableCompressionInSingleFile=false -p:DebugType=none -p:DebugSymbols=false `
             -o publish -v:d 2>&1 | Tee-Object -FilePath build.log
           $publishExit = $LASTEXITCODE
           # Se comprueba el resultado real además del código de salida: con Tee-Object el
@@ -40,6 +40,18 @@ jobs:
             Write-Host "publish_exit=$publishExit"
             throw "No se pudo publicar la aplicación (código $publishExit)"
           }
+
+      # Segunda publicación, en carpeta normal (sin archivo único ni compresión). El
+      # formato de archivo único se extrae en una carpeta temporal al arrancar y es el que
+      # más problemas da con antivirus y SmartScreen: esta copia es la vía de escape si el
+      # ejecutable único no llega ni a ejecutarse en el equipo del usuario.
+      - name: Publicar versión en carpeta (alternativa sin archivo único)
+        shell: pwsh
+        run: |
+          dotnet publish XoPy/XoPy.csproj -c Release -r win-x64 --self-contained true `
+            -p:PublishSingleFile=false -p:DebugType=none -p:DebugSymbols=false `
+            -o publish-carpeta/XoPy
+          if (-not (Test-Path 'publish-carpeta/XoPy/XoPy.exe')) { throw 'No se pudo publicar la versión en carpeta' }
 
       - uses: ilammy/msvc-dev-cmd@v1
         with:
@@ -256,7 +268,17 @@ jobs:
           if ($segundos -gt 30) { $fallos += "El sistema se ralentiza con el interceptor puesto ($segundos s para cinco Ctrl+V)" }
           Parar-Todo
 
-          # 8) Modo seguro: abre sin integración ni interceptor.
+          # 8) La versión alternativa EN CARPETA también tiene que abrir.
+          $enCarpeta = 'publish-carpeta/XoPy/XoPy.exe'
+          if (Test-Path $enCarpeta) {
+            $p = Start-Process (Resolve-Path $enCarpeta).Path -PassThru
+            $r = Esperar-Ventana $p 60
+            Write-Host "::notice::version_en_carpeta_abre=$r"
+            if (-not $r) { $fallos += 'La versión portable en carpeta no abre'; Log-XoPy }
+            Parar-Todo
+          }
+
+          # 9) Modo seguro: abre sin integración ni interceptor.
           $p = Start-Process $exe -ArgumentList '--safe' -PassThru
           $r = Esperar-Ventana $p 60
           Write-Host "::notice::modo_seguro_abre=$r"
@@ -490,6 +512,26 @@ jobs:
           path: installer-build.log
           retention-days: 7
 
+      # Paquete alternativo y huellas SHA-256: permiten comprobar que la descarga no se ha
+      # corrompido y dan una alternativa cuando el ejecutable único no arranca.
+      - name: Empaquetar alternativa y calcular huellas
+        shell: pwsh
+        run: |
+          Copy-Item publish/XoPyShell.dll publish-carpeta/XoPy/ -Force -ErrorAction SilentlyContinue
+          Copy-Item herramientas/RESCATAR-XoPy.bat publish-carpeta/XoPy/ -Force -ErrorAction SilentlyContinue
+          Copy-Item herramientas/DIAGNOSTICO-XoPy.bat publish-carpeta/XoPy/ -Force -ErrorAction SilentlyContinue
+          Compress-Archive -Path publish-carpeta/XoPy -DestinationPath XoPy-portable-carpeta-win-x64.zip -Force
+          $lineas = @()
+          foreach ($f in @('installer-output/XoPy-Setup-win-x64.exe','publish/XoPy.exe','XoPy-portable-carpeta-win-x64.zip')) {
+            if (Test-Path $f) {
+              $h = (Get-FileHash $f -Algorithm SHA256).Hash
+              $t = (Get-Item $f).Length
+              $lineas += ("{0}  {1} bytes  SHA256 {2}" -f (Split-Path $f -Leaf), $t, $h)
+              Write-Host "::notice::$($lineas[-1])"
+            }
+          }
+          $lineas | Set-Content SHA256.txt -Encoding utf8
+
       - name: Publicar en GitHub Releases
         if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
         shell: pwsh
@@ -499,7 +541,9 @@ jobs:
           RELEASE_TARGET: ${{ github.sha }}
         run: |
           $tag = $env:RELEASE_TAG
-          $assets = @('installer-output/XoPy-Setup-win-x64.exe', 'publish/XoPy.exe', 'herramientas/RESCATAR-XoPy.bat')
+          $assets = @('installer-output/XoPy-Setup-win-x64.exe', 'publish/XoPy.exe',
+                      'XoPy-portable-carpeta-win-x64.zip', 'SHA256.txt',
+                      'herramientas/RESCATAR-XoPy.bat', 'herramientas/DIAGNOSTICO-XoPy.bat')
           gh release view $tag 2>$null | Out-Null
           if ($LASTEXITCODE -ne 0) {
             gh release create $tag $assets --target $env:RELEASE_TARGET --title "XoPy $tag" --generate-notes
