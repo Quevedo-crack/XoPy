@@ -23,10 +23,14 @@
     <NeutralLanguage>es</NeutralLanguage>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <DebugType>none</DebugType>
-    <!-- Rutas de más de 260 caracteres: en TeraCopy es una de las causas reales de «Error».
-         .NET ya las soporta en Windows 10+; se declara explícitamente para el runtime. -->
-    <RuntimeHostConfigurationOption Include="System.IO.UseLegacyPathHandling" Value="false" />
-    <RuntimeHostConfigurationOption Include="Switch.System.IO.UseLegacyPathHandling" Value="false" />
     <DebugSymbols>false</DebugSymbols>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Rutas de más de 260 caracteres: en TeraCopy es una de las causas reales de «Error».
+         .NET ya las soporta en Windows 10+; se declara explícitamente para el runtime.
+         Los RuntimeHostConfigurationOption van en un ItemGroup, no en PropertyGroup. -->
+    <RuntimeHostConfigurationOption Include="System.IO.UseLegacyPathHandling" Value="false" />
+    <RuntimeHostConfigurationOption Include="Switch.System.IO.UseLegacyPathHandling" Value="false" />
+  </ItemGroup>
 </Project>
