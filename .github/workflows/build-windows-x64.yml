@@ -224,6 +224,30 @@ jobs:
           Parar-Todo
           Remove-Item $data -Recurse -Force -ErrorAction SilentlyContinue
 
+          # 5) ACTUALIZACIÓN sobre datos de una versión anterior: ajustes, historial y cola
+          #    guardados. Es la situación real del usuario y la que no se probaba nunca.
+          New-Item -ItemType Directory -Force $data | Out-Null
+          $ajustesViejos = '{"SettingsVersion":1,"DarkTheme":true,"MinimizeToTray":true,"StartWithWindows":true,"ReplaceWindowsCopier":true,"Destination":"C:\\destino-que-ya-no-existe","ExtraDestinations":["D:\\tampoco-existe"],"Threads":4,"WindowMode":0,"AjusteDesconocidoDeOtraVersion":"x"}'
+          $ajustesViejos | Set-Content (Join-Path $data 'settings.json')
+          '[{"Date":"2026-01-01T00:00:00","Operation":"Copy","Destination":"C:\\x","Files":3,"Bytes":100}]' |
+            Set-Content (Join-Path $data 'history.json')
+          'cola corrupta que no es json' | Set-Content (Join-Path $data 'ultima-cola.xopyq')
+          $p = Start-Process $exe -PassThru
+          $r = Esperar-Ventana $p 60
+          Write-Host "::notice::abre_con_datos_de_version_anterior=$r"
+          if (-not $r) { $fallos += 'Con ajustes, historial y cola de una versión anterior, XoPy no abre'; Log-XoPy }
+          Parar-Todo
+
+          # 6) Datos completamente corruptos: tampoco puede quedarse sin abrir.
+          'esto no es json' | Set-Content (Join-Path $data 'settings.json')
+          'ni esto' | Set-Content (Join-Path $data 'history.json')
+          $p = Start-Process $exe -PassThru
+          $r = Esperar-Ventana $p 60
+          Write-Host "::notice::abre_con_ajustes_corruptos=$r"
+          if (-not $r) { $fallos += 'Con los ajustes corruptos XoPy no abre'; Log-XoPy }
+          Parar-Todo
+          Remove-Item $data -Recurse -Force -ErrorAction SilentlyContinue
+
           foreach ($f in $fallos) { Write-Host "::error file=XoPy/Program.cs::$f" }
           if ($fallos.Count -gt 0) { throw "La aplicación no abre correctamente en $($fallos.Count) caso(s)" }
           Write-Host 'ARRANQUE PORTABLE: CORRECTO'
