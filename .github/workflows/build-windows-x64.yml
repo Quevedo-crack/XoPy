@@ -247,7 +247,15 @@ jobs:
             $tmpClip = Join-Path $env:TEMP 'xopy-portapapeles'
             New-Item -ItemType Directory -Force $tmpClip | Out-Null
             'contenido' | Set-Content (Join-Path $tmpClip 'a.txt')
-            try { Set-Clipboard -Path (Join-Path $tmpClip 'a.txt') } catch { Write-Host "::notice::sin_portapapeles=$($_.Exception.Message)" }
+            $archivoClip = Join-Path $tmpClip 'a.txt'
+            $hayPortapapeles = $false
+            try {
+              # pwsh 7 no admite «Set-Clipboard -Path»; Windows PowerShell sí, y además en STA,
+              # que es lo que hace falta para dejar una LISTA DE ARCHIVOS en el portapapeles.
+              powershell.exe -STA -NoProfile -Command "Set-Clipboard -Path '$archivoClip'" | Out-Null
+              $hayPortapapeles = ($LASTEXITCODE -eq 0)
+            } catch { }
+            if (-not $hayPortapapeles) { Write-Host "::notice::sin_portapapeles=no se pudo dejar la lista de archivos" }
             $crono = [Diagnostics.Stopwatch]::StartNew()
             $np = Start-Process notepad -PassThru
             $abrioOtraApp = Esperar-Ventana $np 30
@@ -272,7 +280,7 @@ jobs:
           } catch {
             Write-Host "::notice::prueba_interceptor_no_concluyente=$($_.Exception.Message)"
           }
-          Write-Host "::notice::con_interceptor arranco=$arranco otra_app_abre=$abrioOtraApp segundos=$segundos xopy_responde=$xopyResponde notepad_responde=$notepadResponde medido=$medido"
+          $resumen = "con_interceptor arranco=$arranco otra_app_abre=$abrioOtraApp segundos=$segundos xopy_responde=$xopyResponde notepad_responde=$notepadResponde portapapeles=$hayPortapapeles"
           if (-not $arranco) { $fallos += 'Con el interceptor de Ctrl+V activado, XoPy no abre'; Log-XoPy }
           if (-not $abrioOtraApp) { $fallos += 'Con el interceptor de Ctrl+V puesto, otra aplicación no llega a abrirse (sistema atascado)' }
           if ($medido -and (-not $xopyResponde -or -not $notepadResponde)) { $fallos += 'Con el interceptor de Ctrl+V puesto, las ventanas dejan de responder' }
@@ -284,7 +292,7 @@ jobs:
           if (Test-Path $enCarpeta) {
             $p = Start-Process (Resolve-Path $enCarpeta).Path -PassThru
             $r = Esperar-Ventana $p 60
-            Write-Host "::notice::version_en_carpeta_abre=$r"
+            $resumen += " | version_en_carpeta_abre=$r"
             if (-not $r) { $fallos += 'La versión portable en carpeta no abre'; Log-XoPy }
             Parar-Todo
           }
@@ -292,7 +300,8 @@ jobs:
           # 9) Modo seguro: abre sin integración ni interceptor.
           $p = Start-Process $exe -ArgumentList '--safe' -PassThru
           $r = Esperar-Ventana $p 60
-          Write-Host "::notice::modo_seguro_abre=$r"
+          $resumen += " | modo_seguro_abre=$r"
+          Write-Host "::notice::RESUMEN $resumen"
           if (-not $r) { $fallos += 'El modo seguro (--safe) no abre la ventana'; Log-XoPy }
           Parar-Todo
           Remove-Item $data -Recurse -Force -ErrorAction SilentlyContinue
