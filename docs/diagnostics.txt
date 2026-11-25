@@ -1,27 +1,207 @@
   Determining projects to restore...
-  Restored D:\a\XoPy\XoPy\XoPy\XoPy.csproj (in 30 ms).
-D:\a\XoPy\XoPy\XoPy\ShellPasteHook.cs(172,13): warning CS0162: Unreachable code detected [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
-D:\a\XoPy\XoPy\XoPy\ShellPasteHook.cs(266,50): error CS1503: Argument 1: cannot convert from 'System.Windows.Forms.DataFormats.Format' to 'string' [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
-D:\a\XoPy\XoPy\XoPy\MainForm.cs(2173,9): warning WFDEV004: 'Form.Closed' is obsolete: 'Form.OnClosing, Form.OnClosed and the corresponding events are obsolete. Use Form.OnFormClosing, Form.OnFormClosed, Form.FormClosing and Form.FormClosed instead.' (https://aka.ms/winforms-warnings/WFDEV004) [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
-D:\a\XoPy\XoPy\XoPy\MainForm.cs(2454,13): warning CS8602: Dereference of a possibly null reference. [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
-D:\a\XoPy\XoPy\XoPy\MainForm.cs(2489,74): warning CS8602: Dereference of a possibly null reference. [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
-D:\a\XoPy\XoPy\XoPy\MainForm.cs(2730,30): error CS1579: foreach statement cannot operate on variables of type 'void' because 'void' does not contain a public instance or extension definition for 'GetEnumerator' [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
-D:\a\XoPy\XoPy\XoPy\MainForm.cs(119,18): warning CS0414: The field 'MainForm._wasRunning' is assigned but its value is never used [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
-D:\a\XoPy\XoPy\XoPy\MainForm.cs(123,18): warning CS0414: The field 'MainForm._loadingUi' is assigned but its value is never used [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
-CSC : warning WFO0003: Remove high DPI settings from D:\a\XoPy\XoPy\XoPy\app.manifest and configure via Application.SetHighDpiMode API or 'ApplicationHighDpiMode' project property (https://aka.ms/winforms-warnings/wfo0003) [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
-
-Build FAILED.
-
-D:\a\XoPy\XoPy\XoPy\ShellPasteHook.cs(172,13): warning CS0162: Unreachable code detected [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
+  Restored D:\a\XoPy\XoPy\XoPy\XoPy.csproj (in 20 ms).
 D:\a\XoPy\XoPy\XoPy\MainForm.cs(2173,9): warning WFDEV004: 'Form.Closed' is obsolete: 'Form.OnClosing, Form.OnClosed and the corresponding events are obsolete. Use Form.OnFormClosing, Form.OnFormClosed, Form.FormClosing and Form.FormClosed instead.' (https://aka.ms/winforms-warnings/WFDEV004) [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
 D:\a\XoPy\XoPy\XoPy\MainForm.cs(2454,13): warning CS8602: Dereference of a possibly null reference. [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
 D:\a\XoPy\XoPy\XoPy\MainForm.cs(2489,74): warning CS8602: Dereference of a possibly null reference. [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
 D:\a\XoPy\XoPy\XoPy\MainForm.cs(119,18): warning CS0414: The field 'MainForm._wasRunning' is assigned but its value is never used [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
 D:\a\XoPy\XoPy\XoPy\MainForm.cs(123,18): warning CS0414: The field 'MainForm._loadingUi' is assigned but its value is never used [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
 CSC : warning WFO0003: Remove high DPI settings from D:\a\XoPy\XoPy\XoPy\app.manifest and configure via Application.SetHighDpiMode API or 'ApplicationHighDpiMode' project property (https://aka.ms/winforms-warnings/wfo0003) [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
-D:\a\XoPy\XoPy\XoPy\ShellPasteHook.cs(266,50): error CS1503: Argument 1: cannot convert from 'System.Windows.Forms.DataFormats.Format' to 'string' [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
-D:\a\XoPy\XoPy\XoPy\MainForm.cs(2730,30): error CS1579: foreach statement cannot operate on variables of type 'void' because 'void' does not contain a public instance or extension definition for 'GetEnumerator' [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
-    7 Warning(s)
-    2 Error(s)
+  XoPy -> D:\a\XoPy\XoPy\XoPy\bin\Release\net10.0-windows\win-x64\XoPy.dll
 
-Time Elapsed 00:00:02.92
+Build succeeded.
+
+D:\a\XoPy\XoPy\XoPy\MainForm.cs(2173,9): warning WFDEV004: 'Form.Closed' is obsolete: 'Form.OnClosing, Form.OnClosed and the corresponding events are obsolete. Use Form.OnFormClosing, Form.OnFormClosed, Form.FormClosing and Form.FormClosed instead.' (https://aka.ms/winforms-warnings/WFDEV004) [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
+D:\a\XoPy\XoPy\XoPy\MainForm.cs(2454,13): warning CS8602: Dereference of a possibly null reference. [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
+D:\a\XoPy\XoPy\XoPy\MainForm.cs(2489,74): warning CS8602: Dereference of a possibly null reference. [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
+D:\a\XoPy\XoPy\XoPy\MainForm.cs(119,18): warning CS0414: The field 'MainForm._wasRunning' is assigned but its value is never used [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
+D:\a\XoPy\XoPy\XoPy\MainForm.cs(123,18): warning CS0414: The field 'MainForm._loadingUi' is assigned but its value is never used [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
+CSC : warning WFO0003: Remove high DPI settings from D:\a\XoPy\XoPy\XoPy\app.manifest and configure via Application.SetHighDpiMode API or 'ApplicationHighDpiMode' project property (https://aka.ms/winforms-warnings/wfo0003) [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
+    6 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:02.37
+FILE: carpeta (1 bytes)
+FILE: dest-rbcopy (1 bytes)
+FILE: dest3 (1 bytes)
+FILE: dest4 (1 bytes)
+FILE: dest5 (1 bytes)
+FILE: destino (1 bytes)
+FILE: destino2 (1 bytes)
+FILE: jerarquia (1 bytes)
+FILE: misma (1 bytes)
+FILE: perf (1 bytes)
+FILE: perf-destino (1 bytes)
+FILE: advanced.png (30010 bytes)
+FILE: cola.txt (534 bytes)
+FILE: conflict.png (8779 bytes)
+FILE: conflictotest.txt (70 bytes)
+FILE: copiatest.txt (83 bytes)
+FILE: exitcode.txt (24 bytes)
+FILE: grande.bin (300000 bytes)
+FILE: history.png (29982 bytes)
+FILE: informe.pdf (10242 bytes)
+FILE: jerarquiatest.txt (111 bytes)
+FILE: menu-context.png (5636 bytes)
+FILE: menu-menu.png (22898 bytes)
+FILE: mismacarpeta.txt (59 bytes)
+FILE: movetest.txt (88 bytes)
+FILE: options.png (50861 bytes)
+FILE: perf.txt (175 bytes)
+FILE: rbcopy.bin (200002 bytes)
+FILE: reanudartest.txt (41 bytes)
+FILE: repeticion.txt (738 bytes)
+FILE: robocopytest.txt (49 bytes)
+FILE: shot.png (30010 bytes)
+FILE: verify.png (30010 bytes)
+FILE: video.mp4 (20482 bytes)
+--- C:\xopytest\exitcode.txt
+exitcode=0 exited=True
+--- C:\xopytest\copiatest.txt
+archivo_copiado=True
+carpeta_copiada=True
+tamano_copiado=10242
+hash_igual=True
+--- C:\xopytest\movetest.txt
+movido=True
+origen_eliminado=True
+carpeta_movida=True
+carpeta_origen_eliminada=True
+--- C:\xopytest\conflictotest.txt
+tamano=20482
+hash_igual=True
+solo_lectura=False
+omitido_tamano=50
+--- C:\xopytest\jerarquiatest.txt
+anidado_dest1=True
+anidado_dest2=True
+vacia_dest1=True
+plano_dest1=False
+archivo_suelto=True
+checksums=1
+--- C:\xopytest\reanudartest.txt
+final=True
+temporal=0
+hash_igual=True
+--- C:\xopytest\cola.txt
+inicial=archivo1.bin,archivo2.bin,archivo3.bin
+lista_tras_mover=archivo2.bin,archivo1.bin,archivo3.bin
+visual_tras_mover=archivo2.bin,archivo1.bin,archivo3.bin
+tras_mover=archivo2.bin,archivo1.bin,archivo3.bin
+tras_ordenar=archivo3.bin,archivo2.bin,archivo1.bin
+planas=a1.bin,a2.bin,b1.bin
+tras_mover_cruzado=b1.bin,a1.bin,a2.bin
+copia_mixta=OK
+archivos_copiados=3
+boton_arriba=a1.bin,b1.bin,a2.bin -> a1.bin,a2.bin,b1.bin
+boton_abajo=a1.bin,b1.bin,a2.bin
+quitar_copiando=2->1
+anadir_copiando=2
+quitados=2
+resultado=OK
+--- C:\xopytest\robocopytest.txt
+robocopy_copiado=True
+robocopy_hash_igual=True
+--- startup.log (últimas 80 líneas)
+MF-OnShown base.OnShown done
+MF-OnShown Activate
+MF-OnShown Activate done
+MF1. BuildUi
+MF1. BuildUi done
+MF2. LoadSettingsIntoUi
+MF2. LoadSettingsIntoUi done
+MF3. ApplyCompactView
+MF3. ApplyCompactView done
+MF4. ApplyJobsCollapsed
+MF4. ApplyJobsCollapsed done
+MF5. WireEngine
+MF5. WireEngine done
+MF6. EnsureDefaultList start
+MF6. EnsureDefaultList done
+MF7. ApplyWindowGeometry start
+MF7. ApplyWindowGeometry done
+MF8. Timer start
+MF8. Timer start done
+MF9. UpdateButtons start
+MF9. UpdateButtons done
+MF10. UpdateFooter start
+MF10. UpdateFooter done
+MF11. UpdateHashColumns start
+MF11. UpdateHashColumns done
+MF12. UpdateJobs start
+MF12. UpdateJobs done
+MF13. BuildTray start
+MF13. BuildTray done
+MF14. ApplyCopierReplacement start
+MF14. ApplyCopierReplacement done
+MF15. InstallShellHookIfNeeded start
+MF15. InstallShellHookIfNeeded done
+1. Inicio Main
+2. ApplicationConfiguration.Initialize
+3. SetUnhandledExceptionMode
+4. ThreadException handler
+5. UnhandledException handler
+8. StartupRequest.Parse
+9. Crear Mutex
+10. Verificar primera instancia
+13. Crear MainForm
+14. Iniciar IpcServer
+15. Application.Run
+MF-OnHandleCreated done
+MF-OnShown start
+MF-OnShown base.OnShown done
+MF-OnShown Activate
+MF-OnShown Activate done
+MF1. BuildUi
+MF1. BuildUi done
+MF2. LoadSettingsIntoUi
+MF2. LoadSettingsIntoUi done
+MF3. ApplyCompactView
+MF3. ApplyCompactView done
+MF4. ApplyJobsCollapsed
+MF4. ApplyJobsCollapsed done
+MF5. WireEngine
+MF5. WireEngine done
+MF6. EnsureDefaultList start
+MF6. EnsureDefaultList done
+MF7. ApplyWindowGeometry start
+MF7. ApplyWindowGeometry done
+MF8. Timer start
+MF8. Timer start done
+MF9. UpdateButtons start
+MF9. UpdateButtons done
+MF10. UpdateFooter start
+MF10. UpdateFooter done
+MF11. UpdateHashColumns start
+MF11. UpdateHashColumns done
+MF12. UpdateJobs start
+MF12. UpdateJobs done
+MF13. BuildTray start
+MF13. BuildTray done
+MF14. ApplyCopierReplacement start
+MF14. ApplyCopierReplacement done
+MF15. InstallShellHookIfNeeded start
+MF15. InstallShellHookIfNeeded done
+MF-OnShown end (UI lista)
+--- transfer.log (últimas 120 líneas)
+2026-11-25 20:36:49  Sustitución real: se activa el arranque de XoPy con Windows para que Ctrl+V siga pasando por XoPy tras reiniciar.
+2026-11-25 20:36:49  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
+2026-11-25 20:36:49  Arranque: destinos extra=[] guardados=[]
+2026-11-25 20:36:49  Inicio: 1 elementos, destinos=C:\xopytest\misma, verificar=False (Sha256), reanudar=False
+2026-11-25 20:36:49  Copia nativa: C:\xopytest\misma\original.txt -> C:\xopytest\misma\original (1).txt
+2026-11-25 20:36:49  Fin: 3002 bytes en 0.0s, errores=0
+2026-11-25 20:37:03  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
+2026-11-25 20:37:05  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
+2026-11-25 20:37:05  Inicio: 4 elementos, destinos=C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\destinoA, verificar=False (Sha256), reanudar=False
+2026-11-25 20:37:05  Copia nativa: C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\origen\r3.bin -> C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\destinoA\r3.bin
+2026-11-25 20:37:05  Copia nativa: C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\origen\r4.bin -> C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\destinoA\r4.bin
+2026-11-25 20:37:05  Copia nativa: C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\origen\r1.bin -> C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\destinoA\r1.bin
+2026-11-25 20:37:05  Copia nativa: C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\origen\r2.bin -> C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\destinoA\r2.bin
+2026-11-25 20:37:05  Fin: 40960 bytes en 0.0s, errores=0
+2026-11-25 20:37:06  Inicio: 4 elementos, destinos=C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\destinoB, verificar=False (Sha256), reanudar=False
+2026-11-25 20:37:06  Copia nativa: C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\origen\r2.bin -> C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\destinoB\r2.bin
+2026-11-25 20:37:06  Copia nativa: C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\origen\r1.bin -> C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\destinoB\r1.bin
+2026-11-25 20:37:06  Copia nativa: C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\origen\r3.bin -> C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\destinoB\r3.bin
+2026-11-25 20:37:06  Copia nativa: C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\origen\r4.bin -> C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\destinoB\r4.bin
+2026-11-25 20:37:06  Fin: 40960 bytes en 0.0s, errores=0
+2026-11-25 20:37:06  Aviso: 4 elemento(s) sin origen en disco; se marcan como Error sin reintentarlos.
+2026-11-25 20:37:06  Aviso: 4 elemento(s) sin origen en disco; se marcan como Error sin reintentarlos.
