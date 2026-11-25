@@ -2205,15 +2205,6 @@ public sealed partial class MainForm : Form
                 return;
             }
 
-            // Prueba de repetición: la misma lista copiada, recopiada y movida sin falsos Error.
-            if (_startupRequest.SelfTestRepeat)
-            {
-                var reportPath = _startupRequest.ScreenshotPath
-                    ?? Path.Combine(Path.GetTempPath(), "repeticion.txt");
-                var ok = RunRepeatSelfTest(reportPath);
-                Environment.Exit(ok ? 0 : 1);
-                return;
-            }
         }
         catch (Exception ex)
         {
@@ -2229,6 +2220,18 @@ public sealed partial class MainForm : Form
 
         _uiReady = true;
         Program.Log("MF-OnShown end (UI lista)");
+
+        // Prueba de repetición (CI): necesita la UI ya lista, porque arranca transferencias
+        // por la misma ruta que el botón Copiar. Antes se ejecutaba en OnShown temprano y
+        // StartTransfer la rechazaba con «La ventana aún se está preparando».
+        if (_startupRequest.SelfTestRepeat)
+        {
+            var reportPath = _startupRequest.ScreenshotPath
+                ?? Path.Combine(Path.GetTempPath(), "repeticion.txt");
+            var repeatOk = RunRepeatSelfTest(reportPath);
+            Environment.Exit(repeatOk ? 0 : 1);
+            return;
+        }
 
         // Petición recibida al arrancar (--copy/--move/--to, archivos del Explorador…).
         // Sin esto, abrir XoPy con archivos solo mostraba la ventana vacía.

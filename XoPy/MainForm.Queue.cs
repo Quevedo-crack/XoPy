@@ -1143,6 +1143,30 @@ public sealed partial class MainForm
                 return;
             }
 
+            // Mover a la MISMA carpeta del archivo no mueve nada: solo crearía un nombre
+            // nuevo y, con la operación de mover, borraría el original sin necesidad. Se
+            // bloquea de raíz antes de tocar el disco.
+            if (operation == OperationType.Move)
+            {
+                var sameFolder = basis
+                    .Where(item => item.Kind == ItemKind.File)
+                    .FirstOrDefault(item =>
+                    {
+                        var parent = Path.GetDirectoryName(Path.GetFullPath(item.SourcePath));
+                        return parent is not null &&
+                               string.Equals(Path.GetFullPath(parent).TrimEnd('\\'),
+                                   Path.GetFullPath(destination).TrimEnd('\\'),
+                                   StringComparison.OrdinalIgnoreCase);
+                    });
+                if (sameFolder is not null)
+                {
+                    SetStatus("Para mover, elige una carpeta distinta de la de origen. " +
+                              "Los archivos ya están ahí: no se ha tocado nada.");
+                    PromptDestinationForList(_activeList!, sayNothingIfCancelled: true);
+                    return;
+                }
+            }
+
             // Si el destino no es válido se ofrece qué hacer, en lugar de mostrar solo un error.
             var overlapConfirmed = false;
             while (true)
@@ -1250,6 +1274,25 @@ public sealed partial class MainForm
             }
         }
         _freeSpaceMode = FreeSpaceMode.Ignore;
+
+        // En MOVER se guarda el origen antes de tocar el disco: si algo va mal y el usuario
+        // necesita recuperar algo, queda una lista con las rutas exactas en
+        // %LOCALAPPDATA%\XoPy\mover-*.txt (ubicación de los archivos que se van a mover).
+        if (operation == OperationType.Move)
+        {
+            try
+            {
+                Directory.CreateDirectory(_store.DataFolder);
+                var listPath = Path.Combine(_store.DataFolder, $"mover-{DateTime.Now:yyyyMMdd-HHmmss}.txt");
+                var lines = leaves
+                    .Where(item => item.Kind is ItemKind.File or ItemKind.DirectoryEntry)
+                    .Select(item => item.SourcePath + " -> " + Path.Combine(destination, item.RelativePath))
+                    .ToList();
+                lines.Insert(0, "# XoPy: archivos que se van a mover. Guárdalo para poder recuperarlos.");
+                File.WriteAllLines(listPath, lines);
+            }
+            catch { }
+        }
 
         // Lo que ya se copió NO se vuelve a poner en cola: al reintentar una lista terminada
         // (o después de mover, cuando el origen ya no existe) todo acababa en «Error» al 0 %.
@@ -1402,6 +1445,8 @@ public sealed partial class MainForm
         if (_multiThreadButton is null) return;
         _multiThreadButton.Text = MultiThreadLabel();
         _multiThreadButton.ToolTipText = MultiThreadTooltip();
+        // Activado: fondo de acento y rayo blanco; desactivado: apagado. Además del color, el
+        // TEXTO cambia («Multihilo · N» / «Un archivo a la vez»), que se ve sin depender del tema.
         _multiThreadButton.BackColor = _settings.MultiThreadCopy ? _palette.Accent : _palette.Surface;
         _multiThreadButton.ForeColor = _settings.MultiThreadCopy ? Color.White : _palette.Muted;
         _multiThreadButton.Image = Icons.Glyph(Icons.Lightning,
@@ -1925,14 +1970,22 @@ public sealed partial class MainForm
         }
     }
 
-    /// <summary>Tras mover, elimina las carpetas de origen que se hayan quedado vacías.</summary>
+    /// <summary>
+    /// Tras mover, elimina las carpetas de origen que se hayan quedado TOTALMENTE vacías.
+    /// Solo se hace cuando no hubo ningún error y la carpeta no contiene nada: con un
+    /// destino equivocado o un fallo a medias, borrar la carpeta dejaba al usuario sin el
+    /// original y sin copia donde esperaba. Ante la duda, no se borra nada.
+    /// </summary>
     private void CleanupMovedSourceFolders()
     {
+        if (_items.Any(item => item.State == ItemState.Failed)) return;
         foreach (var folder in RootItems().Where(item => item.Kind == ItemKind.Folder))
         {
             try
             {
                 if (!Directory.Exists(folder.SourcePath)) continue;
+                // Si la carpeta aún tiene CUALQUIER archivo (aunque sea de otra lista), se deja.
+                if (Directory.EnumerateFiles(folder.SourcePath, "*", SearchOption.AllDirectories).Any()) continue;
                 foreach (var directory in Directory.GetDirectories(folder.SourcePath, "*", SearchOption.AllDirectories)
                              .OrderByDescending(path => path.Length))
                 {
@@ -1947,7 +2000,7 @@ public sealed partial class MainForm
                     Directory.Delete(folder.SourcePath);
                     folder.State = ItemState.Completed;
                     folder.Error = null;
-                    FileLog.Write("Carpeta de origen eliminada tras mover: " + folder.SourcePath);
+                    FileLog.Write("Carpeta de origen vacía eliminada tras mover: " + folder.SourcePath);
                 }
             }
             catch { }

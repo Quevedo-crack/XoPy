@@ -93,6 +93,26 @@ const
   CLSID_XoPy = '{3B1E92A7-7AD6-4E71-A218-75449CE13061}';
   MutexXoPy = 'Local\XoPy.SingleInstance.5C1A93';
 
+// Salvaguarda: el desinstalador SOLO puede borrar la carpeta de la aplicación
+// ({autopf}\XoPy). Si por un fallo de configuración {app} apuntara a una carpeta con datos
+// del usuario (Escritorio, Documentos, Descargas, Juegos, Series…), no se borra NADA.
+function SafeToDeleteAppDir(const Dir: String): Boolean;
+var
+  Normalized: String;
+begin
+  Normalized := Lowercase(Dir);
+  // La carpeta debe ser la de XoPy y no debe estar dentro de una carpeta de datos.
+  Result := (Pos('\xopy', Normalized) > 0)
+    and (Pos('\desktop', Normalized) = 0)
+    and (Pos('\escritorio', Normalized) = 0)
+    and (Pos('\documents', Normalized) = 0)
+    and (Pos('\downloads', Normalized) = 0)
+    and (Pos('\juegos', Normalized) = 0)
+    and (Pos('\series', Normalized) = 0)
+    and (Pos('\pictures', Normalized) = 0)
+    and (Pos('\music', Normalized) = 0)
+    and (Pos('\videos', Normalized) = 0);
+end;
 // MoveFileEx permite programar el borrado de un archivo bloqueado para el próximo arranque.
 // Es la vía canónica de Windows cuando un DLL sigue cargado (aquí, XoPyShell.dll mientras el
 // Explorador tenga mapeada la extensión). Sin ella, la desinstalación dejaba esa DLL.
@@ -209,12 +229,20 @@ var
 begin
   if CurUninstallStep = usUninstall then
   begin
+    AppDir := ExpandConstant('{app}');
+    if not SafeToDeleteAppDir(AppDir) then
+    begin
+      // No es la carpeta de XoPy: nunca se borra. (El resto de la limpieza sigue igual.)
+      AppDir := '';
+    end;
+  end;
+  if (CurUninstallStep = usUninstall) and (AppDir <> '') then
+  begin
     // La causa real de «Algunos elementos no pudieron eliminarse» era XoPyShell.dll: el
     // Explorador la mantiene cargada y Windows no deja borrarla. Se desregistra primero
     // (para que deje de pedirla) y, si sigue bloqueada, se reinicia el Explorador, que
     // Windows relanza solo. Después se borra la carpeta entera.
     UnregisterShellExtension();
-    AppDir := ExpandConstant('{app}');
     DllPath := AppDir + '\XoPyShell.dll';
     // La DLL solo se puede borrar si el Explorador ya la soltó. Se intenta en varios
     // pasos y, si sigue en uso, se programa su borrado para el próximo arranque, que es

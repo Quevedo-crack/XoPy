@@ -358,10 +358,14 @@ public sealed class CopyEngine
     /// <summary>Tras mover, borra las carpetas de origen que quedaron vacías (incluidas las raíz).</summary>
     private static void CleanupMovedFolders(IEnumerable<TransferItem> items)
     {
+        // Solo se eliminan carpetas que quedaron VACÍAS: si algo se quedó dentro, no se toca.
+        // Antes, con un destino equivocado, la carpeta de origen acababa borrada aunque la
+        // copia no se hubiera hecho donde el usuario esperaba.
         foreach (var root in items
                      .Where(item => item.Kind == ItemKind.Folder && item.Operation == OperationType.Move)
                      .Select(item => item.SourcePath)
-                     .Where(path => !string.IsNullOrWhiteSpace(path))
+                     .Where(path => !string.IsNullOrWhiteSpace(path) && Directory.Exists(path))
+                     .Where(path => !Directory.EnumerateFileSystemEntries(path).Any())
                      .Distinct(StringComparer.OrdinalIgnoreCase))
         {
             try
@@ -494,9 +498,36 @@ public sealed class CopyEngine
 
         if (item.Operation == OperationType.Move)
         {
+            // Nunca borrar el origen «porque sí». Antes se borraba en cuanto se daba la
+            // copia por buena, y con un destino equivocado o vacío eso destruía el original.
+            // Ahora solo se borra si el destino existe, tiene el MISMO tamaño y no es el
+            // propio archivo de origen (misma ruta => el «mover» no movería nada).
             try
             {
-                DeleteFileForcibly(source);
+                var verifiedDone = false;
+                foreach (var destination in destinations)
+                {
+                    var candidate = Path.Combine(destination, relative);
+                    if (!File.Exists(candidate)) continue;
+                    if (string.Equals(Path.GetFullPath(candidate), source, StringComparison.OrdinalIgnoreCase)) continue;
+                    var original = new FileInfo(source);
+                    var copy = new FileInfo(candidate);
+                    if (copy.Length != original.Length) continue;
+                    verifiedDone = true;
+                    break;
+                }
+
+                if (!verifiedDone)
+                {
+                    item.Error = "No se borró el original: la copia de destino no se pudo confirmar. " +
+                                 "El archivo de origen sigue intacto.";
+                    Interlocked.Increment(ref _errors);
+                    FileLog.Write($"Mover: no se borra {source} (copia no confirmada en el destino)");
+                }
+                else
+                {
+                    DeleteFileForcibly(source);
+                }
             }
             catch (Exception ex)
             {
