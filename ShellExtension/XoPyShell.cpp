@@ -175,13 +175,10 @@ public:
         if (!info) return E_INVALIDARG;
         if (HIWORD(info->lpVerb) != 0 || LOWORD(info->lpVerb) != 0) return E_FAIL;
         const std::wstring exe = ReadAppPath();
-        if (exe.empty())
-        {
-            MessageBoxW(nullptr,
-                L"No se encontró XoPy.exe. Vuelve a instalar XoPy o abre la aplicación una vez.",
-                L"XoPy", MB_ICONERROR | MB_OK);
-            return HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);
-        }
+        // NUNCA un cuadro de diálogo desde aquí: este código se ejecuta DENTRO del
+        // Explorador y un modal suyo puede dejar el escritorio bloqueado. Se devuelve el
+        // error y Windows muestra su propio aviso.
+        if (exe.empty()) return HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);
         // «--paste --replace»: el pegado sustituye al copiador de Windows también aquí, y
         // «--exit» cierra esta instancia al terminar si no había ninguna abierta (la copia
         // sigue en la de la bandeja). Sin esto, el pegado del menú parecía no hacer nada.
@@ -193,14 +190,7 @@ public:
         launch.lpFile = exe.c_str();
         launch.lpParameters = args.c_str();
         launch.nShow = SW_SHOWNORMAL;
-        if (!ShellExecuteExW(&launch))
-        {
-            // Nunca fallar en silencio: es lo que hacía que «Pegar» pareciera roto.
-            const DWORD error = GetLastError();
-            MessageBoxW(nullptr, L"No se pudo abrir XoPy para pegar. Inténtalo desde la ventana de XoPy.",
-                L"XoPy", MB_ICONERROR | MB_OK);
-            return HRESULT_FROM_WIN32(error);
-        }
+        if (!ShellExecuteExW(&launch)) return HRESULT_FROM_WIN32(GetLastError());
         return S_OK;
     }
 

@@ -3285,6 +3285,9 @@ public sealed partial class MainForm
             _engine.Cancel();
         }
 
+        // Cierre limpio: se retira la marca del gancho de teclado. Si XoPy se cuelga o lo
+        // matan, la marca se queda y el próximo arranque sabe que algo fue mal.
+        ClearHookGuard();
         base.OnFormClosing(e);
     }
 

@@ -250,6 +250,8 @@ public sealed class StartupRequest
     public bool PasteFromClipboard { get; set; }
     public bool StartMinimized { get; set; }
     public bool NoShellHook { get; set; }
+    /// <summary>Modo seguro (--safe): sin gancho de teclado ni integración con el Explorador.</summary>
+    public bool SafeMode { get; set; }
     public bool AskDestination { get; set; }
     public bool Screenshot { get; set; }
     /// <summary>Ruta del PNG que se genera con --screenshot (solo para las capturas de CI).</summary>
@@ -294,6 +296,15 @@ public sealed class StartupRequest
                 case "--test": request.Operation = OperationType.Test; break;
                 case "--paste": request.PasteFromClipboard = true; break;
                 case "--no-shell-hook": request.NoShellHook = true; break;
+                // Modo seguro: solo la ventana. Ni gancho de teclado, ni integración con el
+                // Explorador, ni arranque en bandeja. Es la vía de escape cuando algo de la
+                // integración deja el equipo atascado.
+                case "--safe":
+                case "--modo-seguro":
+                    request.SafeMode = true;
+                    request.NoShellHook = true;
+                    request.StartMinimized = false;
+                    break;
                 case "--tray": request.StartMinimized = true; break;
                 case "--exit": request.ExitWhenDone = true; break;
                 case "--self-test-repeat":
