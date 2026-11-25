@@ -842,20 +842,23 @@ public sealed partial class MainForm
         {
             _hdrCopyInfo.Text = string.Empty;
         }
+        // En la cabecera «Copiando» solo va el AVANCE (archivos terminados y tiempo que
+        // queda). El total de archivos, el tamaño y el porcentaje ya están en el pie y en la
+        // barra: repetirlos aquí era el duplicado de la captura 18.
         else if (running && _engine.IsPaused)
         {
-            _hdrCopyInfo.Text = $"{leaves.Count(item => item.State == ItemState.Completed)}/{leaves.Count} · en pausa · {percent:0.0} %";
+            _hdrCopyInfo.Text = "En pausa";
         }
         else if (running)
         {
             var remaining = _engine.Remaining;
             _hdrCopyInfo.Text = remaining > TimeSpan.Zero
-                ? $"{leaves.Count(item => item.State == ItemState.Completed)}/{leaves.Count} · {Format.Bytes(done)} de {Format.Bytes(total)} · quedan {Format.Duration(remaining)}"
-                : $"{leaves.Count(item => item.State == ItemState.Completed)}/{leaves.Count} · {Format.Bytes(done)} de {Format.Bytes(total)}";
+                ? $"Quedan {Format.Duration(remaining)}"
+                : "Terminando…";
         }
         else
         {
-            _hdrCopyInfo.Text = $"{leaves.Count(item => item.State == ItemState.Completed)}/{leaves.Count} · {Format.Bytes(done)} de {Format.Bytes(total)}";
+            _hdrCopyInfo.Text = string.Empty;
         }
         _hdrCopyBar.Value = percent;
         _hdrCopyPercent.Text = leaves.Count == 0 ? "—" : $"{percent:0.0} %";
@@ -896,7 +899,8 @@ public sealed partial class MainForm
         }
         else
         {
-            _hdrTargetInfo.Text = leaves.Count > 0 ? $"{leaves.Count} archivo(s)" : string.Empty;
+            // Sin velocidad que mostrar no se repite el número de archivos: ya está en el pie.
+            _hdrTargetInfo.Text = string.Empty;
         }
 
         var filePercent = runningLeaf is { SizeBytes: > 0 }
@@ -1129,10 +1133,40 @@ public sealed partial class MainForm
 
     private bool _updatingColumns;
     private bool _columnUpdatePending;
+    private readonly System.Windows.Forms.Timer _resizeDebounce = new() { Interval = 90 };
+    private Size _lastSizedClient = Size.Empty;
 
+    /// <summary>
+    /// Recalcula columnas y alto de la lista. Se agrupa con un temporizador corto porque
+    /// Windows lanza OnResize por CADA píxel mientras se arrastra el borde y recalcular las
+    /// siete columnas en cada uno bloqueaba la ventana («a veces se vuelve loco»). Ahora se
+    /// recalcula una sola vez, 90 ms después de la última variación de tamaño.
+    /// </summary>
     private void ScheduleColumnUpdate()
     {
-        if (!IsHandleCreated || _columnUpdatePending) return;
+        if (!IsHandleCreated || IsDisposed) return;
+        // El primer tamaño (al mostrarse la ventana) se aplica YA: si esperase al
+        // temporizador, las columnas se verían con el ancho de la ventana anterior.
+        if (_lastSizedClient.IsEmpty && _list is not null && _list.ClientSize.Width > 0)
+        {
+            _lastSizedClient = _list.ClientSize;
+            ResizeDebounceTick(this, EventArgs.Empty);
+            return;
+        }
+        _resizeDebounce.Stop();
+        _resizeDebounce.Tick -= ResizeDebounceTick;
+        _resizeDebounce.Tick += ResizeDebounceTick;
+        _resizeDebounce.Start();
+    }
+
+    private void ResizeDebounceTick(object? sender, EventArgs e)
+    {
+        _resizeDebounce.Stop();
+        if (IsDisposed || _list is null) return;
+        // Si el tamaño no cambió de verdad, no se toca nada: evita repintados en bucle.
+        if (_list.ClientSize == _lastSizedClient && _columnUpdatePending) return;
+        _lastSizedClient = _list.ClientSize;
+        if (_columnUpdatePending) return;
         _columnUpdatePending = true;
         BeginInvoke(new Action(() =>
         {

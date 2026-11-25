@@ -10,7 +10,7 @@
 #include <new>
 
 // Classic Windows Explorer context-menu handler. It contributes exactly one verb,
-// captioned "Pegar" (never "Pegar con XoPy"), and forwards the selected folder to XoPy.
+// captioned "Pegar con XoPy" with its own icon, and forwards the selected folder to XoPy.
 static const CLSID CLSID_XoPyPaste = { 0x3b1e92a7, 0x7ad6, 0x4e71, {0xa2,0x18,0x75,0x44,0x9c,0xe1,0x30,0x61} };
 static HINSTANCE g_module = nullptr;
 static long g_objects = 0;
@@ -30,6 +30,32 @@ static std::wstring ReadAppPath()
         if (GetFileAttributesW(candidate.c_str()) != INVALID_FILE_ATTRIBUTES) return candidate;
     }
     return L"";
+}
+
+// Convierte un HICON en HBITMAP de 32 bits con alfa: es lo que acepta el menú contextual.
+static HBITMAP IconToBitmap(HICON icon, int size)
+{
+    BITMAPINFO info = {};
+    info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    info.bmiHeader.biWidth = size;
+    info.bmiHeader.biHeight = -size; // negativo: de arriba abajo
+    info.bmiHeader.biPlanes = 1;
+    info.bmiHeader.biBitCount = 32;
+    info.bmiHeader.biCompression = BI_RGB;
+    void* bits = nullptr;
+    HDC screen = GetDC(nullptr);
+    HDC memory = CreateCompatibleDC(screen);
+    HBITMAP bitmap = CreateDIBSection(screen, &info, DIB_RGB_COLORS, &bits, nullptr, 0);
+    if (bitmap && memory && bits)
+    {
+        HGDIOBJ previous = SelectObject(memory, bitmap);
+        DrawIconEx(memory, 0, 0, icon, size, size, 0, nullptr, DI_NORMAL);
+        SelectObject(memory, previous);
+    }
+    else if (bitmap) { DeleteObject(bitmap); bitmap = nullptr; }
+    if (memory) DeleteDC(memory);
+    if (screen) ReleaseDC(nullptr, screen);
+    return bitmap;
 }
 
 static std::wstring Quote(const std::wstring& value)
@@ -102,8 +128,39 @@ public:
     HRESULT STDMETHODCALLTYPE QueryContextMenu(HMENU menu, UINT index, UINT first, UINT last, UINT flags) override
     {
         if ((flags & CMF_DEFAULTONLY) || first > last || destination_.empty()) return MAKE_HRESULT(SEVERITY_SUCCESS, 0, 0);
+        // Sin archivos en el portapapeles no hay nada que pegar. Antes se comprobaba igual,
+        // pero como la entrada se llamaba solo «Pegar» el usuario no sabía si la copia la
+        // iba a hacer XoPy o el propio Windows. Ahora se llama «Pegar con XoPy» y lleva icono.
         if (!IsClipboardFormatAvailable(CF_HDROP)) return MAKE_HRESULT(SEVERITY_SUCCESS, 0, 0);
-        if (!InsertMenuW(menu, index, MF_BYPOSITION | MF_STRING, first, L"Pegar")) return HRESULT_FROM_WIN32(GetLastError());
+        if (!InsertMenuW(menu, index, MF_BYPOSITION | MF_STRING, first, L"Pegar con XoPy"))
+            return HRESULT_FROM_WIN32(GetLastError());
+        // Icono de la aplicación junto al texto (si se puede cargar; si no, el texto basta).
+        wchar_t iconPath[MAX_PATH] = {};
+        const std::wstring exe = ReadAppPath();
+        if (!exe.empty())
+        {
+            StringCchCopyW(iconPath, MAX_PATH, exe.c_str());
+            MENUITEMINFOW item = {};
+            item.cbSize = sizeof(item);
+            item.fMask = MIIM_BITMAP;
+            // El mapa de bits se cachea: QueryContextMenu se llama cada vez que se abre el
+            // menú y crear uno nuevo por vez filtraba recursos GDI. Un .exe NUNCA se puede
+            // cargar con LoadImage/IMAGE_BITMAP (eso devolvía siempre NULL y además el
+            // ExtractIconEx «grande» podía venir vacío): se pide solo el icono pequeño.
+            static HBITMAP s_bitmap = nullptr;
+            static bool s_bitmapTried = false;
+            if (!s_bitmapTried)
+            {
+                s_bitmapTried = true;
+                HICON icon = nullptr;
+                if (ExtractIconExW(iconPath, 0, nullptr, &icon, 1) > 0 && icon)
+                {
+                    s_bitmap = IconToBitmap(icon, 16);
+                    DestroyIcon(icon);
+                }
+            }
+            if (s_bitmap) { item.hbmpItem = s_bitmap; SetMenuItemInfoW(menu, first, FALSE, &item); }
+        }
         return MAKE_HRESULT(SEVERITY_SUCCESS, 0, 1);
     }
 
@@ -112,8 +169,17 @@ public:
         if (!info) return E_INVALIDARG;
         if (HIWORD(info->lpVerb) != 0 || LOWORD(info->lpVerb) != 0) return E_FAIL;
         const std::wstring exe = ReadAppPath();
-        if (exe.empty()) return HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);
-        std::wstring args = L"--paste --to " + Quote(destination_);
+        if (exe.empty())
+        {
+            MessageBoxW(nullptr,
+                L"No se encontró XoPy.exe. Vuelve a instalar XoPy o abre la aplicación una vez.",
+                L"XoPy", MB_ICONERROR | MB_OK);
+            return HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);
+        }
+        // «--paste --replace»: el pegado sustituye al copiador de Windows también aquí, y
+        // «--exit» cierra esta instancia al terminar si no había ninguna abierta (la copia
+        // sigue en la de la bandeja). Sin esto, el pegado del menú parecía no hacer nada.
+        std::wstring args = L"--paste --replace --to " + Quote(destination_);
         SHELLEXECUTEINFOW launch = {};
         launch.cbSize = sizeof(launch);
         launch.fMask = SEE_MASK_FLAG_NO_UI;
@@ -121,7 +187,14 @@ public:
         launch.lpFile = exe.c_str();
         launch.lpParameters = args.c_str();
         launch.nShow = SW_SHOWNORMAL;
-        if (!ShellExecuteExW(&launch)) return HRESULT_FROM_WIN32(GetLastError());
+        if (!ShellExecuteExW(&launch))
+        {
+            // Nunca fallar en silencio: es lo que hacía que «Pegar» pareciera roto.
+            const DWORD error = GetLastError();
+            MessageBoxW(nullptr, L"No se pudo abrir XoPy para pegar. Inténtalo desde la ventana de XoPy.",
+                L"XoPy", MB_ICONERROR | MB_OK);
+            return HRESULT_FROM_WIN32(error);
+        }
         return S_OK;
     }
 

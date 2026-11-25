@@ -158,8 +158,16 @@ public sealed class ShellPasteHook : IDisposable
             _explorerWindow = window;
 
             // Se cancela el pegado nativo y el trabajo se hace en el hilo STA.
+            // Los datos se capturan AQUÍ, en el hilo del gancho y ANTES de que el Explorador
+            // procese nada: al cancelar el pegado nativo, Windows puede limpiar el efecto
+            // «cortar» del portapapeles y luego la copia se hacía como copia (o no se hacía).
+            // Antes se leía en otro hilo y en otro momento, y con «Cortar» no funcionaba.
+            var snapshot = new PasteSnapshot(ClipboardFilesCore(), ClipboardIsCutCore());
+            if (snapshot.Files.Count == 0) return CallNextHookEx(_hook, code, wParam, lParam);
             if (!_work.IsAddingCompleted)
-                _work.Add(ProcessPaste);
+                _work.Add(() => ProcessPaste(_explorerWindow, snapshot));
+
+            return (IntPtr)1;
 
             return (IntPtr)1;
         }
@@ -170,20 +178,19 @@ public sealed class ShellPasteHook : IDisposable
         }
     }
 
-    private void ProcessPaste()
+    private readonly record struct PasteSnapshot(IReadOnlyList<string> Files, bool Move);
+
+    private void ProcessPaste(IntPtr explorerWindow, PasteSnapshot snapshot)
     {
         var handler = PasteRequested;
         if (handler is null) return;
+        if (snapshot.Files.Count == 0) return;
 
-        var files = ClipboardFilesCore();
-        if (files.Count == 0) return;
-
-        var destination = ExplorerDestinationCore(_explorerWindow);
+        var destination = ExplorerDestinationCore(explorerWindow);
         if (string.IsNullOrWhiteSpace(destination)) return;
 
-        var move = ClipboardIsCutCore();
-        handler(files, destination, move);
-        FileLog.Write($"Pegado interceptado: {files.Count} elemento(s) a {destination} ({(move ? "mover" : "copiar")})");
+        handler(snapshot.Files, destination, snapshot.Move);
+        FileLog.Write($"Pegado interceptado: {snapshot.Files.Count} elemento(s) a {destination} ({(snapshot.Move ? "mover" : "copiar")})");
     }
 
     private static bool IsExplorer(IntPtr window)
@@ -232,22 +239,63 @@ public sealed class ShellPasteHook : IDisposable
         }
     }
 
+    /// <summary>
+    /// ¿El portapapeles está en modo «cortar»? El Explorador lo marca con el formato
+    /// «Preferred DropEffect» (DROPEFFECT_MOVE = 2).
+    /// </summary>
+    /// <remarks>
+    /// Antes solo se aceptaba que llegara como <c>MemoryStream</c>; en la práctica Windows
+    /// puede entregarlo también como <c>byte[]</c>, y además <c>stream.Read</c> consume el
+    /// cursor del flujo (la segunda lectura devolvía 0). Resultado: cortar nunca se detectaba
+    /// y Ctrl+V copiaba en vez de mover, o no hacía nada. Ahora se aceptan las dos formas y
+    /// se lee sin consumir.
+    /// </remarks>
     private static bool ClipboardIsCutCore()
     {
         try
         {
             var data = Clipboard.GetDataObject();
-            if (data is null || !data.GetDataPresent("Preferred DropEffect")) return false;
-            if (data.GetData("Preferred DropEffect") is not MemoryStream stream) return false;
-            var buffer = new byte[4];
-            if (stream.Read(buffer, 0, 4) < 4) return false;
-            var effect = BitConverter.ToInt32(buffer, 0);
+            if (data is null) return false;
+
+            byte[]? raw = null;
+            // Se prueban las dos formas de pedir el mismo formato: por nombre y por formato.
+            var format = DataFormats.GetFormat("Preferred DropEffect");
+            object? value = null;
+            try { value = data.GetData(format.Name, autoConvert: false); } catch { }
+            value ??= SafeGet(() => data.GetData("Preferred DropEffect"));
+            value ??= SafeGet(() => data.GetData(format));
+
+            switch (value)
+            {
+                case byte[] bytes:
+                    raw = bytes;
+                    break;
+                case MemoryStream memory:
+                    raw = memory.ToArray();
+                    break;
+                case Stream stream:
+                    using (var copy = new MemoryStream())
+                    {
+                        stream.CopyTo(copy);
+                        raw = copy.ToArray();
+                    }
+                    break;
+            }
+
+            if (raw is null || raw.Length < 4) return false;
+            var effect = BitConverter.ToInt32(raw, 0);
+            // DROPEFFECT_MOVE (2) = cortar; DROPEFFECT_COPY (1) = copiar.
             return (effect & 2) == 2;
         }
         catch
         {
             return false;
         }
+    }
+
+    private static object? SafeGet(Func<object?> read)
+    {
+        try { return read(); } catch { return null; }
     }
 
     /// <summary>Carpeta de la ventana del Explorador que tiene el foco (o el escritorio).</summary>

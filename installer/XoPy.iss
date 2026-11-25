@@ -2,8 +2,8 @@
 
 [Setup]
 AppName=XoPy
-AppVersion=2.5.6
-AppVerName=XoPy 2.5.6
+AppVersion=2.5.7
+AppVerName=XoPy 2.5.7
 AppPublisher=Quevedo-crack
 AppPublisherURL=https://github.com/Quevedo-crack/XoPy
 AppSupportURL=https://github.com/Quevedo-crack/XoPy/issues
@@ -14,7 +14,7 @@ DisableProgramGroupPage=yes
 OutputDir=..\installer-output
 OutputBaseFilename=XoPy-Setup-win-x64
 UninstallDisplayIcon={app}\XoPy.exe
-UninstallDisplayName=XoPy 2.5.6
+UninstallDisplayName=XoPy 2.5.7
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
@@ -22,15 +22,21 @@ PrivilegesRequired=admin
 ArchitecturesAllowed=x64
 ArchitecturesInstallIn64BitMode=x64
 MinVersion=10.0
-; La aplicación se cierra sola al instalar: si sigue abierta, XoPy.exe queda bloqueado y la
-; instalación falla («DeleteFile falló; código 5»).
-CloseApplications=yes
+; NINGÚN copiador pide reiniciar Windows ni cierra el Explorador. Antes, cuando el
+; Explorador tenía la DLL cargada, el instalador lo MATABA: el escritorio desaparecía,
+; la barra de tareas se quedaba sin responder y la instalación parecía colgada («no
+; avanza»). Ahora la DLL se sustituye en el próximo arranque con restartreplace
+; (silencioso) y XoPy.exe se cierra solo, sin tocar el Explorador.
+CloseApplications=no
 RestartApplications=no
-; Necesario para que «restartreplace» (DLL en uso) programe la sustitución al reiniciar.
-RestartIfNeededByRun=yes
+; Permite que «restartreplace» programe la sustitución de la DLL al reiniciar, sin abortar
+; y sin pedir confirmación al usuario.
+RestartIfNeededByRun=no
+; No se reinicia jamás el equipo desde el instalador.
+AllowNoRestart=yes
 AppMutex=Local\\XoPy.SingleInstance.5C1A93
 AllowNoIcons=yes
-VersionInfoVersion=2.5.6.0
+VersionInfoVersion=2.5.7.0
 VersionInfoProductName=XoPy
 VersionInfoDescription=Gestor de copias XoPy
 VersionInfoCompany=Quevedo-crack
@@ -82,12 +88,18 @@ Filename: "{app}\XoPy.exe"; Parameters: "--install-hooks"; Flags: postinstall no
 Filename: "{app}\XoPy.exe"; Description: "Iniciar XoPy"; Flags: postinstall nowait skipifsilent
 
 [Code]
+// Notificación al shell para refrescar el menú contextual sin reiniciar el Explorador.
+// (SHCNE_ASSOCCHANGED = $08000000, SHCNF_IDLIST = 0)
+procedure SHChangeNotify(wEventId: Longint; uFlags: Cardinal; dwItem1, dwItem2: Cardinal);
+  external 'SHChangeNotifyW@shell32.dll stdcall';
+
 // ─────────────────────────────────────────────────────────────────────────────
 // El Explorador mantiene cargada XoPyShell.dll mientras la extensión «Pegar» está
 // registrada. Windows no permite reemplazar un archivo en uso: de ahí el error
 // «DeleteFile falló; código 5. Acceso denegado» al instalar encima de otra versión.
-// Orden: desregistrar la extensión → cerrar XoPy → si la DLL sigue bloqueada por el
-// Explorador, reiniciarlo → copiar archivos → volver a registrar (lo hace [Registry]).
+// Orden: desregistrar la extensión → cerrar XoPy → copiar archivos → volver a registrar
+// (lo hace [Registry]). El Explorador NO se cierra ni se reinicia nunca: si la DLL sigue
+// en uso, restartreplace programa la sustitución para el próximo arranque.
 // ─────────────────────────────────────────────────────────────────────────────
 const
   CLSID_XoPy = '{3B1E92A7-7AD6-4E71-A218-75449CE13061}';
@@ -154,54 +166,42 @@ begin
   DeleteFile(Dir + '\XoPyShell.dll.probe');
 end;
 
-procedure RestartExplorerIfNeeded();
+procedure ReleaseShellExtensionQuietly();
 var
   ResultCode: Integer;
-  Attempt: Integer;
   DllPath, ProbePath: String;
 begin
   // Restos .old de una desinstalación anterior que Windows programó para el arranque.
   RepeatDeleteOld(ExpandConstant('{app}'));
   DllPath := ExpandConstant('{app}\XoPyShell.dll');
   if not FileExists(DllPath) then exit;
+  // Si la DLL se puede renombrar, el Explorador NO la tiene bloqueada: no hay nada que hacer.
   ProbePath := DllPath + '.probe';
   if RenameFile(DllPath, ProbePath) then
   begin
     RenameFile(ProbePath, DllPath);
     exit;
   end;
-  // El Explorador la tiene cargada y Windows no deja reemplazarla. Se cierra Explorer
-  // (Windows lo relanza solo) y se espera a que suelte el archivo: este era el fallo
-  // «DeleteFile falló; código 5» que seguía apareciendo al instalar encima.
-  Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM explorer.exe /F', '', SW_HIDE,
-       ewWaitUntilTerminated, ResultCode);
-  Sleep(2500);
-  // Reintento con margen: si sigue bloqueada, se informa en el log del instalador.
-  for Attempt := 0 to 9 do
-  begin
-    if RenameFile(DllPath, ProbePath) then
-    begin
-      RenameFile(ProbePath, DllPath);
-      exit;
-    end;
-    Sleep(500);
-  end;
+  // Está en uso. NO se mata el Explorador (eso rompía el escritorio y bloqueaba la
+  // instalación). Se deja que la sustitución la haga restartreplace al reiniciar.
+  Log('XoPyShell.dll en uso: se sustituirá al reiniciar (restartreplace).');
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
-var
-  ResultCode: Integer;
 begin
   if CurStep = ssInstall then
   begin
     // Se desregistra y se libera la DLL antes de que se copien los archivos nuevos.
     UnregisterShellExtension();
-    RestartExplorerIfNeeded();
+    ReleaseShellExtensionQuietly();
   end;
   if CurStep = ssPostInstall then
   begin
-    // El Explorador vuelve solo; se relanza ya para que «Pegar» esté disponible al terminar.
-    Exec(ExpandConstant('{sys}\explorer.exe'), '', '', SW_SHOWNORMAL, ewNoWait, ResultCode);
+    // NO se lanza explorer.exe: el Explorador NUNCA se ha cerrado, así que lanzarlo abría
+    // una ventana nueva («Este equipo») encima del instalador. Basta con notificar al shell
+    // para que el menú «Pegar con XoPy» aparezca sin reiniciar nada.
+    SHChangeNotify($8000000, 0, 0, 0);
+    Log('Integración con el Explorador refrescada (sin cerrar ni reiniciar el Explorador).');
   end;
 end;
 
@@ -226,15 +226,12 @@ begin
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM XoPy.exe /F', '', SW_HIDE,
        ewWaitUntilTerminated, ResultCode);
   Sleep(600);
-  Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM XoPyShell.dll /F', '', SW_HIDE,
-       ewWaitUntilTerminated, ResultCode);
   Result := True;
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   AppDir: String;
-  ResultCode: Integer;
   DataDir: String;
   DllPath: String;
   TempOld: String;
@@ -252,8 +249,8 @@ begin
   begin
     // La causa real de «Algunos elementos no pudieron eliminarse» era XoPyShell.dll: el
     // Explorador la mantiene cargada y Windows no deja borrarla. Se desregistra primero
-    // (para que deje de pedirla) y, si sigue bloqueada, se reinicia el Explorador, que
-    // Windows relanza solo. Después se borra la carpeta entera.
+    // (para que deje de pedirla) y, si sigue bloqueada, se renombra y se mueve a %TEMP% o
+    // se programa su borrado al reiniciar. NUNCA se cierra el Explorador.
     UnregisterShellExtension();
     DllPath := AppDir + '\XoPyShell.dll';
     // La DLL solo se puede borrar si el Explorador ya la soltó. Se intenta en varios
@@ -266,10 +263,8 @@ begin
       // Renombrar y borrar es la forma fiable de que la carpeta quede vacía sin reiniciar.
       if not RenameFile(DllPath, DllPath + '.old') then
       begin
-        Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM explorer.exe /F', '', SW_HIDE,
-             ewWaitUntilTerminated, ResultCode);
-        Sleep(2500);
-        RenameFile(DllPath, DllPath + '.old');
+        // NO se mata el Explorador: se deja para que se sustituya al reiniciar.
+        MoveFileEx(DllPath, '', $4);
       end;
       // El .old aún está mapeado por el Explorador, así que tampoco se puede borrar. La
       // solución es la misma que ya funcionó para renombrar el DLL: se mueve a %TEMP% (fuera
@@ -319,8 +314,9 @@ begin
     RegDeleteValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved', CLSID_XoPy);
     RegDeleteValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'XoPy');
     RegDeleteKeyIfEmpty(HKCU, 'Software\Microsoft\Windows\CurrentVersion\App Paths\XoPy.exe');
-    // Se relanza el Explorador para que suelte la DLL y refresque el menú contextual.
-    Exec(ExpandConstant('{sys}\explorer.exe'), '', '', SW_SHOWNORMAL, ewNoWait, ResultCode);
+    // NO se lanza explorer.exe: abriría una ventana nueva («Este equipo») al desinstalar.
+    // Para refrescar el menú contextual basta con notificar el cambio al shell.
+    SHChangeNotify($8000000, 0, 0, 0);
   end;
 end;
 

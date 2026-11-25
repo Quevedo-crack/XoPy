@@ -58,6 +58,8 @@ public sealed partial class MainForm : Form
     private TableLayoutPanel _transferHeader = null!;
     private ToolStripButton _compactButton = null!;
     private bool _compactView;
+    /// <summary>Arranque en la bandeja: la ventana no debe mostrarse hasta que el usuario la pida.</summary>
+    private bool _startHidden;
     private Rectangle _expandedBounds;
     private bool _expandedWasMaximized;
     private Label[,] _categoryValues = new Label[4, 3];
@@ -1635,6 +1637,70 @@ public sealed partial class MainForm : Form
             var origenIntacto = File.Exists(Path.Combine(dest1, "r1.bin"));
             report.Add("destinoA_intacto=" + origenIntacto);
             if (!origenIntacto) { report.Add("error=el primer destino perdio archivos"); ok = false; }
+
+            // ── Borrar el destino y volver a copiar: NO debe decir «ya está copiado» ──
+            // Es el caso que reportó el usuario: copiaba, borraba el archivo del destino y
+            // al pulsar Copiar otra vez XoPy contestaba «Todo lo seleccionado ya está copiado».
+            var dest3 = Path.Combine(folder, "destinoC");
+            _settings.Destination = dest3;
+            _destination.Text = dest3;
+            foreach (var item in _items.Where(i => i.Kind == ItemKind.File))
+            {
+                item.State = ItemState.Pending;
+                item.DestinationPath = string.Empty;
+                item.TransferredBytes = 0;
+                item.Error = null;
+            }
+            StartTransfer(OperationType.Copy);
+            WaitForEngineIdle(60000);
+            var copiadosC = Directory.Exists(dest3) ? Directory.GetFiles(dest3, "*.bin", SearchOption.AllDirectories).Length : 0;
+            report.Add("copia_destino_nuevo=" + copiadosC);
+            if (copiadosC != 4) { report.Add("error=no se copio al destino nuevo"); ok = false; }
+
+            // Ahora se BORRA del destino y se vuelve a pulsar Copiar: debe copiarlo de nuevo.
+            foreach (var file in Directory.GetFiles(dest3, "*.bin", SearchOption.AllDirectories))
+                File.Delete(file);
+            report.Add("borrados_del_destino=" + (Directory.GetFiles(dest3, "*.bin", SearchOption.AllDirectories).Length == 0));
+            StartTransfer(OperationType.Copy);
+            WaitForEngineIdle(60000);
+            var recopiados = Directory.Exists(dest3) ? Directory.GetFiles(dest3, "*.bin", SearchOption.AllDirectories).Length : 0;
+            var estadoRecopia = _statusLabel.Text;
+            report.Add($"recopiados_tras_borrar={recopiados},estado={estadoRecopia}");
+            if (recopiados != 4)
+            {
+                report.Add("error=tras borrar el destino no se volvio a copiar (decia «ya esta copiado»)");
+                ok = false;
+            }
+            if (estadoRecopia.Contains("ya está copiado", StringComparison.OrdinalIgnoreCase) ||
+                estadoRecopia.Contains("ya esta copiado", StringComparison.OrdinalIgnoreCase))
+            {
+                report.Add("error=aparecio el mensaje «ya esta copiado» con el destino vacio");
+                ok = false;
+            }
+
+            // ── Cortar y pegar (mover) leyendo el efecto del portapapeles ──
+            // Se simula el caso «cortar» que no hacía nada: el tipo de operación debe
+            // resolverse a partir de la instantánea tomada al interceptar el pegado.
+            var cutSource = Path.Combine(folder, "cortar");
+            Directory.CreateDirectory(cutSource);
+            File.WriteAllBytes(Path.Combine(cutSource, "cortado.bin"), new byte[8192]);
+            var cutDest = Path.Combine(folder, "pegado");
+            Directory.CreateDirectory(cutDest);
+            try
+            {
+                var drop = new System.Collections.Specialized.StringCollection();
+                drop.Add(Path.Combine(cutSource, "cortado.bin"));
+                Clipboard.SetDataObject(new DataObject("Preferred DropEffect",
+                    new MemoryStream(BitConverter.GetBytes(2))), true);
+                Clipboard.SetFileDropList(drop);
+                var esCorte = ShellPasteHook.ClipboardIsCut();
+                report.Add("portapapeles_detecta_corte=" + esCorte);
+                if (!esCorte) { report.Add("error=no se detecta el efecto cortar del portapapeles"); ok = false; }
+            }
+            catch (Exception ex)
+            {
+                report.Add("aviso_portapapeles=" + ex.GetType().Name);
+            }
         }
         catch (Exception ex)
         {
@@ -2116,7 +2182,15 @@ public sealed partial class MainForm : Form
 
             // No llamar Show() aqui: el formulario ya esta siendo mostrado por el evento Shown;
             // llamarlo de nuevo causa reentrancy de Windows Forms y puede desbordar la pila (0xc00000fd).
-            if (!_settings.StartMinimized && !_startupRequest.StartMinimized)
+            // Con «arrancar minimizado» (o --tray, que usa el arranque con Windows) la
+            // ventana NO debe aparecer ni un instante: antes se mostraba y luego se ocultaba,
+            // y eso es lo que el usuario vivía como «se abre sola».
+            if (_settings.StartMinimized || _startupRequest.StartMinimized)
+            {
+                Program.Log("MF-OnShown arranque en bandeja");
+                _startHidden = true;
+            }
+            else
             {
                 Program.Log("MF-OnShown Activate");
                 if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
@@ -2350,7 +2424,7 @@ public sealed partial class MainForm : Form
         // Con todo ya aplicado se añaden los archivos: el motor leerá --to2 al arrancar.
         if (request.Paths.Count > 0)
             await HandleExternalFiles(request.Paths, request.Destination, request.Operation == OperationType.Move);
-        if (request.PasteFromClipboard) PasteFromClipboard(request.Destination);
+        if (request.PasteFromClipboard) await PasteFromClipboardAsync(request.Destination);
     }
 
     private async Task HandleExternalAsync(StartupRequest request, bool isStartup)
@@ -2380,7 +2454,7 @@ public sealed partial class MainForm : Form
             _destination.Text = request.Destination!;
             UpdateTargetTab();
         }
-        if (request.PasteFromClipboard) PasteFromClipboard(request.Destination);
+        if (request.PasteFromClipboard) await PasteFromClipboardAsync(request.Destination);
 
         if (!request.ResumePartials) _settings.ResumePartials = false;
         if (request.Engine is not null) _engineOverride = request.Engine.Value;
@@ -2422,8 +2496,16 @@ public sealed partial class MainForm : Form
             }
         }
 
-        if (request.StartMinimized || (isStartup && _settings.StartMinimized && request.Operation is null && request.Paths.Count == 0))
-            MinimizeToTray();
+        // Solo se queda en la bandeja si el usuario no ha pedido una acción concreta. Con
+        // archivos o un pegado (--to/--paste) la ventana debe verse, aunque el arranque sea
+        // silencioso: si no, el usuario cree que XoPy no ha hecho nada.
+        var wantsWork = request.Paths.Count > 0 || request.PasteFromClipboard || request.Operation is not null;
+        if (!wantsWork && (request.StartMinimized || _startHidden
+            || (isStartup && _settings.StartMinimized && request.Operation is null && request.Paths.Count == 0)))
+        {
+            _startHidden = true;
+            MinimizeToTray(silent: true);
+        }
     }
 
     // ---------------------------------------------------------------- listas de copia múltiples en una misma pestaña
@@ -2604,6 +2686,7 @@ public sealed partial class MainForm : Form
             && string.Equals(_activeList.Destination, detectedDestination, StringComparison.OrdinalIgnoreCase);
 
         TransferList? chosen = null;
+        Action? RefreshAddButton = null;
 
         void AddOption(TransferList list, bool changeToDetected, string text)
         {
@@ -2619,12 +2702,32 @@ public sealed partial class MainForm : Form
             };
             rb.CheckedChanged += (_, _) =>
             {
-                if (rb.Checked) chosen = list;
+                if (!rb.Checked) return;
+                chosen = list;
+                RefreshAddButton?.Invoke();
             };
             options.Controls.Add(rb);
         }
 
-        foreach (var list in _lists)
+        // LISTA NUEVA primero y marcada por defecto: es lo que menos sorprende y lo que el
+        // usuario pide cuando arrastra algo mientras ya hay una copia en marcha.
+        var nueva = new TransferList { Name = $"Lista de copia {_lists.Count + 1}", Destination = detectedDestination };
+        var newOption = new RadioButton
+        {
+            Text = $"Abrir en una lista NUEVA (destino: {detectedDestination})",
+            AutoSize = true,
+            Margin = new Padding(4, 6, 4, 10),
+            ForeColor = _palette.Text,
+            BackColor = _palette.Canvas,
+            Font = new Font("Segoe UI", 9f, FontStyle.Bold),
+            Checked = true,
+        };
+        newOption.CheckedChanged += (_, _) => { if (newOption.Checked) { chosen = nueva; RefreshAddButton?.Invoke(); } };
+        options.Controls.Add(newOption);
+        options.Controls.SetChildIndex(newOption, 0);
+        chosen = nueva;
+
+        foreach (var list in _lists.Reverse())
         {
             var same = string.Equals(list.Destination, detectedDestination, StringComparison.OrdinalIgnoreCase);
             AddOption(list, false,
@@ -2635,11 +2738,6 @@ public sealed partial class MainForm : Form
                     $"Añadir a «{list.DisplayName}» con el destino detectado (cambiar destino a: {detectedDestination})");
             }
         }
-
-        var nueva = new TransferList { Name = $"Lista de copia {_lists.Count + 1}", Destination = detectedDestination };
-        AddOption(nueva, true, $"Crear una nueva lista (destino: {detectedDestination})");
-
-        if (chosen is null) chosen = sameDestination && _activeList is not null ? _activeList : _lists.FirstOrDefault();
 
         var buttons = new FlowLayoutPanel
         {
@@ -2662,6 +2760,16 @@ public sealed partial class MainForm : Form
             Font = new Font("Segoe UI", 9f, FontStyle.Bold),
         };
         add.FlatAppearance.BorderSize = 0;
+        // El botón dice exactamente lo que va a pasar, para no dejar dudas entre «lista
+        // actual» y «lista nueva».
+        void SyncAddButton()
+        {
+            add.Text = chosen == nueva
+                ? "Abrir en una lista nueva"
+                : $"Añadir a «{chosen?.DisplayName ?? "la lista"}»";
+        }
+        RefreshAddButton = SyncAddButton;
+        SyncAddButton();
         add.Click += (_, _) => dlg.DialogResult = DialogResult.OK;
         cancel.Click += (_, _) => dlg.DialogResult = DialogResult.Cancel;
         buttons.Controls.AddRange(new Control[] { add, cancel });
@@ -2710,9 +2818,13 @@ public sealed partial class MainForm : Form
         var validDetected = !string.IsNullOrWhiteSpace(detectedDestination)
             && Directory.Exists(detectedDestination);
 
-        // Con varias listas activas el usuario elige a cuál añadir; con una sola y un destino
-        // detectado válido se usa directamente (sin selector de carpeta).
-        if (_lists.Count > 1 && validDetected)
+        // SIEMPRE se pregunta qué hacer al añadir archivos desde fuera (arrastrar, pegar,
+        // menú contextual), como TeraCopy: añadir a la lista actual, abrir una lista NUEVA o
+        // cancelar. Antes solo se preguntaba con 2+ listas y, con una sola, los archivos se
+        // apilaban al final sin avisar. La excepción es que la lista activa esté VACÍA: no
+        // tiene sentido preguntar si no hay nada que conservar.
+        var activeListEmpty = _activeList is null || _activeList.Items.Count == 0;
+        if (!activeListEmpty && (_lists.Count >= 1 || validDetected))
         {
             var decision = AskListDecision(files, detectedDestination!, move);
             if (decision is null) return;
@@ -2776,7 +2888,13 @@ public sealed partial class MainForm : Form
         StartTransfer(operation);
     }
 
-    private void PasteFromClipboard(string? destination)
+    /// <summary>
+    /// Pega lo que haya en el portapapeles usando el motor de XoPy. Es ASÍNCRONO y se espera:
+    /// antes se hacía <c>_ = AddPathsAsync(...)</c> y acto seguido <c>StartTransfer</c>, así
+    /// que la transferencia arrancaba con la lista todavía vacía (en el caso de «cortar» el
+    /// motor no encontraba nada y el pegado parecía no hacer nada).
+    /// </summary>
+    private async Task PasteFromClipboardAsync(string? destination)
     {
         string[] files;
         try
@@ -2793,7 +2911,10 @@ public sealed partial class MainForm : Form
 
         var move = ShellPasteHook.ClipboardIsCut();
 
-        if (_lists.Count > 1 && !string.IsNullOrWhiteSpace(destination) && Directory.Exists(destination))
+        // Se pregunta igual que al arrastrar (lista actual vs. lista nueva), pero solo si la
+        // lista activa ya tiene algo: si está vacía no hay nada que conservar.
+        if (!string.IsNullOrWhiteSpace(destination) && Directory.Exists(destination)
+            && _activeList is not null && _activeList.Items.Count > 0)
         {
             var decision = AskListDecision(files, destination, move);
             if (decision is null) return;
@@ -2830,8 +2951,15 @@ public sealed partial class MainForm : Form
         _destination.Text = destination;
         _settings.Destination = destination;
         _store.Save(_settings);
-        _ = AddPathsAsync(files, askDestination: false);
-        var operation = ShellPasteHook.ClipboardIsCut() ? OperationType.Move : OperationType.Copy;
-        StartTransfer(operation);
+        // ESPERAR a que los archivos estén en la lista antes de arrancar el motor.
+        await AddPathsAsync(files, askDestination: false);
+        // El tipo de operación se decide con la instantánea tomada al principio: si se
+        // vuelve a leer el portapapeles aquí, ya puede estar vacío (el «cortar» se consume).
+        if (_activeList is null || _activeList.Items.Count == 0)
+        {
+            SetStatus("No se pudo preparar la lista de copia.");
+            return;
+        }
+        StartTransfer(move ? OperationType.Move : OperationType.Copy);
     }
 }

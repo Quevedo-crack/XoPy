@@ -319,6 +319,12 @@ public sealed class StartupRequest
                 case "--secure":
                     if (i + 1 < args.Length && int.TryParse(args[++i], out var passes)) request.SecureDeletePasses = passes;
                     break;
+                // --replace lo envía el menú contextual del Explorador («Pegar con XoPy») y
+                // significa «sustituye al copiador de Windows», NO «sobrescribe sin
+                // preguntar». Antes no se reconocía y la acción se ignoraba en silencio: el
+                // usuario pulsaba «Pegar con XoPy» y no pasaba nada. Se acepta y se deja el
+                // conflicto en «preguntar», que es lo que pide el usuario.
+                case "--replace": break;
                 case "--overwrite": request.Conflict = ConflictPolicy.Overwrite; break;
                 case "--skip": request.Conflict = ConflictPolicy.Skip; break;
                 case "--rename": request.Conflict = ConflictPolicy.Rename; break;
