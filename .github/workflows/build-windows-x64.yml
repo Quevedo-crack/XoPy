@@ -92,6 +92,138 @@ jobs:
           Get-Content installer-build.log | Select-Object -Last 15 |
             ForEach-Object { Write-Host "::error file=installer/XoPy.iss::$_" }
 
+      # ─────────────────────────────────────────────────────────────────────────
+      # PRUEBA DE ARRANQUE. Es la que faltaba: se publicó una versión que no abría.
+      # Aquí se EJECUTA el programa de verdad y se exige que aparezca una ventana.
+      # Cubre las cuatro formas de abrirlo: doble clic, con la casilla «arrancar
+      # minimizado» puesta, con --tray + segunda instancia, y con el mutex ocupado
+      # por un proceso que no contesta.
+      # ─────────────────────────────────────────────────────────────────────────
+      - name: Comprobar que la aplicación ABRE (portable)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = (Resolve-Path 'publish/XoPy.exe').Path
+          $data = Join-Path $env:LOCALAPPDATA 'XoPy'
+          $fallos = @()
+
+          function Esperar-Ventana($proceso, $segundos) {
+            $limite = (Get-Date).AddSeconds($segundos)
+            while ((Get-Date) -lt $limite) {
+              if ($proceso.HasExited) { return $false }
+              $proceso.Refresh()
+              if ($proceso.MainWindowHandle -ne [IntPtr]::Zero) { return $true }
+              Start-Sleep -Milliseconds 400
+            }
+            return $false
+          }
+          function Parar-Todo {
+            Get-Process XoPy -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 2
+          }
+          function Log-XoPy {
+            foreach ($nombre in @('startup.log','transfer.log')) {
+              $ruta = Join-Path $data $nombre
+              if (Test-Path $ruta) {
+                Write-Host "----- $nombre -----"
+                Get-Content $ruta -Tail 25 | ForEach-Object { Write-Host $_ }
+              }
+            }
+          }
+
+          # 1) Doble clic normal: SIN argumentos debe aparecer la ventana.
+          Parar-Todo
+          Remove-Item $data -Recurse -Force -ErrorAction SilentlyContinue
+          $p = Start-Process $exe -PassThru
+          $r = Esperar-Ventana $p 60
+          Write-Host "::notice::doble_clic_muestra_ventana=$r"
+          if (-not $r) { $fallos += 'Abrir XoPy sin argumentos NO muestra ninguna ventana'; Log-XoPy }
+          Parar-Todo
+
+          # 2) Con la casilla «arrancar minimizado» guardada: abrirlo a mano DEBE verse.
+          New-Item -ItemType Directory -Force $data | Out-Null
+          '{"StartMinimized":true,"MinimizeToTray":true}' | Set-Content (Join-Path $data 'settings.json')
+          $p = Start-Process $exe -PassThru
+          $r = Esperar-Ventana $p 60
+          Write-Host "::notice::manual_con_ajuste_minimizado_muestra_ventana=$r"
+          if (-not $r) { $fallos += 'Con «arrancar minimizado» guardado, abrir XoPy a mano no muestra la ventana'; Log-XoPy }
+          Parar-Todo
+
+          # 3) Arranque con Windows (--tray): sin ventana, pero al abrirlo otra vez SÍ.
+          $tray = Start-Process $exe -ArgumentList '--tray' -PassThru
+          Start-Sleep -Seconds 20
+          $tray.Refresh()
+          $trayVivo = -not $tray.HasExited
+          $trayVentana = $trayVivo -and $tray.MainWindowHandle -ne [IntPtr]::Zero
+          $sinBandeja = $false
+          $trazas = Join-Path $data 'transfer.log'
+          if (Test-Path $trazas) { $sinBandeja = (Select-String -Path $trazas -Pattern 'No hay icono en la bandeja' -Quiet) -eq $true }
+          Write-Host "::notice::tray_proceso_vivo=$trayVivo ventana=$trayVentana sin_area_notificacion=$sinBandeja"
+          if (-not $trayVivo) {
+            $fallos += 'Con --tray el proceso se cierra en lugar de quedarse en la bandeja'
+            Log-XoPy
+          }
+          elseif ($trayVentana -and -not $sinBandeja) {
+            $fallos += 'Con --tray aparece la ventana aunque el área de notificación funciona'
+          }
+          else {
+            # Si el entorno no tiene área de notificación (runner sin shell), la ventana
+            # visible es la red de seguridad correcta: XoPy nunca debe quedar invisible.
+            Write-Host 'ok_tray=true'
+          }
+          Start-Process $exe | Out-Null
+          $visible = $false
+          $limite = (Get-Date).AddSeconds(60)
+          while ((Get-Date) -lt $limite -and -not $visible) {
+            Start-Sleep -Milliseconds 500
+            $visible = @(Get-Process XoPy -ErrorAction SilentlyContinue |
+                         Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero }).Count -gt 0
+          }
+          Write-Host "::notice::segunda_apertura_muestra_ventana=$visible"
+          if (-not $visible) { $fallos += 'Con XoPy en la bandeja, volver a abrirlo NO muestra la ventana'; Log-XoPy }
+          Parar-Todo
+
+          # 4) Mutex ocupado por alguien que no contesta: XoPy debe abrirse igualmente.
+          $bloqueo = Start-Process powershell -PassThru -ArgumentList @(
+            '-NoProfile','-Command',
+            '$creado=$false; $m=New-Object System.Threading.Mutex($true,"Local\XoPy.SingleInstance.5C1A93",[ref]$creado); Start-Sleep -Seconds 120')
+          Start-Sleep -Seconds 5
+          $p = Start-Process $exe -PassThru
+          $r = Esperar-Ventana $p 90
+          Write-Host "::notice::mutex_ocupado_abre_igual=$r"
+          if (-not $r) { $fallos += 'Con el mutex ocupado por un proceso colgado, XoPy no abre ninguna ventana'; Log-XoPy }
+          Stop-Process -Id $bloqueo.Id -Force -ErrorAction SilentlyContinue
+          Parar-Todo
+          Remove-Item $data -Recurse -Force -ErrorAction SilentlyContinue
+
+          # 5) ACTUALIZACIÓN sobre datos de una versión anterior: ajustes, historial y cola
+          #    guardados. Es la situación real del usuario y la que no se probaba nunca.
+          New-Item -ItemType Directory -Force $data | Out-Null
+          $ajustesViejos = '{"SettingsVersion":1,"DarkTheme":true,"MinimizeToTray":true,"StartWithWindows":true,"ReplaceWindowsCopier":true,"Destination":"C:\\destino-que-ya-no-existe","ExtraDestinations":["D:\\tampoco-existe"],"Threads":4,"WindowMode":0,"AjusteDesconocidoDeOtraVersion":"x"}'
+          $ajustesViejos | Set-Content (Join-Path $data 'settings.json')
+          '[{"Date":"2026-01-01T00:00:00","Operation":"Copy","Destination":"C:\\x","Files":3,"Bytes":100}]' |
+            Set-Content (Join-Path $data 'history.json')
+          'cola corrupta que no es json' | Set-Content (Join-Path $data 'ultima-cola.xopyq')
+          $p = Start-Process $exe -PassThru
+          $r = Esperar-Ventana $p 60
+          Write-Host "::notice::abre_con_datos_de_version_anterior=$r"
+          if (-not $r) { $fallos += 'Con ajustes, historial y cola de una versión anterior, XoPy no abre'; Log-XoPy }
+          Parar-Todo
+
+          # 6) Datos completamente corruptos: tampoco puede quedarse sin abrir.
+          'esto no es json' | Set-Content (Join-Path $data 'settings.json')
+          'ni esto' | Set-Content (Join-Path $data 'history.json')
+          $p = Start-Process $exe -PassThru
+          $r = Esperar-Ventana $p 60
+          Write-Host "::notice::abre_con_ajustes_corruptos=$r"
+          if (-not $r) { $fallos += 'Con los ajustes corruptos XoPy no abre'; Log-XoPy }
+          Parar-Todo
+          Remove-Item $data -Recurse -Force -ErrorAction SilentlyContinue
+
+          foreach ($f in $fallos) { Write-Host "::error file=XoPy/Program.cs::$f" }
+          if ($fallos.Count -gt 0) { throw "La aplicación no abre correctamente en $($fallos.Count) caso(s)" }
+          Write-Host 'ARRANQUE PORTABLE: CORRECTO'
+
       - name: Comprobar el resultado
         shell: pwsh
         run: |
@@ -99,8 +231,10 @@ jobs:
           Get-ChildItem publish | Select-Object Name, Length
           Get-ChildItem installer-output | Select-Object Name, Length
 
+      # Antes solo se ejecutaba a mano (workflow_dispatch), así que las versiones publicadas
+      # salían SIN probar la instalación. Ahora se prueba en cada build y, al publicar una
+      # etiqueta, un fallo aquí impide que se cree la release.
       - name: Probar el instalador
-        if: github.event_name == 'workflow_dispatch'
         shell: pwsh
         run: |
           $log = 'C:\install-test.txt'
@@ -162,6 +296,31 @@ jobs:
             $app = Start-Process -FilePath $exe -ArgumentList @('--screenshot', $shot) -PassThru
             if (-not $app.WaitForExit(60000)) { $app.Kill(); throw 'La aplicación instalada no respondió' }
             "captura_instalada=$(Test-Path $shot)" | Add-Content $log
+
+            # LA PRUEBA QUE FALTABA: abrir la aplicación instalada como lo hace el usuario
+            # (doble clic, sin argumentos) y exigir que aparezca una ventana. El instalador
+            # activa el arranque con Windows, así que aquí se comprueba justo el caso que
+            # fallaba: XoPy ya en la bandeja y el usuario abriéndolo desde el icono.
+            Get-Process XoPy -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 2
+            $abierto = Start-Process -FilePath $exe -PassThru
+            $conVentana = $false
+            $limite = (Get-Date).AddSeconds(60)
+            while ((Get-Date) -lt $limite -and -not $conVentana) {
+              Start-Sleep -Milliseconds 500
+              $conVentana = @(Get-Process XoPy -ErrorAction SilentlyContinue |
+                              Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero }).Count -gt 0
+            }
+            "ventana_instalada_visible=$conVentana" | Add-Content $log
+            $trayLanzado = Start-Process -FilePath $exe -ArgumentList '--tray' -PassThru
+            Start-Sleep -Seconds 10
+            Get-Process XoPy -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 2
+            if (-not $conVentana) {
+              $startupLog = Join-Path $env:LOCALAPPDATA 'XoPy\startup.log'
+              if (Test-Path $startupLog) { Get-Content $startupLog -Tail 30 | ForEach-Object { Write-Host "::error file=XoPy/Program.cs::$_" } }
+              throw 'La aplicación instalada NO abre ninguna ventana al ejecutarla'
+            }
 
             # Arrancar la aplicación no debe eliminar la extensión registrada.
             $after = [Microsoft.Win32.Registry]::GetValue('HKEY_CURRENT_USER\Software\Classes\CLSID\{3B1E92A7-7AD6-4E71-A218-75449CE13061}\InprocServer32', '', $null)

@@ -2189,12 +2189,12 @@ public sealed partial class MainForm : Form
 
             // No llamar Show() aqui: el formulario ya esta siendo mostrado por el evento Shown;
             // llamarlo de nuevo causa reentrancy de Windows Forms y puede desbordar la pila (0xc00000fd).
-            // Con «arrancar minimizado» (o --tray, que usa el arranque con Windows) la
-            // ventana NO debe aparecer ni un instante: antes se mostraba y luego se ocultaba,
-            // y eso es lo que el usuario vivía como «se abre sola».
-            if (_settings.StartMinimized || _startupRequest.StartMinimized)
+            // Solo el arranque CON WINDOWS (--tray) empieza en la bandeja. Abrir XoPy a mano
+            // siempre muestra la ventana: hacer caso aquí a la casilla guardada dejaba al
+            // usuario haciendo doble clic en el icono sin que apareciera nada.
+            if (_startupRequest.StartMinimized)
             {
-                Program.Log("MF-OnShown arranque en bandeja");
+                Program.Log("MF-OnShown arranque en bandeja (--tray)");
                 _startHidden = true;
             }
             else
@@ -2355,6 +2355,24 @@ public sealed partial class MainForm : Form
             Environment.Exit(0);
         }
 
+        // ── Ventana a la vista o en la bandeja: SE DECIDE AQUÍ, al final del arranque ──
+        // Este punto se alcanza siempre. Ponerlo dentro de HandleExternalAsync era el error:
+        // ese método solo se ejecuta si hay archivos, pegado o destino, de modo que con
+        // «--tray» (arranque con Windows) no se ocultaba, y en el resto de casos se evaluaba
+        // también al activar y volvía a esconder la ventana recién mostrada.
+        var arranqueConTrabajo = _startupRequest.Paths.Count > 0 || _startupRequest.PasteFromClipboard
+            || _startupRequest.Operation is not null || !string.IsNullOrWhiteSpace(_startupRequest.Destination);
+        if (_startupRequest.StartMinimized && !arranqueConTrabajo)
+        {
+            Program.Log("MF17. Arranque en bandeja (--tray)");
+            _startHidden = true;
+            MinimizeToTray();
+        }
+        else
+        {
+            Program.Log("MF17. Arranque con ventana visible");
+            EnsureWindowVisible("arranque");
+        }
     }
 
     public void HandleExternalRequest(StartupRequest request)
@@ -2503,16 +2521,14 @@ public sealed partial class MainForm : Form
             }
         }
 
-        // Solo se queda en la bandeja si el usuario no ha pedido una acción concreta. Con
-        // archivos o un pegado (--to/--paste) la ventana debe verse, aunque el arranque sea
-        // silencioso: si no, el usuario cree que XoPy no ha hecho nada.
-        var wantsWork = request.Paths.Count > 0 || request.PasteFromClipboard || request.Operation is not null;
-        if (!wantsWork && (request.StartMinimized || _startHidden
-            || (isStartup && _settings.StartMinimized && request.Operation is null && request.Paths.Count == 0)))
-        {
-            _startHidden = true;
-            MinimizeToTray(silent: true);
-        }
+        // Una ACTIVACIÓN (segunda instancia, doble clic en el icono) siempre termina con la
+        // ventana a la vista. Antes se volvía a evaluar aquí la lógica de «arrancar en
+        // bandeja» y XoPy se escondía justo después de mostrarse: el usuario abría la
+        // aplicación y no aparecía NADA.
+        // La decisión del ARRANQUE no se toma aquí: este método solo se ejecuta cuando hay
+        // archivos, pegado o destino, así que con «--tray» a secas nunca llegaba a correr.
+        // Se decide al final de OnShown, que siempre se ejecuta.
+        if (!isStartup) EnsureWindowVisible("activacion");
     }
 
     // ---------------------------------------------------------------- listas de copia múltiples en una misma pestaña

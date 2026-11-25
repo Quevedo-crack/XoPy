@@ -3186,13 +3186,42 @@ public sealed partial class MainForm
     }
 
     /// <summary>
+    /// Garantiza que la ventana se ve. Es la última red de seguridad contra el peor fallo
+    /// posible: que XoPy esté en ejecución y el usuario no vea nada por ninguna parte.
+    /// </summary>
+    private void EnsureWindowVisible(string motivo = "")
+    {
+        try
+        {
+            Program.Log("EnsureWindowVisible " + motivo);
+            _startHidden = false;
+            ShowInTaskbar = true;
+            if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
+            if (!Visible) Show();
+            Activate();
+            BringToFront();
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write("No se pudo mostrar la ventana: " + ex.Message);
+        }
+    }
+
+    /// <summary>
     /// Oculta la ventana en el área de notificación. Con <paramref name="silent"/> no muestra
-    /// globo: se usa al arrancar en la bandeja, donde un aviso emergente también se percibía
-    /// como «la ventana se abre sola».
+    /// globo. Si el icono de la bandeja NO llega a aparecer, la ventana se queda visible:
+    /// sin icono y sin ventana, XoPy estaría en marcha sin forma humana de abrirlo.
     /// </summary>
     private void MinimizeToTray(bool silent = false)
     {
         EnsureTrayIcon();
+        Program.Log($"MinimizeToTray icono_visible={_tray.Visible}");
+        if (!_tray.Visible)
+        {
+            FileLog.Write("No hay icono en la bandeja: la ventana se deja visible para no perder XoPy de vista.");
+            EnsureWindowVisible();
+            return;
+        }
         Hide();
         ShowInTaskbar = false;
         if (silent) return;

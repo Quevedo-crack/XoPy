@@ -79,22 +79,24 @@ internal static class Program
                 // el envío inmediato fallaba y esta segunda instancia abría OTRA ventana. Eso
                 // es lo que hacía que la ventana «volviera a abrirse» tras cerrarla: al pulsar
                 // el icono o al reabrir se lanzaba un segundo proceso con su propia ventana.
-                for (var attempt = 0; attempt < 12; attempt++)
+                var delivered = false;
+                for (var attempt = 0; attempt < 8 && !delivered; attempt++)
                 {
-                    if (IpcClient.Send(request))
-                    {
-                        Log("12. IPC enviado, salir");
-                        try { mutex.Dispose(); } catch { }
-                        return;
-                    }
-                    Thread.Sleep(250);
+                    delivered = IpcClient.Send(request);
+                    if (!delivered) Thread.Sleep(250);
+                }
+                if (delivered)
+                {
+                    Log("12. IPC confirmado por la instancia abierta, salir");
+                    try { mutex.Dispose(); } catch { }
+                    return;
                 }
 
-                // No se pudo hablar con la primera instancia: NO se abre una segunda ventana
-                // (quedarían dos iconos de bandeja y dos ventanas). Se sale sin más.
-                Log("12b. IPC sin respuesta: se sale sin abrir una segunda ventana");
-                try { mutex.Dispose(); } catch { }
-                return;
+                // La instancia anterior NO ha confirmado: puede estar colgada, sin interfaz o
+                // ser un proceso zombi que se quedó con el mutex. Salir aquí dejaba al usuario
+                // abriendo XoPy una y otra vez SIN QUE APARECIERA NADA. Se continúa y se abre
+                // esta ventana: es preferible una ventana de más que ninguna.
+                Log("12b. La instancia anterior no responde: se abre esta ventana igualmente");
             }
 
             Log("13. Crear MainForm");
