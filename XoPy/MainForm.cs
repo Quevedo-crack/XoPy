@@ -1610,6 +1610,10 @@ public sealed partial class MainForm : Form
             if (secondFailed != 0) { report.Add("error=la segunda copia marco archivos como Error"); ok = false; }
 
             // ── Mover a otro destino y reintentar: los orígenes ya no existen ──
+            // Se marca lo demás como pendiente para que el botón Mover tenga trabajo: una
+            // lista entera «Completed» ya no se reintenta (eso es lo que causaba los falsos
+            // «Error al 0 %»). Aquí se prueba el camino normal del usuario.
+            foreach (var item in _items.Where(i => i.Kind == ItemKind.File)) item.State = ItemState.Pending;
             var dest2 = Path.Combine(folder, "destinoB");
             _settings.Destination = dest2;
             _destination.Text = dest2;

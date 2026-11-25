@@ -145,12 +145,23 @@ end;
 
 // Si el Explorador conserva la DLL cargada, se reinicia ANTES de copiar archivos.
 // Renombrarla es la prueba fiable: si se puede renombrar, no está bloqueada.
+// Borra los XoPyShell.dll.old que dejó una desinstalación anterior (o un borrado
+// programado para el arranque). Se hace con RemoveDir/DeleteFile directos: sin bucles.
+procedure RepeatDeleteOld(const Dir: String);
+begin
+  if not DirExists(Dir) then exit;
+  DeleteFile(Dir + '\XoPyShell.dll.old');
+  DeleteFile(Dir + '\XoPyShell.dll.probe');
+end;
+
 procedure RestartExplorerIfNeeded();
 var
   ResultCode: Integer;
   Attempt: Integer;
   DllPath, ProbePath: String;
 begin
+  // Restos .old de una desinstalación anterior que Windows programó para el arranque.
+  RepeatDeleteOld(ExpandConstant('{app}'));
   DllPath := ExpandConstant('{app}\XoPyShell.dll');
   if not FileExists(DllPath) then exit;
   ProbePath := DllPath + '.probe';
@@ -249,11 +260,23 @@ begin
     // lo que hace Windows: así no queda el aviso de «elementos que no se pudieron eliminar».
     if FileExists(DllPath) and not DeleteFile(DllPath) then
     begin
-      Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM explorer.exe /F', '', SW_HIDE,
-           ewWaitUntilTerminated, ResultCode);
-      Sleep(2500);
-      if not DeleteFile(DllPath) then
-        MoveFileEx(DllPath, '', $4); // MOVEFILE_DELAY_UNTIL_REBOOT
+      // Windows NO permite borrar un DLL que el Explorador tiene mapeado… pero SÍ permite
+      // RENOMBRARLO (el nombre es solo una entrada del directorio; los datos siguen en uso).
+      // Renombrar y borrar es la forma fiable de que la carpeta quede vacía sin reiniciar.
+      if not RenameFile(DllPath, DllPath + '.old') then
+      begin
+        Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM explorer.exe /F', '', SW_HIDE,
+             ewWaitUntilTerminated, ResultCode);
+        Sleep(2500);
+        RenameFile(DllPath, DllPath + '.old');
+      end;
+      if FileExists(DllPath + '.old') then
+      begin
+        if not DeleteFile(DllPath + '.old') then
+          MoveFileEx(DllPath + '.old', '', $4); // MOVEFILE_DELAY_UNTIL_REBOOT
+      end
+      else if FileExists(DllPath) then
+        MoveFileEx(DllPath, '', $4);
     end;
     DelTree(AppDir, True, True, True);
     if DirExists(AppDir) then

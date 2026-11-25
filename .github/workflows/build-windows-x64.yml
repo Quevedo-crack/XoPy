@@ -199,7 +199,10 @@ jobs:
             $appFiles = @()
             if (Test-Path $appDir) { $appFiles = @(Get-ChildItem $appDir -Force) }
             "archivos_restantes_app=$($appFiles.Count)" | Add-Content $log
-            if ($appFiles.Count -gt 0) { $restos += 'archivos_app' }
+            if ($appFiles.Count -gt 0) {
+              $restos += 'archivos_app'
+              "detalle_archivos=$((($appFiles | ForEach-Object { "$($_.Name)($($_.Length))" }) -join ','))" | Add-Content $log
+            }
             $bad = $restos | Where-Object { $_ -ne 'carpeta_app' }
             if ($bad) { throw "La desinstalación dejó restos: $($bad -join ', ')" }
             "OK" | Add-Content $log
