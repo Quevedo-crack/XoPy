@@ -8,7 +8,7 @@ namespace XoPy;
 
 public sealed record ConflictPrompt(string SourcePath, string TargetPath, long SourceSize, long TargetSize, DateTime SourceModified, DateTime TargetModified);
 
-public enum ConflictChoice { Overwrite, Skip, Rename, OverwriteAll, SkipAll, Cancel }
+public enum ConflictChoice { Overwrite, Skip, Rename, OverwriteAll, SkipAll, Cancel, RenameAll }
 
 public sealed record ErrorPrompt(string FilePath, string Message, int Attempt);
 
@@ -1205,7 +1205,7 @@ public sealed class CopyEngine
                 source.Length, target.Length, source.LastWriteTime, target.LastWriteTime));
             return samePathChoice switch
             {
-                ConflictChoice.Rename => ConflictChoice.Rename,
+                ConflictChoice.Rename or ConflictChoice.RenameAll => ConflictChoice.Rename,
                 ConflictChoice.Cancel => ConflictChoice.Cancel,
                 _ => ConflictChoice.Skip
             };
@@ -1229,6 +1229,8 @@ public sealed class CopyEngine
                     source.LastWriteTime, target.LastWriteTime));
                 if (choice == ConflictChoice.OverwriteAll) { _stickyConflict = ConflictChoice.Overwrite; return ConflictChoice.Overwrite; }
                 if (choice == ConflictChoice.SkipAll) { _stickyConflict = ConflictChoice.Skip; return ConflictChoice.Skip; }
+                // «Quedarme con los dos» también se puede aplicar al resto de repetidos.
+                if (choice == ConflictChoice.RenameAll) { _stickyConflict = ConflictChoice.Rename; return ConflictChoice.Rename; }
                 return choice;
         }
     }

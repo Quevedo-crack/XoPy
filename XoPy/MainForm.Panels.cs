@@ -27,9 +27,8 @@ public sealed partial class MainForm
 
     private Control BuildFilesPage()
     {
-        // Estilo TeraCopy 4: encima de la lista, un bloque de tres filas con la etiqueta en
-        // una cajita a la izquierda y el valor a la derecha. Es lo que hace que la ventana
-        // se reconozca al instante como TeraCopy, en lugar de solo una tabla suelta.
+        // Pestaña «Lista de archivos»: SOLO la lista. Todo lo que antes iba encima (origen,
+        // destino, archivo en curso, totales) ya está una única vez en la cabecera o en el pie.
         var page = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -39,90 +38,14 @@ public sealed partial class MainForm
             Padding = new Padding(0),
             Margin = new Padding(0)
         };
-        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 58));
+        // FUERA el bloque «Origen / Destino» que iba encima de la lista: la cabecera de la
+        // ventana ya muestra el archivo en curso y la carpeta de destino, y tenerlo dos veces
+        // era justo lo que el usuario señalaba («destino sigue apareciendo dos veces»).
+        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 0));
         page.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        page.Controls.Add(BuildMetaBlock(), 0, 0);
         page.Controls.Add(BuildListShell(), 0, 1);
         return page;
     }
-
-    /// <summary>
-    /// Resumen de la lista. Antes repetía «Origen» y «Destino» que ya están en la cabecera de
-    /// progreso (por eso salían duplicados) y una fila «Filtro · Todos los archivos» que no
-    /// hacía nada. Ahora solo lo que aporta: cuántos archivos hay y a dónde van.
-    /// </summary>
-    private Control BuildMetaBlock()
-    {
-        var block = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            ColumnCount = 3,
-            RowCount = 2,
-            BackColor = _palette.Surface,
-            Padding = new Padding(8, 5, 8, 3),
-            Margin = new Padding(0)
-        };
-        block.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 96));
-        block.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        block.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 96));
-        for (var i = 0; i < 2; i++) block.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
-
-        // Esta fila mostraba «N archivos listos para copiar», que es exactamente lo que ya
-        // dice el pie y la barra de estado. Ahora muestra el ORIGEN, que no estaba en
-        // ninguna otra parte de la ventana (y es el par natural de «Destino»).
-        block.Controls.Add(MetaTag("Origen"), 0, 0);
-        _metaFilter = MetaValue("Sin origen");
-        block.Controls.Add(_metaFilter, 1, 0);
-        _metaCount = MetaValue("0 archivo(s)");
-        _metaCount.TextAlign = ContentAlignment.MiddleRight;
-        _metaCount.ForeColor = _palette.Muted;
-        block.Controls.Add(_metaCount, 2, 0);
-
-        block.Controls.Add(MetaTag("Destino"), 0, 1);
-        _metaDestination = MetaValue("Sin destino: elige una carpeta");
-        block.Controls.Add(_metaDestination, 1, 1);
-        _metaDestinationSize = MetaValue(string.Empty);
-        _metaDestinationSize.TextAlign = ContentAlignment.MiddleRight;
-        _metaDestinationSize.ForeColor = _palette.Muted;
-        block.Controls.Add(_metaDestinationSize, 2, 1);
-
-        // Campos que usa el resto del código; se mantienen para no romper el resumen.
-        _metaOrigin = MetaValue(string.Empty);
-        _metaOriginSize = MetaValue(string.Empty);
-        _metaOrigin.Visible = false;
-        _metaOriginSize.Visible = false;
-        return block;
-    }
-
-    /// <summary>Etiqueta pequeña en caja, como «Origen» o «Destino» de TeraCopy.</summary>
-    private Control MetaTag(string text)
-    {
-        var tag = new Label
-        {
-            Text = text,
-            AutoSize = false,
-            Dock = DockStyle.Fill,
-            TextAlign = ContentAlignment.MiddleCenter,
-            ForeColor = _palette.Muted,
-            BackColor = _palette.Raised,
-            Font = new Font("Segoe UI", 8f),
-            Margin = new Padding(0, 3, 8, 3)
-        };
-        return tag;
-    }
-
-    private Label MetaValue(string text) => new()
-    {
-        Text = text,
-        AutoSize = false,
-        Dock = DockStyle.Fill,
-        TextAlign = ContentAlignment.MiddleLeft,
-        ForeColor = _palette.Text,
-        Font = new Font("Segoe UI", 8.75f),
-        AutoEllipsis = true,
-        UseMnemonic = false,
-        Margin = new Padding(0, 3, 8, 3)
-    };
 
     // ---------------------------------------------------------------- pestaña: destino
 
@@ -670,19 +593,17 @@ public sealed partial class MainForm
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 9,
+            RowCount = 7,
             BackColor = _palette.Surface,
             Padding = new Padding(16, 10, 16, 8)
         };
-        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));
+        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
         page.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
         page.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
-        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
-        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 20));
-        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));
-        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
-        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 110));
+        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
         page.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
+        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 114));
+        page.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
         var title = Ui.Label("Estado de la transferencia", _palette, 11f, true);
         title.Anchor = AnchorStyles.Left;
@@ -742,15 +663,17 @@ public sealed partial class MainForm
         hint.TextAlign = ContentAlignment.MiddleLeft;
         hint.Margin = new Padding(0, 4, 0, 0);
 
+        // «Origen» y «Destino» NO se añaden: salen ya en la cabecera de la ventana, que está
+        // siempre a la vista. Eran dos de los datos repetidos que señaló el usuario.
+        _stSource.Visible = false;
+        _stTarget.Visible = false;
         page.Controls.Add(title, 0, 0);
         page.Controls.Add(_stOperation, 0, 1);
-        page.Controls.Add(_stSource, 0, 2);
-        page.Controls.Add(_stTarget, 0, 3);
-        page.Controls.Add(_stTotals, 0, 4);
-        page.Controls.Add(progressRow, 0, 5);
-        page.Controls.Add(speedRow, 0, 6);
-        page.Controls.Add(categories, 0, 7);
-        page.Controls.Add(hint, 0, 8);
+        page.Controls.Add(_stTotals, 0, 2);
+        page.Controls.Add(progressRow, 0, 3);
+        page.Controls.Add(speedRow, 0, 4);
+        page.Controls.Add(categories, 0, 5);
+        page.Controls.Add(hint, 0, 6);
         return page;
     }
 
@@ -1209,8 +1132,10 @@ public sealed partial class MainForm
         if (_list.Columns.Count < 7) return;
         var wideEnough = _list.ClientSize.Width >= 900;
         var show = wideEnough && _settings.ShowHashes && (_settings.VerifyAfterCopy || _lastOperation == OperationType.Test);
-        // 0 = Nombre · 1 = Destino · 2 = Tamaño · 3 = Estado · 4 = Progreso · 5/6 = hashes
-        SetWidth(_list.Columns[1], 236);
+        // 0 = Nombre · 1 = Subcarpeta · 2 = Tamaño · 3 = Estado · 4 = Progreso · 5/6 = hashes
+        // La subcarpeta es corta (normalmente «—»): el espacio que antes se llevaba repetir
+        // la ruta de destino se lo queda la columna del nombre, donde está el árbol.
+        SetWidth(_list.Columns[1], 150);
         SetWidth(_list.Columns[2], show ? 84 : 92);
         SetWidth(_list.Columns[3], show ? 108 : 128);
         SetWidth(_list.Columns[4], show ? 126 : 190);
@@ -1229,52 +1154,85 @@ public sealed partial class MainForm
 
     // ---------------------------------------------------------------- trabajos
 
+    /// <summary>
+    /// Panel «TRABAJOS»: una línea por lista de copia, con un distintivo que diferencia las
+    /// ACTIVAS, las que están EN PAUSA, las que ESPERAN TURNO y las ANTIGUAS ya terminadas.
+    /// Pulsando una línea se cambia a esa lista.
+    /// </summary>
     private void UpdateJobs()
     {
         if (_jobsList is null) return;
-        var lines = new List<string>();
-        if (_engine.IsRunning)
-        {
-            var total = _engine.TotalBytes;
-            var percent = total > 0 ? _engine.DoneBytes * 100d / total : 0;
-            var verb = _lastOperation switch
-            {
-                OperationType.Move => "Moviendo",
-                OperationType.Delete => "Eliminando",
-                OperationType.Test => "Verificando",
-                _ => "Copiando"
-            };
-            lines.Add($"{(_engine.IsPaused ? "❚❚" : "▶")} {verb}  ·  {percent:0.0} %  ·  {Format.Speed(_engine.SpeedBytesPerSecond)}");
-        }
-        else if (_items.Count > 0)
-        {
-            lines.Add($"Lista preparada  ·  {_items.Count} elemento(s)");
-        }
-        else
-        {
-            lines.Add("Sin trabajos en curso");
-        }
 
-        if (_history.Count > 0)
+        var entries = new List<JobLine>();
+        foreach (var list in _lists)
         {
-            lines.Add(string.Empty);
-            lines.Add("Historial");
-            foreach (var entry in _history.Take(9))
-            {
-                var mark = entry.Errors == 0 ? "✓" : "!";
-                lines.Add($"{mark} {entry.FinishedAt:dd/MM HH:mm}  {entry.OperationText}  {entry.ResultText}");
-            }
-        }
+            var running = _engine.IsRunning && list == _runningList;
+            var stage = list.Stage(running, running && _engine.IsPaused);
+            var files = list.Items.Count(item => item.Kind != ItemKind.Folder);
+            var done = list.Items.Count(item => item.Kind != ItemKind.Folder
+                && item.State is ItemState.Completed or ItemState.Skipped);
 
-        var signature = string.Join("\n", lines);
+            var detail = running
+                ? $"{(_engine.TotalBytes > 0 ? _engine.DoneBytes * 100d / _engine.TotalBytes : 0):0} % · {Format.Speed(_engine.SpeedBytesPerSecond)}"
+                : files == 0 ? "vacía" : $"{done}/{files} archivo(s)";
+
+            entries.Add(new JobLine(list,
+                $"{TransferList.StageGlyph(stage)}  {list.DisplayName}",
+                $"      {TransferList.StageText(stage)} · {detail}",
+                stage));
+        }
+        if (entries.Count == 0)
+            entries.Add(new JobLine(null, "Sin listas de copia", "      Arrastra archivos para empezar", ListStage.Preparada));
+
+        var signature = string.Join("\n", entries.Select(entry => entry.Title + entry.Detail))
+            + "|" + (_activeList?.Id.ToString() ?? string.Empty);
         if (string.Equals(signature, _jobsSignature, StringComparison.Ordinal)) return;
         _jobsSignature = signature;
 
+        // Mientras se copia, el detalle cambia cada segundo y el panel se rehace: hay que
+        // devolver la selección a su sitio o la línea marcada «salta» sola.
+        var selected = _jobsList.SelectedIndex;
         _jobsList.BeginUpdate();
         _jobsList.Items.Clear();
-        foreach (var line in lines) _jobsList.Items.Add(line);
+        foreach (var entry in entries)
+        {
+            _jobsList.Items.Add(entry);
+            _jobsList.Items.Add(new JobLine(entry.List, entry.Detail, string.Empty, entry.Stage) { IsDetail = true });
+        }
+        if (selected >= 0 && selected < _jobsList.Items.Count) _jobsList.SelectedIndex = selected;
         _jobsList.EndUpdate();
     }
+
+    /// <summary>Una línea del panel de trabajos.</summary>
+    private sealed class JobLine
+    {
+        public JobLine(TransferList? list, string title, string detail, ListStage stage)
+        {
+            List = list;
+            Title = title;
+            Detail = detail;
+            Stage = stage;
+        }
+
+        public TransferList? List { get; }
+        public string Title { get; }
+        public string Detail { get; }
+        public ListStage Stage { get; }
+        public bool IsDetail { get; init; }
+
+        public override string ToString() => Title;
+    }
+
+    /// <summary>Color con el que se pinta cada estado en el panel de trabajos.</summary>
+    private Color StageColor(ListStage stage) => stage switch
+    {
+        ListStage.Activa => _palette.Accent,
+        ListStage.Pausada => _palette.Warning,
+        ListStage.EnEspera => _palette.Muted,
+        ListStage.Terminada => _palette.Success,
+        ListStage.ConErrores => _palette.Danger,
+        _ => _palette.Text
+    };
 
     private string _jobsSignature = string.Empty;
 
@@ -1312,15 +1270,32 @@ public sealed partial class MainForm
         {
             case 0:
             {
-                // Lista plana: sin sangría por profundidad. La raíz se ve en la ruta de la fila.
-                var x = e.Bounds.Left + 8;
-                if (item.Kind == ItemKind.Folder)
+                // ÁRBOL: carpeta → subcarpeta → archivo. Cada nivel se sangra 18 px y las
+                // carpetas llevan su flecha para plegarse. Así se ve de un vistazo a qué
+                // carpeta pertenece cada archivo, sin repetir la ruta completa en cada fila.
+                var indent = Math.Clamp(item.Depth, 0, 12) * 18;
+                var x = e.Bounds.Left + 8 + indent;
+
+                // Líneas de guía verticales: ayudan a seguir la jerarquía con muchas filas.
+                if (item.Depth > 0)
+                {
+                    using var guide = new Pen(_palette.Border);
+                    for (var level = 1; level <= item.Depth; level++)
+                    {
+                        var gx = e.Bounds.Left + 8 + (level - 1) * 18 + 8;
+                        e.Graphics.DrawLine(guide, gx, top, gx, top + height);
+                    }
+                }
+
+                var hasChildren = item.Kind == ItemKind.Folder && ChildCount(item) > 0;
+                if (hasChildren)
                 {
                     TextRenderer.DrawText(e.Graphics, item.IsExpanded ? Icons.ChevronDown : Icons.ChevronRight,
                         _chevronFont, new Rectangle(x, top, 14, height), _palette.Muted,
                         TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
-                    x += 16;
                 }
+                x += 16;
+
                 var glyph = item.Kind is ItemKind.Folder or ItemKind.DirectoryEntry ? Icons.Folder : Icons.File;
                 var glyphColor = item.Kind is ItemKind.Folder or ItemKind.DirectoryEntry
                     ? _palette.Warning
@@ -1333,57 +1308,55 @@ public sealed partial class MainForm
                 var nameColor = item.State switch
                 {
                     ItemState.Failed => _palette.Danger,
-                    ItemState.Completed => _palette.Text,
+                    ItemState.Completed => _palette.Success,
                     ItemState.Skipped => _palette.Muted,
                     _ => _palette.Text
                 };
                 if (item.Kind == ItemKind.DirectoryEntry) nameColor = _palette.Muted;
+                var nameFont = item.Kind == ItemKind.Folder ? _headerFont : _list.Font;
                 var baseName = item.Kind == ItemKind.DirectoryEntry ? e.Item.Text + "  (carpeta vacía)" : e.Item.Text;
 
-                // Como TeraCopy: cada fila muestra la ruta completa del archivo, para que al
-                // reordenar se vea de dónde sale cada cosa aunque vengan de carpetas distintas.
-                // La carpeta va en color atenuado y el nombre del archivo en el color normal.
-                // Ruta completa SIEMPRE: la carpeta donde está el archivo, tal cual (raíz
-                // incluida). Al arrastrar una carpeta se añaden todos sus archivos y cada uno
-                // muestra de qué subcarpeta viene; la ruta de destino no cambia al reordenar.
-                var folderPath = string.Empty;
-                try
+                // Solo los elementos de PRIMER NIVEL enseñan de qué carpeta del disco salen:
+                // los de dentro ya lo dicen por su posición en el árbol. Antes todas las filas
+                // repetían la ruta entera, que era ilegible y redundante.
+                if (item.ParentId is null)
                 {
-                    var full = Path.GetFullPath(item.SourcePath);
-                    folderPath = Path.GetDirectoryName(full) ?? string.Empty;
-                }
-                catch { }
-                if (folderPath.Length > 0)
-                {
-                    if (!folderPath.EndsWith(Path.DirectorySeparatorChar)) folderPath += Path.DirectorySeparatorChar;
-                    var folderWidth = TextRenderer.MeasureText(e.Graphics, folderPath, _list.Font, Size.Empty,
-                        TextFormatFlags.NoPrefix).Width;
-                    var roomForName = Math.Max(0, e.Bounds.Right - x - 8);
-                    if (folderWidth + 40 < roomForName)
+                    var folderPath = string.Empty;
+                    try
                     {
-                        TextRenderer.DrawText(e.Graphics, folderPath, _list.Font,
-                            new Rectangle(x, top, folderWidth + 2, height), _palette.Muted, flags);
-                        x += folderWidth + 2;
-                        roomForName = Math.Max(0, e.Bounds.Right - x - 8);
+                        var full = Path.GetFullPath(item.SourcePath);
+                        folderPath = Path.GetDirectoryName(full) ?? string.Empty;
+                    }
+                    catch { }
+                    if (folderPath.Length > 0)
+                    {
+                        if (!folderPath.EndsWith(Path.DirectorySeparatorChar)) folderPath += Path.DirectorySeparatorChar;
+                        var folderWidth = TextRenderer.MeasureText(e.Graphics, folderPath, _list.Font, Size.Empty,
+                            TextFormatFlags.NoPrefix).Width;
+                        var roomForName = Math.Max(0, e.Bounds.Right - x - 8);
+                        if (folderWidth + 60 < roomForName)
+                        {
+                            TextRenderer.DrawText(e.Graphics, folderPath, _list.Font,
+                                new Rectangle(x, top, folderWidth + 2, height), _palette.Muted, flags);
+                            x += folderWidth + 2;
+                        }
                     }
                 }
 
-                TextRenderer.DrawText(e.Graphics, baseName, _list.Font,
+                TextRenderer.DrawText(e.Graphics, baseName, nameFont,
                     new Rectangle(x, top, Math.Max(0, e.Bounds.Right - x - 8), height),
                     nameColor, flags);
                 break;
             }
             case 1:
             {
-                // Carpeta de destino real de este elemento, para que se vea a dónde va cada cosa.
-                var destinationText = DestinationText(item);
-                var hasCustomTarget =
-                    (item.State is ItemState.Completed or ItemState.Running or ItemState.Verifying or ItemState.Paused)
-                    && !string.IsNullOrWhiteSpace(item.DestinationPath);
+                // Subcarpeta DENTRO del destino. La carpeta de destino completa está en la
+                // cabecera de la ventana: repetirla en cada fila era uno de los duplicados.
+                var relative = RelativeTargetText(item);
                 var color = item.State == ItemState.Failed ? _palette.Danger
-                    : hasCustomTarget ? _palette.Text
-                    : _palette.Muted;
-                TextRenderer.DrawText(e.Graphics, destinationText, _list.Font,
+                    : relative == "—" ? _palette.Muted
+                    : _palette.Text;
+                TextRenderer.DrawText(e.Graphics, relative, _list.Font,
                     new Rectangle(e.Bounds.Left + 4, top, Math.Max(0, e.Bounds.Width - 10), height),
                     color, TextFormatFlags.Left | TextFormatFlags.VerticalCenter
                            | TextFormatFlags.PathEllipsis | TextFormatFlags.NoPrefix);
@@ -1417,7 +1390,7 @@ public sealed partial class MainForm
                 var state = item.StateText;
                 if (item.Kind == ItemKind.Folder && item.State is ItemState.Pending or ItemState.Measuring)
                 {
-                    var count = Children(item).Count;
+                    var count = ChildCount(item);
                     if (count > 0) state += $" · {count}";
                 }
                 TextRenderer.DrawText(e.Graphics, state, _list.Font,
@@ -1516,7 +1489,7 @@ public sealed partial class MainForm
             if (available < 300)
             {
                 // En ventanas pequeñas se reduce el resto para que quepa el nombre.
-                SetWidth(_list.Columns[1], 168);
+                SetWidth(_list.Columns[1], 110);
                 SetWidth(_list.Columns[2], 74);
                 SetWidth(_list.Columns[3], 112);
                 SetWidth(_list.Columns[4], 124);

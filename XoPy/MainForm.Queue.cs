@@ -438,6 +438,136 @@ public sealed partial class MainForm
 
     private void ResetVisualOrder() => _visualOrder.Clear();
 
+    /// <summary>Cuántos hijos directos tiene cada elemento. Se rellena al reconstruir la
+    /// lista para no recorrer _items una vez por fila al pintar (con miles de archivos eso
+    /// convertía cada repintado en una operación cuadrática).</summary>
+    private readonly Dictionary<Guid, int> _childCount = new();
+
+    private int ChildCount(TransferItem item)
+        => _childCount.TryGetValue(item.Id, out var count) ? count : 0;
+
+    /// <summary>
+    /// Orden visual JERÁRQUICO: carpeta → subcarpeta → archivo. Las raíces van en su orden y
+    /// debajo de cada carpeta sus hijos, y los hijos de estos, con la profundidad calculada.
+    /// El orden de cada nivel sale de <see cref="_visualOrder"/>, así que reordenar mueve el
+    /// elemento SOLO entre sus hermanos: ni la carpeta raíz ni la ruta de destino cambian.
+    /// </summary>
+    private List<TransferItem> OrderedTree()
+    {
+        var flat = VisualItems();
+        var rank = new Dictionary<Guid, int>(flat.Count);
+        for (var index = 0; index < flat.Count; index++) rank[flat[index].Id] = index;
+
+        var children = new Dictionary<Guid, List<TransferItem>>();
+        var roots = new List<TransferItem>();
+        foreach (var item in flat)
+        {
+            if (item.ParentId is null) { roots.Add(item); continue; }
+            if (!children.TryGetValue(item.ParentId.Value, out var bucket))
+                children[item.ParentId.Value] = bucket = new List<TransferItem>();
+            bucket.Add(item);
+        }
+        foreach (var bucket in children.Values) bucket.Sort((a, b) => rank[a.Id].CompareTo(rank[b.Id]));
+
+        _childCount.Clear();
+        foreach (var pair in children) _childCount[pair.Key] = pair.Value.Count;
+
+        var result = new List<TransferItem>(flat.Count);
+        var guard = 0;
+        void Walk(TransferItem node, int depth)
+        {
+            if (guard++ > 1_000_000) return;
+            node.Depth = depth;
+            result.Add(node);
+            if (!children.TryGetValue(node.Id, out var kids)) return;
+            foreach (var kid in kids) Walk(kid, depth + 1);
+        }
+        foreach (var root in roots) Walk(root, 0);
+
+        // Red de seguridad: si algún elemento quedó huérfano (padre borrado), se añade al final
+        // en vez de desaparecer de la lista.
+        if (result.Count != flat.Count)
+        {
+            var seen = result.Select(item => item.Id).ToHashSet();
+            foreach (var item in flat) if (!seen.Contains(item.Id)) result.Add(item);
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Decide de una pasada qué filas se ven: las que pertenecen a la vista actual («En cola»
+    /// o «Finalizados») Y cuyas carpetas padre están desplegadas. Se hace con dos recorridos
+    /// lineales en vez de preguntar carpeta por carpeta, que con miles de archivos tardaba
+    /// una eternidad en cada repintado.
+    /// </summary>
+    private HashSet<Guid> VisibleRows(List<TransferItem> ordered)
+    {
+        // Paso 1 (de abajo arriba): una carpeta se ve si alguno de sus hijos se ve.
+        var matches = new Dictionary<Guid, bool>(ordered.Count);
+        for (var index = ordered.Count - 1; index >= 0; index--)
+        {
+            var item = ordered[index];
+            bool visible;
+            if (item.Kind == ItemKind.Folder && ChildCount(item) > 0)
+                visible = matches.TryGetValue(item.Id, out var any) && any;
+            else
+                visible = IsFinished(item) == _showFinished;
+
+            matches[item.Id] = visible;
+            if (visible && item.ParentId is not null) matches[item.ParentId.Value] = true;
+        }
+
+        // Paso 2 (de arriba abajo): además, la carpeta que la contiene tiene que estar abierta.
+        var expanded = new Dictionary<Guid, bool>(ordered.Count);
+        var result = new HashSet<Guid>();
+        foreach (var item in ordered)
+        {
+            var parentOpen = true;
+            if (item.ParentId is not null)
+                parentOpen = expanded.TryGetValue(item.ParentId.Value, out var open) && open;
+
+            expanded[item.Id] = parentOpen && item.IsExpanded;
+            if (parentOpen && matches.TryGetValue(item.Id, out var ok) && ok) result.Add(item.Id);
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// ¿Este archivo ya está hecho? «En cola» muestra lo que falta por copiar (incluido lo
+    /// que se está copiando ahora o lo que falló, que hay que reintentar); «Finalizados»
+    /// muestra lo ya terminado. Es lo que pedía el usuario: al ordenar por tamaño, la lista
+    /// de siempre solo enseña lo pendiente.
+    /// </summary>
+    private static bool IsFinished(TransferItem item)
+        => item.State is ItemState.Completed or ItemState.Skipped;
+
+    /// <summary>Cambia entre «En cola» y «Finalizados» sin perder la selección.</summary>
+    private void SetQueueView(bool finished)
+    {
+        if (_showFinished == finished) return;
+        _showFinished = finished;
+        RebuildRows();
+        UpdateQueueViewButtons();
+        UpdateFooter();
+        UpdateButtons();
+    }
+
+    private void UpdateQueueViewButtons()
+    {
+        if (_viewQueueButton is null || _viewDoneButton is null) return;
+        var files = _items.Where(item => item.Kind != ItemKind.Folder).ToList();
+        var done = files.Count(IsFinished);
+        var pending = files.Count - done;
+        _viewQueueButton.Text = $"En cola ({pending})";
+        _viewDoneButton.Text = $"Finalizados ({done})";
+        foreach (var (button, active) in new[] { (_viewQueueButton, !_showFinished), (_viewDoneButton, _showFinished) })
+        {
+            button.BackColor = active ? _palette.Accent : _palette.Raised;
+            button.ForeColor = active ? Color.White : _palette.Muted;
+            button.FlatAppearance.BorderColor = active ? _palette.Accent : _palette.Border;
+        }
+    }
+
     private List<TransferItem> SelectedItems()
         => _list.SelectedItems.Cast<ListViewItem>().Select(row => row.Tag).OfType<TransferItem>().ToList();
 
@@ -447,44 +577,39 @@ public sealed partial class MainForm
         return selected.Count > 0 ? selected : RootItems();
     }
 
-    private bool IsVisibleRow(TransferItem item)
-    {
-        var parentId = item.ParentId;
-        var guard = 0;
-        while (parentId is not null && guard++ < 64)
-        {
-            var parent = _items.FirstOrDefault(candidate => candidate.Id == parentId.Value);
-            if (parent is null) return false;
-            if (!parent.IsExpanded) return false;
-            parentId = parent.ParentId;
-        }
-        return true;
-    }
+    private void RebuildRows() => RebuildRows(null);
 
-    private void RebuildRows()
+
+    /// <summary>
+    /// Vuelve a pintar la lista. <paramref name="keepVisible"/> es el elemento que acaba de
+    /// moverse: la vista NO salta a otra parte (se conserva la posición de desplazamiento) y
+    /// solo se desplaza si ese elemento se ha quedado fuera de la pantalla.
+    /// </summary>
+    private void RebuildRows(Guid? keepVisible)
     {
         if (_list is null) return;
         var selectedIds = SelectedItems().Select(item => item.Id).ToHashSet();
 
-        // Al reconstruir la lista (tras mover, borrar o reordenar) se perdía el scroll y el
-        // usuario volvía al principio de 6.000 archivos. Se recuerda la fila que estaba
-        // arriba y se devuelve exactamente ahí al terminar.
-        var anchorId = (_list.TopItem?.Tag as TransferItem)?.Id;
+        // La posición de desplazamiento se guarda como ÍNDICE de la primera fila visible, no
+        // como identificador: al mover un elemento, su fila cambia de sitio y anclarse a ella
+        // hacía que la lista se fuera a otra parte (justo la queja del usuario).
+        var topIndex = 0;
+        try { topIndex = _list.TopItem?.Index ?? 0; } catch { }
 
         _list.BeginUpdate();
         try
         {
             _list.Items.Clear();
             _rows.Clear();
-            // Lista PLANA, como TeraCopy: una fila por archivo, venga de la carpeta que venga.
-            // La carpeta no ocupa fila (por eso antes había que desplegarla para ver el
-            // contenido), y así se puede reordenar archivo a archivo conservando su raíz, que
-            // se muestra en la propia fila. La ruta de destino sigue saliendo de RelativePath,
-            // que no se toca al reordenar.
-            foreach (var item in VisualItems())
+            // Árbol: CARPETA → SUBCARPETA → ARCHIVO. Cada fila se dibuja con la sangría de su
+            // profundidad, las carpetas se pueden plegar y el reordenado se hace entre
+            // hermanos, sin cambiar nunca la raíz ni la ruta de destino.
+            var ordered = OrderedTree();
+            var visible = VisibleRows(ordered);
+            foreach (var item in ordered)
             {
-                if (item.Kind == ItemKind.Folder) continue;
-                var row = new ListViewItem(new[] { item.Name, DestinationText(item), item.SizeText, item.StateText, string.Empty, string.Empty, string.Empty })
+                if (!visible.Contains(item.Id)) continue;
+                var row = new ListViewItem(new[] { item.Name, RelativeTargetText(item), item.SizeText, item.StateText, string.Empty, string.Empty, string.Empty })
                 {
                     Tag = item,
                     ToolTipText = BuildTooltip(item)
@@ -500,16 +625,99 @@ public sealed partial class MainForm
         }
 
         RefreshFolders();
+        // Se apunta aquí cuántos hay terminados: si no, SyncRows creería que la vista ha
+        // cambiado y volvería a llamar a RebuildRows (trabajo doble en cada repaso).
+        _finishedCount = _items.Count(item => item.Kind != ItemKind.Folder && IsFinished(item));
         SyncRows();
         UpdateHashColumns();
         // Al pasar de lista vacía a con filas se reparte de nuevo el alto: ResizeColumns es
         // quien devuelve la fila del ListView a Percent y, si no, las filas no se ven.
         ResizeColumns();
-        // Devolver la vista a la fila donde estaba antes de reconstruir.
-        if (anchorId is not null && _rows.TryGetValue(anchorId.Value, out var anchorRow))
+        RestoreScroll(topIndex, keepVisible);
+        UpdateQueueViewButtons();
+        UpdateScrollCover();
+    }
+
+    /// <summary>
+    /// Devuelve la lista exactamente a donde estaba. Solo se desplaza si el elemento recién
+    /// movido se ha quedado fuera de la zona visible, y entonces lo justo para verlo.
+    /// </summary>
+    private void RestoreScroll(int topIndex, Guid? keepVisible)
+    {
+        if (_list is null || _list.Items.Count == 0) return;
+        try
         {
-            try { _list.EnsureVisible(anchorRow.Index); } catch { }
+            var wanted = Math.Clamp(topIndex, 0, _list.Items.Count - 1);
+            _list.TopItem = _list.Items[wanted];
         }
+        catch { }
+
+        if (keepVisible is null) return;
+        if (!_rows.TryGetValue(keepVisible.Value, out var row)) return;
+        try
+        {
+            var first = _list.TopItem?.Index ?? 0;
+            var rowHeight = Math.Max(1, row.Bounds.Height);
+            var visible = Math.Max(1, _list.ClientSize.Height / rowHeight - 1);
+            if (row.Index < first || row.Index > first + visible - 1) _list.EnsureVisible(row.Index);
+        }
+        catch { }
+    }
+
+    /// <summary>Cuántos archivos hay terminados. Si cambia, hay que repintar la lista.</summary>
+    private int _finishedCount = -1;
+
+    /// <summary>
+    /// Quita de la vista «En cola» las filas de lo que ya se ha copiado (y las carpetas que
+    /// se quedan sin nada pendiente). No toca la posición de desplazamiento ni los datos:
+    /// esos archivos siguen en la lista, solo que ahora se ven en «Finalizados».
+    /// </summary>
+    private void TrimFinishedRows()
+    {
+        if (_list is null || _showFinished) return;
+
+        var byId = new Dictionary<Guid, TransferItem>(_items.Count);
+        foreach (var item in _items) byId[item.Id] = item;
+
+        var remove = new List<ListViewItem>();
+        var keepFolders = new HashSet<Guid>();
+        foreach (ListViewItem row in _list.Items)
+        {
+            if (row.Tag is not TransferItem item || item.Kind == ItemKind.Folder) continue;
+            if (IsFinished(item)) { remove.Add(row); continue; }
+
+            // Este archivo sigue pendiente: todas las carpetas por encima de él se quedan.
+            var parent = item.ParentId;
+            var guard = 0;
+            while (parent is not null && guard++ < 64)
+            {
+                if (!keepFolders.Add(parent.Value)) break;
+                parent = byId.TryGetValue(parent.Value, out var upper) ? upper.ParentId : null;
+            }
+        }
+        if (remove.Count == 0) return;
+
+        foreach (ListViewItem row in _list.Items)
+        {
+            if (row.Tag is not TransferItem folder || folder.Kind != ItemKind.Folder) continue;
+            if (keepFolders.Contains(folder.Id)) continue;
+            // Una carpeta vacía no depende de sus hijos: sigue su propio estado.
+            if (ChildCount(folder) == 0 && !IsFinished(folder)) continue;
+            remove.Add(row);
+        }
+
+        _list.BeginUpdate();
+        try
+        {
+            foreach (var row in remove)
+            {
+                if (row.Tag is TransferItem item) _rows.Remove(item.Id);
+                _list.Items.Remove(row);
+            }
+        }
+        finally { _list.EndUpdate(); }
+
+        UpdateQueueViewButtons();
         UpdateScrollCover();
     }
 
@@ -517,6 +725,21 @@ public sealed partial class MainForm
     {
         if (_list is null || !IsHandleCreated) return;
         RefreshFolders();
+
+        // Los archivos que terminan SALEN de la vista «En cola» y aparecen en «Finalizados»
+        // en cuanto se completan, sin esperar a que acabe la copia entera.
+        var finished = 0;
+        foreach (var item in _items)
+            if (item.Kind != ItemKind.Folder && IsFinished(item)) finished++;
+        if (finished != _finishedCount)
+        {
+            _finishedCount = finished;
+            // En «Finalizados» ENTRAN filas nuevas: hay que rehacer la lista. En «En cola»
+            // solo SALEN, y quitarlas una a una es mucho más barato que reconstruirlo todo
+            // en cada archivo terminado (con miles de archivos eso se arrastraba).
+            if (_showFinished) { RebuildRows(); return; }
+            TrimFinishedRows();
+        }
 
         var changed = false;
         void SetText(ListViewItem.ListViewSubItem subItem, string text)
@@ -535,10 +758,10 @@ public sealed partial class MainForm
                 var state = item.StateText;
                 if (item.Kind == ItemKind.Folder && item.State is ItemState.Pending or ItemState.Measuring)
                 {
-                    var count = Children(item).Count;
+                    var count = ChildCount(item);
                     if (count > 0) state += $" · {count}";
                 }
-                SetText(row.SubItems[1], DestinationText(item));
+                SetText(row.SubItems[1], RelativeTargetText(item));
                 SetText(row.SubItems[2], item.SizeText);
                 SetText(row.SubItems[3], state);
                 SetText(row.SubItems[4], $"{RowPercent(item):0} %");
@@ -589,6 +812,27 @@ public sealed partial class MainForm
         // Carpeta: el destino de la carpeta es su carpeta contenedora dentro del destino.
         var parentRelative = Path.GetDirectoryName(relative);
         return string.IsNullOrEmpty(parentRelative) ? baseDestination : Path.Combine(baseDestination, parentRelative);
+    }
+
+    /// <summary>
+    /// Subcarpeta DENTRO del destino a la que va este elemento. La carpeta de destino sale ya
+    /// en la cabecera de la ventana: repetirla en las 6.000 filas de la lista era uno de los
+    /// duplicados de los que se quejaba el usuario. Aquí solo se muestra lo que cambia de una
+    /// fila a otra: «—» si va a la raíz del destino, o «\\subcarpeta» si va dentro.
+    /// </summary>
+    private static string RelativeTargetText(TransferItem item)
+    {
+        string? folder = null;
+        if (!string.IsNullOrWhiteSpace(item.RelativePath))
+        {
+            folder = item.Kind == ItemKind.File
+                ? Path.GetDirectoryName(item.RelativePath)
+                : Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(item.RelativePath));
+        }
+        if (item.Kind != ItemKind.File && !string.IsNullOrWhiteSpace(item.RelativePath))
+            folder = Path.TrimEndingDirectorySeparator(item.RelativePath);
+        if (string.IsNullOrWhiteSpace(folder)) return "—";
+        return Path.DirectorySeparatorChar + folder;
     }
 
     /// <summary>
@@ -654,6 +898,10 @@ public sealed partial class MainForm
     /// del pie, así que aquí solo va lo que NO se repite. (En la captura 18 salían
     /// «6387 archivo(s)» dos veces y «6,2 GB» tres.)
     /// </summary>
+    /// <summary>
+    /// Texto de la cabecera de la lista. Solo describe LO QUE SE ESTÁ VIENDO en la vista
+    /// activa: el total general y el porcentaje viven en el pie y no se repiten aquí.
+    /// </summary>
     private void UpdateCountLabel(int leaves, long total)
     {
         if (_countLabel is null) return;
@@ -662,10 +910,18 @@ public sealed partial class MainForm
             _countLabel.Text = "Lista vacía — arrastra archivos o carpetas aquí";
             return;
         }
-        var folders = _items.Count - leaves;
-        _countLabel.Text = folders > 0
-            ? $"{_items.Count} elemento(s) · {folders} carpeta(s)"
-            : $"{leaves} archivo(s)";
+
+        var files = _items.Where(item => item.Kind != ItemKind.Folder).ToList();
+        var shown = files.Where(item => IsFinished(item) == _showFinished).ToList();
+        if (shown.Count == 0)
+        {
+            _countLabel.Text = _showFinished
+                ? "Todavía no hay nada terminado"
+                : "No queda nada pendiente";
+            return;
+        }
+        var bytes = shown.Sum(item => Math.Max(0, item.SizeBytes));
+        _countLabel.Text = $"{shown.Count} archivo(s) · {Format.Bytes(bytes)}";
     }
 
     private string? _currentStatus;
@@ -680,7 +936,7 @@ public sealed partial class MainForm
     private void ToggleExpand(TransferItem item)
     {
         if (item.Kind != ItemKind.Folder) return;
-        if (Children(item).Count == 0) return;
+        if (ChildCount(item) == 0) return;
         item.IsExpanded = !item.IsExpanded;
         RebuildRows();
     }
@@ -716,34 +972,32 @@ public sealed partial class MainForm
         foreach (var item in ordered)
             if (MoveBlock(item, delta)) moved++;
 
-        if (moved == 0) { SetStatus("El elemento ya está en el extremo."); return; }
+        if (moved == 0) { SetStatus("El elemento ya está en el extremo de su carpeta."); return; }
 
-        RebuildRows();
+        // Se pasa el elemento movido para que la lista NO salte a otra parte: se queda donde
+        // estaba y solo se desplaza si la fila se ha salido de la pantalla.
+        RebuildRows(ordered[0].Id);
         UpdateFooter();
         UpdateButtons();
         SetStatus("Orden de la cola actualizado.");
     }
 
     /// <summary>
-    /// Reordena un elemento una posición arriba o abajo. Los ARCHIVOS se mueven siempre
-    /// dentro de la lista plana de archivos, sin importar de qué carpeta vengan: es lo que
-    /// pide poder ordenar archivo a archivo aunque estén en raíces distintas. Las carpetas
-    /// conservan su propia posición y se reordenan solo entre carpetas.
+    /// Reordena un elemento una posición arriba o abajo DENTRO DE SU CARPETA. Un archivo se
+    /// mueve entre los archivos de su misma carpeta y una carpeta entre las carpetas de su
+    /// mismo nivel, arrastrando consigo todo su contenido. No se toca ParentId, RelativePath
+    /// ni la raíz: la ruta de destino al copiar es exactamente la misma antes y después.
     /// </summary>
     private bool MoveBlock(TransferItem item, int delta)
     {
-        if (item.Kind == ItemKind.Folder)
-        {
-            var folders = VisualItems().Where(candidate => candidate.Kind == ItemKind.Folder).ToList();
-            return SwapInVisualOrder(folders, item, delta);
-        }
-
-        // Archivos (y carpetas vacías, que son un archivo-índice): una sola secuencia plana.
-        // No se toca ParentId, RelativePath ni Depth: la ruta de destino al copiar no cambia.
-        var files = VisualItems()
-            .Where(candidate => candidate.Kind != ItemKind.Folder)
+        // Hermanos = mismo padre. Se usa el orden del árbol para que «arriba» y «abajo»
+        // coincidan con lo que se ve en pantalla.
+        var siblings = OrderedTree()
+            .Where(candidate => candidate.ParentId == item.ParentId)
             .ToList();
-        return SwapInVisualOrder(files, item, delta);
+        // Dentro de un nivel, carpetas y archivos se reordenan entre ellos: es lo natural al
+        // ver el árbol, y así se puede subir una subcarpeta por encima de un archivo suelto.
+        return SwapInVisualOrder(siblings, item, delta);
     }
 
     private bool SwapInVisualOrder(List<TransferItem> sequence, TransferItem item, int delta)
@@ -920,8 +1174,19 @@ public sealed partial class MainForm
             _list.SelectedItems.Clear();
             info.Item.Selected = true;
         }
-        // La lista es plana (una fila por archivo): no hay carpetas que desplegar.
-        _ = e;
+        // Clic en la flecha de una carpeta: se pliega o despliega. La zona sensible tiene en
+        // cuenta la sangría del nivel, igual que la pinta ListDrawSubItem.
+        if (e.Button == MouseButtons.Left && info.Item?.Tag is TransferItem folder
+            && folder.Kind == ItemKind.Folder && ChildCount(folder) > 0)
+        {
+            var indent = Math.Clamp(folder.Depth, 0, 12) * 18;
+            var left = _list.Items[info.Item.Index].Bounds.Left + 8 + indent;
+            if (e.X >= left - 2 && e.X <= left + 16)
+            {
+                ToggleExpand(folder);
+                return;
+            }
+        }
     }
 
     private void ListDoubleClick(object? sender, EventArgs e)
@@ -985,28 +1250,67 @@ public sealed partial class MainForm
         }
     }
 
+    /// <summary>
+    /// Se ha pulsado Copiar/Mover con otra transferencia ya en marcha. Se ofrece lo que pidió
+    /// el usuario: añadir a la copia en curso, poner esta lista EN ESPERA (se lanzará sola al
+    /// terminar la de delante) o copiar a la vez en otra ventana.
+    /// </summary>
     private void HandleBusy(OperationType operation)
     {
         if (!_settings.AskWhenBusy)
         {
-            SetStatus("Ya hay una transferencia en curso.");
+            QueueListForLater(operation);
             return;
         }
 
-        var answer = MessageBox.Show(this,
-            "Ya hay una transferencia en curso.\n\n" +
-            "Sí: añadir estos elementos a la copia actual (se harán en cuanto termine).\n" +
-            "No: abrir otra ventana de XoPy para copiarlos a la vez.",
-            "XoPy", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
-        if (answer == DialogResult.Cancel) return;
-        if (answer == DialogResult.Yes)
+        var running = _runningList?.DisplayName ?? "la copia en curso";
+        var choice = PromptDialog.Ask(this, _palette, "Ya hay una copia en marcha",
+            $"«{running}» está copiando ahora mismo. ¿Qué hago con «{_activeList?.DisplayName ?? "esta lista"}»?",
+            "· Esperar turno: esta lista arranca sola en cuanto termine la de delante. Aparece en el panel de trabajos marcada como «Esperando turno».\n" +
+            "· Añadir a la de delante: los archivos se meten en la copia que ya está corriendo.\n" +
+            "· Copiar a la vez: se abre otra ventana de XoPy y las dos copias van en paralelo (más lento si es el mismo disco).",
+            new[] { "Esperar turno", "Añadir a la de delante", "Copiar a la vez", "Cancelar" });
+
+        switch (choice)
+        {
+            case 0:
+                QueueListForLater(operation);
+                break;
+            case 1:
+                MergeIntoRunningList(operation);
+                break;
+            case 2:
+                LaunchSeparateWindow(operation);
+                break;
+        }
+    }
+
+    /// <summary>Deja la lista esperando turno; se lanzará sola al terminar la que va delante.</summary>
+    private void QueueListForLater(OperationType operation)
+    {
+        if (_activeList is null) { SetStatus("Ya hay una transferencia en curso."); return; }
+        _activeList.Queued = true;
+        _activeList.QueuedOperation = operation;
+        UpdateJobs();
+        SetStatus($"«{_activeList.DisplayName}» esperará turno: arrancará al terminar la copia actual.");
+    }
+
+    /// <summary>Mueve los archivos de la lista que se está viendo a la que se está copiando.</summary>
+    private void MergeIntoRunningList(OperationType operation)
+    {
+        if (_runningList is null || _activeList is null || _runningList == _activeList)
         {
             _followUpOperation = operation;
             SetStatus("Se copiarán en cuanto termine la transferencia en curso.");
             return;
         }
 
-        LaunchSeparateWindow(operation);
+        var moved = _activeList.Items.ToList();
+        _activeList.Items.Clear();
+        _runningList.Items.AddRange(moved);
+        _followUpOperation = operation;
+        SwitchToList(_runningList);
+        SetStatus($"{moved.Count} elemento(s) añadidos a «{_runningList.DisplayName}»; se copiarán al llegarles el turno.");
     }
 
     private void LaunchSeparateWindow(OperationType operation)
@@ -1415,8 +1719,14 @@ public sealed partial class MainForm
         UpdateFooter();
         UpdateButtons();
 
+        // Se anota qué lista está copiando el motor: así se puede mirar otra lista mientras
+        // la copia sigue, y el panel de trabajos sabe cuál marcar como «Copiando ahora».
+        _runningList = _activeList;
+        if (_activeList is not null) _activeList.Queued = false;
+
         if (!_engine.Start(targets, options))
         {
+            _runningList = null;
             var missing = targets.Count(item => item.State == ItemState.Failed && item.Error?.Contains("ya no existe") == true);
             SetStatus(missing > 0
                 ? $"No se pudo transferir: {missing} archivo(s) de origen ya no existen (se movieron antes). Añádelos de nuevo."
@@ -1823,23 +2133,24 @@ public sealed partial class MainForm
 
     private ConflictChoice AskConflict(ConflictPrompt prompt)
     {
-        var detail = $"Origen: {prompt.SourcePath} ({Format.Bytes(prompt.SourceSize)}, {prompt.SourceModified:g})\n" +
-                     $"Destino: {prompt.TargetPath} ({Format.Bytes(prompt.TargetSize)}, {prompt.TargetModified:g})";
         // Como el Explorador de Windows: pegar donde ya está el archivo crea una copia con otro
         // nombre, sin preguntar y sin tocar el original. Antes salía un diálogo por cada archivo.
         var samePath = string.Equals(Path.GetFullPath(prompt.SourcePath), Path.GetFullPath(prompt.TargetPath),
             StringComparison.OrdinalIgnoreCase);
         if (samePath) return ConflictChoice.Rename;
 
-        var choice = PromptDialog.Ask(this, _palette, "Ya existe un archivo",
-            "El archivo de destino ya existe. ¿Qué quieres hacer con \"" + Path.GetFileName(prompt.TargetPath) + "\"?",
-            detail, new[] { "Sobrescribir", "Omitir", "Cambiar nombre", "Cancelar" }, "Aplicar a todos los conflictos", out var applyAll);
+        // Ventana propia: compara los dos archivos lado a lado (tamaño y fecha, con el más
+        // nuevo y el más grande señalados) en vez del muro de texto con dos rutas largas.
+        using var dialog = new ConflictDialog(_palette, prompt);
+        var result = dialog.ShowDialog(this);
+        var choice = result == DialogResult.OK ? dialog.Choice : 3;
+        var applyAll = dialog.ApplyToAll;
 
         return choice switch
         {
             0 => applyAll ? ConflictChoice.OverwriteAll : ConflictChoice.Overwrite,
             1 => applyAll ? ConflictChoice.SkipAll : ConflictChoice.Skip,
-            2 => ConflictChoice.Rename,
+            2 => applyAll ? ConflictChoice.RenameAll : ConflictChoice.Rename,
             _ => ConflictChoice.Cancel
         };
     }
@@ -1875,6 +2186,12 @@ public sealed partial class MainForm
     private void OnEngineFinished()
     {
         _wasRunning = false;
+        // La lista que acaba de terminar puede NO ser la que se está viendo (se puede
+        // preparar otra mientras se copia): los recuentos y el historial se hacen sobre la
+        // que ha copiado de verdad, no sobre la que hay delante.
+        var finishedList = _runningList;
+        var finishedItems = finishedList?.Items ?? _items;
+        _runningList = null;
         _pauseButton.Text = "Pausar";
         _pauseButton.Image = Icons.Glyph(Icons.Pause, _palette.Text, 18);
         _pauseButton.BackColor = _palette.Raised;
@@ -1884,10 +2201,10 @@ public sealed partial class MainForm
         _sessionBytes = _engine.DoneBytes;
         _sessionElapsed = _engine.Elapsed;
 
-        var failed = _items.Count(item => item.State == ItemState.Failed);
-        var cancelled = _items.Count(item => item.State == ItemState.Cancelled);
-        var skipped = _items.Count(item => item.State == ItemState.Skipped);
-        var completed = _items.Count(item => item.State == ItemState.Completed && item.Kind != ItemKind.Folder);
+        var failed = finishedItems.Count(item => item.State == ItemState.Failed);
+        var cancelled = finishedItems.Count(item => item.State == ItemState.Cancelled);
+        var skipped = finishedItems.Count(item => item.State == ItemState.Skipped);
+        var completed = finishedItems.Count(item => item.State == ItemState.Completed && item.Kind != ItemKind.Folder);
 
         _store.AppendHistory(new HistoryEntry
         {
@@ -1911,11 +2228,19 @@ public sealed partial class MainForm
 
         var icon = Icons.ProgressIcon(100, _settings.DarkTheme, false, failed > 0, failed == 0);
         ReplaceTrayIcon(icon);
-        _tray.Text = failed > 0 ? $"XoPy — {failed} error(es)" : "XoPy — 100 %";
+        _tray.Text = failed > 0 ? $"XoPy — {failed} error(es)" : "XoPy — terminado (100 %)";
         _trayPercent = -1;
         _completedAt = DateTime.Now;
         Text = failed > 0 ? "XoPy — completado con errores" : "XoPy — completado";
 
+        // Si ya no queda nada pendiente EN LA LISTA QUE SE VE, la vista «En cola» se quedaría
+        // vacía: se pasa sola a «Finalizados» para enseñar el resultado en vez de una lista
+        // en blanco. Si se está mirando otra lista con cosas pendientes, no se toca nada.
+        var quedaPendiente = _items.Any(item => item.Kind != ItemKind.Folder && !IsFinished(item));
+        if (!quedaPendiente && _items.Count > 0 && !_showFinished) _showFinished = true;
+        UpdateQueueViewButtons();
+
+        _finishedCount = -1;
         SyncRows();
         UpdateFooter();
         UpdateButtons();
@@ -1948,11 +2273,13 @@ public sealed partial class MainForm
             catch { }
         }
 
+        var followUpLaunched = false;
         if (_followUpOperation is { } followUp)
         {
             _followUpOperation = null;
-            if (failed == 0 && cancelled == 0 && _items.Any(item => item.Kind != ItemKind.Folder && item.State != ItemState.Completed))
+            if (failed == 0 && cancelled == 0 && finishedItems.Any(item => item.Kind != ItemKind.Folder && item.State != ItemState.Completed))
             {
+                followUpLaunched = true;
                 try { BeginInvoke(new Action(() => StartTransfer(followUp))); } catch { }
             }
         }
@@ -1967,6 +2294,11 @@ public sealed partial class MainForm
 
         // En modo captura el cierre lo controla CaptureScreenshot, justo después del PNG.
         if (_startupRequest.Screenshot) return;
+
+        // ¿Hay alguna lista ESPERANDO TURNO? Arranca sola, que es lo que el usuario espera al
+        // haber elegido «Esperar turno» mientras había otra copia en marcha. Si ya se ha
+        // relanzado lo que quedaba de esta misma lista, la de espera va después de esa.
+        if (!followUpLaunched && StartNextQueuedList()) return;
 
         // ---exit: proceso de un solo uso (automatizaciones e integraciones).
         // Se espera a que TODOS los destinos estén escritos: salir en cuanto acaba la copia
@@ -1999,6 +2331,31 @@ public sealed partial class MainForm
         {
             BeginInvoke(new Action(() => HideAfterTransfer()));
         }
+    }
+
+    /// <summary>
+    /// Lanza la siguiente lista que estaba esperando turno. Devuelve true si ha arrancado una.
+    /// </summary>
+    private bool StartNextQueuedList()
+    {
+        var next = _lists.FirstOrDefault(list => list.Queued && list.Items.Count > 0);
+        if (next is null) return false;
+        next.Queued = false;
+        var operation = next.QueuedOperation;
+        BeginInvoke(new Action(() =>
+        {
+            try
+            {
+                SwitchToList(next);
+                SetStatus($"Empieza «{next.DisplayName}», que estaba esperando turno.");
+                StartTransfer(operation);
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write("No se pudo arrancar la lista en espera: " + ex.Message);
+            }
+        }));
+        return true;
     }
 
     /// <summary>
@@ -2110,6 +2467,21 @@ public sealed partial class MainForm
         }
     }
 
+    /// <summary>
+    /// Porcentaje de la copia en marcha. Se calcula con los datos del motor, no con la lista
+    /// que se está mirando: si el usuario se pasa a otra lista, el icono de la bandeja y la
+    /// barra de tareas tienen que seguir contando la copia de verdad.
+    /// </summary>
+    private double EnginePercent()
+    {
+        var total = _engine.TotalBytes;
+        return total > 0 ? Math.Clamp(_engine.DoneBytes * 100d / total, 0, 100) : 0;
+    }
+
+    /// <summary>Elementos de la lista que el motor está copiando (para el icono y el título).</summary>
+    private List<TransferItem> RunningItems()
+        => _runningList is not null ? _runningList.Items : _items;
+
     private void TimerTick()
     {
         if (_engine.IsRunning)
@@ -2117,6 +2489,9 @@ public sealed partial class MainForm
             SyncRows();
             UpdateTrayState();
             UpdateTitle();
+            // Si se está mirando otra lista, la columna de trabajos es lo único que enseña
+            // el avance de la copia: se refresca para que no se quede congelada.
+            if (_runningList is not null && _runningList != _activeList) UpdateJobs();
         }
 
         UpdateFooter();
@@ -2129,9 +2504,9 @@ public sealed partial class MainForm
             {
                 if (_engine.IsRunning)
                 {
-                    var percent = (int)Math.Clamp(Math.Round(_lastPercent), 0, 100);
+                    var percent = (int)Math.Clamp(Math.Round(EnginePercent()), 0, 100);
                     var paused = _engine.IsPaused;
-                    var error = _items.Any(item => item.State == ItemState.Failed);
+                    var error = RunningItems().Any(item => item.State == ItemState.Failed);
                     Taskbar.SetProgress(Handle, percent, paused, error, true);
                     Taskbar.SetOverlay(Handle, percent, paused, error, _settings.DarkTheme);
                 }
@@ -2152,7 +2527,12 @@ public sealed partial class MainForm
 
     private void UpdateTitle()
     {
-        var percent = _lastPercent;
+        if (!_engine.IsRunning)
+        {
+            Text = "XoPy — reemplazo del copiador de Windows";
+            return;
+        }
+        var percent = EnginePercent();
         var speed = Format.Speed(_engine.SpeedBytesPerSecond);
         Text = _engine.IsPaused
             ? $"XoPy — en pausa · {percent:0.0} %"
@@ -2161,9 +2541,9 @@ public sealed partial class MainForm
 
     private void UpdateTrayState()
     {
-        var percent = (int)Math.Clamp(Math.Round(_lastPercent), 0, 100);
+        var percent = (int)Math.Clamp(Math.Round(EnginePercent()), 0, 100);
         var paused = _engine.IsPaused;
-        var error = _items.Any(item => item.State == ItemState.Failed);
+        var error = RunningItems().Any(item => item.State == ItemState.Failed);
         if (percent == _trayPercent && paused == _trayPaused && error == _trayError) return;
 
         _trayPercent = percent;
@@ -2191,7 +2571,7 @@ public sealed partial class MainForm
         try
         {
             _tray.Icon = _baseIcon ?? Icons.AppIcon();
-            _tray.Text = "XoPy";
+            _tray.Text = TrayBaseText;
             _trayPercent = -1;
         }
         catch { }
@@ -2201,61 +2581,40 @@ public sealed partial class MainForm
     {
         if (_copyButton is null) return;
         var running = _engine.IsRunning;
-        _addFilesButton.Enabled = !running;
-        _addFolderButton.Enabled = !running;
-        _copyButton.Enabled = !running && _items.Count > 0;
-        _moveButton.Enabled = !running && _items.Count > 0;
-        _testButton.Enabled = !running && _items.Count > 0;
+        // ¿Se está viendo la lista que el motor está copiando, o se está preparando otra?
+        var viewingRunning = running && (_runningList is null || _runningList == _activeList);
+        var hasItems = _items.Count > 0;
+
+        // Añadir archivos está SIEMPRE permitido: se puede ir preparando la siguiente lista
+        // mientras la de delante copia.
+        _addFilesButton.Enabled = true;
+        _addFolderButton.Enabled = true;
+        // Copiar/Mover/Verificar siguen activos con una copia en marcha: al pulsarlos se
+        // pregunta si esta lista espera turno, se mete en la de delante o va en paralelo.
+        _copyButton.Enabled = hasItems && !viewingRunning;
+        _moveButton.Enabled = hasItems && !viewingRunning;
+        _testButton.Enabled = hasItems && !viewingRunning;
         _pauseButton.Enabled = running;
         _skipButton.Enabled = running;
         _stopButton.Enabled = running;
-        _verifyCheck.Enabled = !running;
+        _verifyCheck.Enabled = !viewingRunning;
         // Reordenar y quitar de la LISTA se permite siempre: el motor trabaja con su propia
         // instantánea, así que no cancela ni corrompe la copia. Antes se deshabilitaban con
         // cualquier transferencia en curso y parecía que los botones «no funcionaban».
-        _removeButton.Enabled = _items.Count > 0;
-        _clearButton.Enabled = _items.Count > 0;
-        _upButton.Enabled = _items.Count > 0;
-        _downButton.Enabled = _items.Count > 0;
-        _destination.ReadOnly = running;
+        _removeButton.Enabled = hasItems;
+        _clearButton.Enabled = hasItems;
+        _upButton.Enabled = hasItems;
+        _downButton.Enabled = hasItems;
+        // El destino solo se bloquea en la lista que se está copiando; en las demás se puede
+        // elegir destino mientras tanto.
+        _destination.ReadOnly = viewingRunning;
         if (_trayPauseItem is not null) _trayPauseItem.Enabled = running;
     }
 
     /// <summary>
-    /// Rellena el bloque de metadatos de la pestaña Lista (estilo TeraCopy): de qué carpeta
-    /// vienen los archivos y a cuál van. Los contadores y los tamaños están solo en el pie.
+    /// Pie de la ventana: barra de progreso, estado, avance en bytes y velocidad. Cada dato
+    /// aparece aquí una sola vez; el archivo en curso y el destino van en la cabecera.
     /// </summary>
-    private void UpdateMetaBlock(List<TransferItem> leaves, long done, long total)
-    {
-        if (_metaFilter is null) return;
-
-        // La columna derecha solo muestra la velocidad cuando hay copia en marcha: el tamaño
-        // total ya está en el pie y repetirlo aquí era otro duplicado de la captura 18.
-        _metaCount.Text = _engine.IsRunning ? Format.Bytes((long)Math.Max(0, _engine.SpeedBytesPerSecond)) + "/s" : string.Empty;
-
-        // Origen: la carpeta común de los elementos añadidos (o el origen del archivo actual).
-        var roots = RootItems().Select(item => item.SourcePath).Where(path => !string.IsNullOrWhiteSpace(path)).ToList();
-        var origin = roots.Count switch
-        {
-            0 => "Sin origen",
-            1 => Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(roots[0])) ?? roots[0],
-            _ => $"{roots.Count} orígenes distintos"
-        };
-        _metaOrigin.Text = origin;
-        _metaOriginSize.Text = total > 0 ? Format.Bytes(total) : "0 B";
-        // Fila «Origen» del panel: la carpeta de la que se copia (antes repetía el número
-        // de archivos que ya sale en el pie de la ventana).
-        _metaFilter.Text = origin;
-        _metaFilter.ForeColor = roots.Count == 0 ? _palette.Muted : _palette.Text;
-
-        var destination = _destination?.Text.Trim() ?? string.Empty;
-        // La cabecera ya avisa de que no hay destino: aquí basta con un guion para no repetir
-        // el mismo mensaje dos veces en la misma pantalla.
-        _metaDestination.Text = string.IsNullOrWhiteSpace(destination) ? "—" : destination;
-        _metaDestination.ForeColor = string.IsNullOrWhiteSpace(destination) ? _palette.Warning : _palette.Text;
-        _metaDestinationSize.Text = _activeList?.DisplayName ?? string.Empty;
-    }
-
     private void UpdateFooter()
     {
         if (_progress is null) return;
@@ -2265,7 +2624,9 @@ public sealed partial class MainForm
         long done;
         double percent;
 
-        if (_engine.IsRunning)
+        // Se puede estar MIRANDO una lista distinta de la que el motor está copiando. En ese
+        // caso los totales son los de la lista que se ve, no los del motor.
+        if (_engine.IsRunning && (_runningList is null || _runningList == _activeList))
         {
             total = _engine.TotalBytes;
             done = _engine.DoneBytes;
@@ -2280,7 +2641,6 @@ public sealed partial class MainForm
         }
 
         _lastPercent = percent;
-        UpdateMetaBlock(leaves, done, total);
         UpdateCountLabel(leaves.Count, total);
         _progress.Value = percent;
         _progress.FillColor = _items.Any(item => item.State == ItemState.Failed) && !_engine.IsRunning
@@ -2289,9 +2649,11 @@ public sealed partial class MainForm
         // Sin esto, en reposo la barra se quedaba en blanco aunque hubiera porcentaje.
         _progress.Invalidate();
 
+        // El número de archivos de la vista está en la cabecera de la lista: aquí solo el
+        // avance en bytes, que es lo único que no se dice en ninguna otra parte.
         _summaryLabel.Text = leaves.Count == 0
             ? "Sin archivos en la lista"
-            : $"{leaves.Count} archivo(s) · {Format.Bytes(done)} de {Format.Bytes(total)} · {percent:0.0} %";
+            : $"{Format.Bytes(done)} de {Format.Bytes(total)} · {percent:0.0} %";
 
         if (_engine.IsRunning && _engine.IsPaused)
         {
@@ -2314,10 +2676,14 @@ public sealed partial class MainForm
         var runningLeaf = leaves.FirstOrDefault(item => item.State is ItemState.Running or ItemState.Verifying);
         if (_engine.IsRunning)
         {
-            var name = runningLeaf?.RelativePath ?? (runningLeaf is null ? null : Path.GetFileName(runningLeaf.SourcePath));
-            _currentLabel.Text = string.IsNullOrEmpty(name)
-                ? (_engine.IsPaused ? "En pausa" : "Preparando la transferencia…")
-                : (_engine.IsPaused ? "En pausa · " : "Archivo actual: ") + name;
+            // El archivo en curso YA está en la primera línea de la cabecera. Aquí se dice
+            // lo que queda, que es el dato que faltaba y no se repite en ninguna otra parte.
+            var pending = leaves.Count(item => !IsFinished(item) && item.State != ItemState.Failed);
+            var pendingBytes = leaves.Where(item => !IsFinished(item) && item.State != ItemState.Failed)
+                .Sum(item => Math.Max(0, item.SizeBytes - Math.Max(0, item.TransferredBytes)));
+            _currentLabel.Text = _engine.IsPaused
+                ? $"En pausa · quedan {pending} archivo(s) · {Format.Bytes(pendingBytes)}"
+                : $"Quedan {pending} archivo(s) · {Format.Bytes(pendingBytes)}";
         }
         else if (_items.Count > 0)
         {
@@ -2642,6 +3008,52 @@ public sealed partial class MainForm
         if (RootItems().Count != 4)
             report.AppendLine("FALLO: ordenar por carpeta de destino perdió elementos.");
 
+        // ---- Vista «En cola» / «Finalizados» -------------------------------------------
+        // Lo que ya está copiado tiene que SALIR de la lista por defecto y aparecer en la
+        // otra pestaña. Es la petición directa del usuario.
+        SortQueue(QueueSortField.Name);
+        child1.State = ItemState.Completed;
+        _showFinished = false;
+        RebuildRows();
+        if (_list.Items.Cast<ListViewItem>().Any(row => ReferenceEquals(row.Tag, child1)))
+            report.AppendLine("FALLO: un archivo ya copiado sigue en la lista «En cola».");
+        if (!_list.Items.Cast<ListViewItem>().Any(row => ReferenceEquals(row.Tag, child2)))
+            report.AppendLine("FALLO: un archivo pendiente no aparece en la lista «En cola».");
+
+        _showFinished = true;
+        RebuildRows();
+        if (!_list.Items.Cast<ListViewItem>().Any(row => ReferenceEquals(row.Tag, child1)))
+            report.AppendLine("FALLO: el archivo copiado no aparece en «Finalizados».");
+        if (_list.Items.Cast<ListViewItem>().Any(row => ReferenceEquals(row.Tag, child2)))
+            report.AppendLine("FALLO: un archivo pendiente aparece en «Finalizados».");
+        child1.State = ItemState.Pending;
+        _showFinished = false;
+        RebuildRows();
+
+        // ---- Jerarquía carpeta → subcarpeta → archivo -----------------------------------
+        var tree = OrderedTree();
+        if (tree.IndexOf(child1) <= tree.IndexOf(folder) || tree.IndexOf(child2) <= tree.IndexOf(folder))
+            report.AppendLine("FALLO: los archivos no se colocan debajo de su carpeta.");
+        if (child1.Depth != 1 || folder.Depth != 0)
+            report.AppendLine("FALLO: la sangría del árbol no corresponde con la jerarquía.");
+
+        // Reordenar dentro de la carpeta no puede cambiar ni el padre ni la ruta de destino.
+        var rutaAntes = child2.RelativePath;
+        var padreAntes = child2.ParentId;
+        MoveBlock(child2, -1);
+        if (child2.ParentId != padreAntes || child2.RelativePath != rutaAntes)
+            report.AppendLine("FALLO: reordenar dentro de la carpeta cambió la raíz o el destino.");
+        var hermanos = OrderedTree().Where(item => item.ParentId == folder.Id).ToList();
+        if (hermanos.Count != 2)
+            report.AppendLine("FALLO: reordenar sacó un archivo de su carpeta.");
+
+        // Un archivo no puede saltar de carpeta al moverlo: solo se mueve entre hermanos.
+        var antesPadreA = a.ParentId;
+        MoveBlock(a, 1);
+        MoveBlock(a, -1);
+        if (a.ParentId != antesPadreA)
+            report.AppendLine("FALLO: mover un archivo suelto lo metió dentro de una carpeta.");
+
         var before = _items.Count;
         RemoveItems(new[] { child1 });
         if (_items.Any(item => item.Id == child1.Id) || _items.Count != before - 1)
@@ -2678,7 +3090,8 @@ public sealed partial class MainForm
     {
         var version = typeof(MainForm).Assembly.GetName().Version?.ToString(3) ?? "2.1.0";
         MessageBox.Show(this,
-            $"XoPy {version}\n\nGestor de copias gratuito para Windows, inspirado en la interfaz de TeraCopy.\n\n" +
+            $"XoPy {version}\n(reemplazo del copiador de Windows)\n\n" +
+            "Gestor de copias gratuito para Windows, inspirado en la interfaz de TeraCopy.\n\n" +
             "· Copia, mueve, elimina y verifica archivos o carpetas completas\n" +
             "· Cola jerárquica: expande carpetas, reordena y quita elementos\n" +
             "· Verificación CRC32, MD5, SHA-1, SHA-256 y SHA-512\n" +
@@ -2898,8 +3311,8 @@ public sealed partial class MainForm
 
         RebuildRows();
         UpdateFooter();
-        SetStatus($"Archivos ordenados por tamaño, todos juntos {(invert ? "(mayor → menor)" : "(menor → mayor)")}. " +
-                  "Cada uno mantiene su carpeta de destino.");
+        SetStatus($"Archivos ordenados por tamaño {(invert ? "(mayor → menor)" : "(menor → mayor)")} dentro de cada carpeta. " +
+                  "Ni la carpeta de origen ni la de destino cambian.");
     }
 
     private QueueSortField? _lastSortField;
@@ -3176,7 +3589,7 @@ public sealed partial class MainForm
             if (_trayPauseItem is null) BuildTray();
             _baseIcon ??= Icons.AppIcon();
             if (_tray.Icon is null) _tray.Icon = _baseIcon;
-            if (string.IsNullOrEmpty(_tray.Text)) _tray.Text = "XoPy";
+            if (string.IsNullOrEmpty(_tray.Text)) _tray.Text = TrayBaseText;
             _tray.Visible = true;
         }
         catch (Exception ex)
@@ -3255,10 +3668,14 @@ public sealed partial class MainForm
         SaveWindowGeometry();
         if (_items.Count > 0) SaveQueueFile(_store.LastQueueFile, silent: true);
 
-        // Cerrar con la X se comporta como el usuario espera: la ventana se cierra y NO se
-        // reabre sola. Solo se queda en la bandeja si el usuario marcó expresamente
-        // «Minimizar al cerrar», y en ese caso se pregunta una sola vez si prefiere salir.
-        if (!_exitRequested && _settings.MinimizeToTray && e.CloseReason == CloseReason.UserClosing)
+        // Cerrar con la X NO termina el proceso: XoPy se queda junto al reloj esperando, como
+        // SuperCopier y TeraCopy, y basta con pulsar su icono para volver a abrirlo. Es lo que
+        // pidió el usuario. Para salir de verdad: clic derecho en el icono → Salir (o el menú
+        // Archivo → Salir), que es lo que pone _exitRequested a true.
+        // Mientras hay una transferencia en marcha SIEMPRE se va a la bandeja, aunque el
+        // ajuste esté desactivado: cerrar la ventana no puede abortar una copia a medias.
+        var keepAlive = _settings.MinimizeToTray || _engine.IsRunning;
+        if (!_exitRequested && keepAlive && e.CloseReason == CloseReason.UserClosing)
         {
             e.Cancel = true;
             MinimizeToTray();
@@ -3268,9 +3685,9 @@ public sealed partial class MainForm
                 _store.Save(_settings);
                 try
                 {
-                    _tray.ShowBalloonTip(4000, "XoPy sigue activo",
-                        "Está minimizado en el área de notificación. Para cerrarlo del todo: " +
-                        "clic derecho en el icono → Salir.", ToolTipIcon.Info);
+                    _tray.ShowBalloonTip(5000, "XoPy sigue aquí",
+                        "No se ha cerrado: está junto al reloj. Pulsa su icono para volver a abrirlo. " +
+                        "Para salir del todo: clic derecho en el icono → Salir.", ToolTipIcon.Info);
                 }
                 catch { }
             }
@@ -3299,6 +3716,7 @@ public sealed partial class MainForm
             _timer.Dispose();
             _resizeDebounce.Stop();
             _resizeDebounce.Dispose();
+            _jobsBoldFont?.Dispose();
             _engine.Cancel();
             _tray.Visible = false;
             _tray.Dispose();

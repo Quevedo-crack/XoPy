@@ -170,7 +170,12 @@ public sealed class AppSettings
     public int SpeedLimitMiB { get; set; }
     public bool PreserveTimestamps { get; set; } = true;
     public bool UseRecycleBin { get; set; } = true;
-    public bool MinimizeToTray { get; set; }
+    /// <summary>
+    /// Cerrar con la X deja XoPy junto al reloj en lugar de terminar el proceso, como hacen
+    /// SuperCopier y TeraCopy. Está ACTIVADO por defecto: el usuario pidió expresamente que
+    /// al cerrar no se cierre del todo, sino que quede esperando con su icono.
+    /// </summary>
+    public bool MinimizeToTray { get; set; } = true;
 
     /// <summary>Mostrar la barra de menús superior (Archivo/Transferencia/Cola…).</summary>
     public bool ShowMenuBar { get; set; }
@@ -443,6 +448,23 @@ public static class Format
 
 /// <summary>Una lista de copia independiente: sus propios archivos y su propio destino,
 /// pero compartiendo la misma ventana y pestaña que el resto de listas activas.</summary>
+/// <summary>Cómo se ve una lista de copia en el panel de trabajos.</summary>
+public enum ListStage
+{
+    /// <summary>Preparada, todavía no se ha pulsado Copiar.</summary>
+    Preparada = 0,
+    /// <summary>Se está copiando ahora mismo.</summary>
+    Activa = 1,
+    /// <summary>Copia empezada y puesta en pausa.</summary>
+    Pausada = 2,
+    /// <summary>Esperando a que termine la copia que está en marcha.</summary>
+    EnEspera = 3,
+    /// <summary>Ya terminó: es una copia antigua.</summary>
+    Terminada = 4,
+    /// <summary>Terminó, pero con archivos que fallaron.</summary>
+    ConErrores = 5
+}
+
 public sealed class TransferList
 {
     public Guid Id { get; } = Guid.NewGuid();
@@ -451,8 +473,50 @@ public sealed class TransferList
     public List<TransferItem> Items { get; } = new();
     public DateTime UpdatedAt { get; set; } = DateTime.Now;
 
+    /// <summary>Esta lista está esperando turno: se copiará al terminar la que va delante.</summary>
+    public bool Queued { get; set; }
+
+    /// <summary>Operación con la que se lanzará cuando le llegue el turno.</summary>
+    public OperationType QueuedOperation { get; set; } = OperationType.Copy;
+
     [JsonIgnore]
     public string DisplayName => string.IsNullOrWhiteSpace(Name) ? "Lista de copia" : Name;
+
+    /// <summary>
+    /// Estado de la lista para poder distinguir de un vistazo, en el panel de trabajos, las
+    /// copias ACTIVAS de las que están EN PAUSA y de las ANTIGUAS, que es lo que pedía el
+    /// usuario. <paramref name="running"/> indica si el motor está trabajando en esta lista.
+    /// </summary>
+    public ListStage Stage(bool running, bool paused)
+    {
+        if (running) return paused ? ListStage.Pausada : ListStage.Activa;
+        if (Queued) return ListStage.EnEspera;
+        if (Items.Count == 0) return ListStage.Preparada;
+        if (Items.Any(item => item.State == ItemState.Failed)) return ListStage.ConErrores;
+        if (Items.All(item => item.State is ItemState.Completed or ItemState.Skipped)) return ListStage.Terminada;
+        if (Items.Any(item => item.State is ItemState.Completed or ItemState.Paused)) return ListStage.Pausada;
+        return ListStage.Preparada;
+    }
+
+    public static string StageText(ListStage stage) => stage switch
+    {
+        ListStage.Activa => "Copiando ahora",
+        ListStage.Pausada => "En pausa / a medias",
+        ListStage.EnEspera => "Esperando turno",
+        ListStage.Terminada => "Terminada",
+        ListStage.ConErrores => "Terminada con errores",
+        _ => "Preparada"
+    };
+
+    public static string StageGlyph(ListStage stage) => stage switch
+    {
+        ListStage.Activa => "\u25B6",        // ▶
+        ListStage.Pausada => "\u275A\u275A", // ❚❚
+        ListStage.EnEspera => "\u2026",       // …
+        ListStage.Terminada => "\u2713",      // ✓
+        ListStage.ConErrores => "!",
+        _ => "\u25CF"                         // ●
+    };
 
     [JsonIgnore]
     public string Summary

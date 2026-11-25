@@ -1139,6 +1139,7 @@ internal sealed class HistoryDialog : Form
 {
     private readonly List<HistoryEntry> _entries;
     private readonly ListView _list;
+    private readonly Label _empty;
     private readonly Font _headerFont = new("Segoe UI", 9f, FontStyle.Bold);
 
     public bool Modified { get; private set; }
@@ -1172,6 +1173,17 @@ internal sealed class HistoryDialog : Form
             HeaderStyle = ColumnHeaderStyle.Nonclickable
         };
         _list.OwnerDraw = true;
+        _empty = new Label
+        {
+            Text = "Todavía no hay transferencias en el historial.\r\n\r\n"
+                   + "Aquí se irán guardando la fecha, el destino, el tamaño y la velocidad de cada copia.",
+            AutoSize = false,
+            TextAlign = ContentAlignment.MiddleCenter,
+            ForeColor = palette.Muted,
+            BackColor = palette.Surface,
+            Font = new Font("Segoe UI", 9.5f),
+            Visible = false
+        };
         _list.Columns.Add("Fecha", 122);
         _list.Columns.Add("Operación", 88);
         _list.Columns.Add("Destino", 300); // se ajusta al ancho para no dejar hueco en la cabecera
@@ -1191,8 +1203,58 @@ internal sealed class HistoryDialog : Form
                 Rectangle.Inflate(e.Bounds, -10, 0), palette.Muted,
                 alignment | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
         };
-        _list.DrawItem += (_, e) => e.DrawDefault = true;
+        // Las filas se pintan a mano: con DrawDefault el ListView usaba los colores del
+        // sistema y las filas seleccionadas salían en azul claro sobre fondo oscuro.
+        _list.DrawItem += (_, e) =>
+        {
+            var background = e.Item.Selected
+                ? palette.Selection
+                : (e.ItemIndex % 2 == 0 ? palette.Surface : palette.SurfaceAlt);
+            using var brush = new SolidBrush(background);
+            e.Graphics.FillRectangle(brush, e.Bounds);
+        };
+        _list.DrawSubItem += (_, e) =>
+        {
+            if (e.Item is null) return;
+            var entry = e.Item.Tag as HistoryEntry;
+            var color = e.ColumnIndex == 6 && entry is not null
+                ? (entry.Errors > 0 ? palette.Danger : palette.Success)
+                : e.ColumnIndex is 0 or 2 ? palette.Text : palette.Muted;
+            var align = _list.Columns[e.ColumnIndex].TextAlign == HorizontalAlignment.Right
+                ? TextFormatFlags.Right
+                : TextFormatFlags.Left;
+            TextRenderer.DrawText(e.Graphics, e.SubItem?.Text ?? string.Empty, _list.Font,
+                Rectangle.Inflate(e.Bounds, -8, 0), color,
+                align | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+        };
         _list.Resize += (_, _) => FitDestinationColumn();
+        // LA BARRA BLANCA del historial: el ListView nativo pinta con los colores del sistema
+        // tanto la barra de desplazamiento como la franja que queda a la derecha de la última
+        // columna. SetWindowTheme oscurece la barra; la franja sobrante la tapa _scrollCover.
+        _list.HandleCreated += (_, _) =>
+        {
+            try { SetWindowTheme(_list.Handle, "DarkMode_Explorer", null); } catch { }
+            foreach (Control child in _list.Controls)
+            {
+                try { if (child.IsHandleCreated) SetWindowTheme(child.Handle, "DarkMode_Explorer", null); } catch { }
+            }
+        };
+        _list.Paint += (_, e) =>
+        {
+            var width = SystemInformation.VerticalScrollBarWidth + 4;
+            var right = _list.ClientSize.Width - width;
+            if (right <= 0) return;
+            var header = _list.Items.Count > 0 ? Math.Max(1, _list.Items[0].Bounds.Top) : _list.ClientSize.Height;
+            using var brush = new SolidBrush(palette.Surface);
+            e.Graphics.FillRectangle(brush, new Rectangle(right, 0, width, header));
+        };
+        try
+        {
+            typeof(ListView).GetProperty("DoubleBuffered",
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+                ?.SetValue(_list, true);
+        }
+        catch { }
         FillList();
 
         var buttons = new FlowLayoutPanel
@@ -1243,7 +1305,16 @@ internal sealed class HistoryDialog : Form
         };
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 58));
-        root.Controls.Add(_list, 0, 0);
+
+        // Panel con la lista y, encima, el aviso de «sin entradas»: una ventana negra y vacía
+        // no dice si está cargando, si falló o si simplemente no hay nada.
+        var listHost = new Panel { Dock = DockStyle.Fill, BackColor = palette.Surface, Margin = new Padding(0) };
+        _empty.Dock = DockStyle.Fill;
+        listHost.Controls.Add(_empty);
+        listHost.Controls.Add(_list);
+        _list.BringToFront();
+
+        root.Controls.Add(listHost, 0, 0);
         root.Controls.Add(buttons, 0, 1);
         Controls.Add(root);
         AcceptButton = close;
@@ -1261,9 +1332,15 @@ internal sealed class HistoryDialog : Form
     private void FitDestinationColumn()
     {
         const int fixedWidth = 122 + 88 + 88 + 84 + 92 + 100;
-        var width = Math.Max(140, _list.ClientSize.Width - fixedWidth - 4);
+        // Se reserva el ancho de la barra vertical: si las columnas llenan el ancho exacto,
+        // el ListView saca además la barra HORIZONTAL, que es la raya blanca de abajo.
+        var reserve = SystemInformation.VerticalScrollBarWidth + 6;
+        var width = Math.Max(140, _list.ClientSize.Width - fixedWidth - reserve);
         if (_list.Columns[2].Width != width) _list.Columns[2].Width = width;
     }
+
+    [System.Runtime.InteropServices.DllImport("uxtheme.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+    private static extern int SetWindowTheme(IntPtr hwnd, string appName, string? idList);
 
     protected override void Dispose(bool disposing)
     {
@@ -1273,6 +1350,12 @@ internal sealed class HistoryDialog : Form
 
     private void FillList()
     {
+        // Con el historial vacío se esconde la lista entera y se enseña el aviso: así no queda
+        // un rectángulo negro con una barra de desplazamiento blanca y nada dentro.
+        var vacio = _entries.Count == 0;
+        _empty.Visible = vacio;
+        _list.Visible = !vacio;
+        if (vacio) _empty.BringToFront();
         _list.BeginUpdate();
         _list.Items.Clear();
         foreach (var entry in _entries)
@@ -1369,5 +1452,212 @@ internal sealed class HistoryDialog : Form
         {
             MessageBox.Show(this, "No se pudo exportar: " + ex.Message, "XoPy", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
+    }
+}
+
+/// <summary>
+/// Ventana que sale cuando el archivo ya existe en el destino. Antes era un cuadro de texto
+/// gris con dos rutas larguísimas pegadas y costaba leerlo. Ahora compara los dos archivos
+/// lado a lado —tamaño y fecha— y marca cuál es más nuevo y cuál más grande, para poder
+/// decidir de un vistazo sin leer ninguna ruta completa.
+/// </summary>
+internal sealed class ConflictDialog : Form
+{
+    /// <summary>0 Sobrescribir · 1 Omitir · 2 Cambiar nombre · 3 Cancelar.</summary>
+    public int Choice { get; private set; } = 3;
+
+    public bool ApplyToAll => _applyAll.Checked;
+
+    private readonly CheckBox _applyAll;
+
+    public ConflictDialog(Palette palette, ConflictPrompt prompt)
+    {
+        var name = Path.GetFileName(prompt.TargetPath);
+
+        Text = "Ya existe un archivo con ese nombre";
+        BackColor = palette.Canvas;
+        ForeColor = palette.Text;
+        Font = new Font("Segoe UI", 9f);
+        FormBorderStyle = FormBorderStyle.FixedDialog;
+        StartPosition = FormStartPosition.CenterParent;
+        MinimizeBox = false;
+        MaximizeBox = false;
+        ShowInTaskbar = false;
+        ClientSize = new Size(620, 356);
+        KeyPreview = true;
+
+        var newer = prompt.SourceModified > prompt.TargetModified ? 1
+            : prompt.SourceModified < prompt.TargetModified ? 2 : 0;
+        var bigger = prompt.SourceSize > prompt.TargetSize ? 1
+            : prompt.SourceSize < prompt.TargetSize ? 2 : 0;
+        var identical = prompt.SourceSize == prompt.TargetSize
+            && Math.Abs((prompt.SourceModified - prompt.TargetModified).TotalSeconds) < 2;
+
+        var root = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 5,
+            BackColor = palette.Canvas,
+            Padding = new Padding(18, 14, 18, 12)
+        };
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 46));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 46));
+
+        // Título: el NOMBRE del archivo, que es lo que de verdad hace falta saber.
+        var heading = new Label
+        {
+            Text = name,
+            AutoSize = false,
+            Dock = DockStyle.Fill,
+            TextAlign = ContentAlignment.MiddleLeft,
+            ForeColor = palette.Text,
+            Font = new Font("Segoe UI", 13f, FontStyle.Bold),
+            AutoEllipsis = true,
+            UseMnemonic = false
+        };
+
+        var subtitle = new Label
+        {
+            Text = identical
+                ? "Ya hay un archivo igual en la carpeta de destino (mismo tamaño y misma fecha)."
+                : "Ya hay un archivo con ese nombre en la carpeta de destino.",
+            AutoSize = false,
+            Dock = DockStyle.Fill,
+            TextAlign = ContentAlignment.MiddleLeft,
+            ForeColor = palette.Muted,
+            Font = new Font("Segoe UI", 9f),
+            AutoEllipsis = true,
+            UseMnemonic = false
+        };
+
+        // Comparación lado a lado.
+        var compare = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            RowCount = 1,
+            BackColor = palette.Canvas,
+            Margin = new Padding(0, 6, 0, 6)
+        };
+        compare.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        compare.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        compare.Controls.Add(Card(palette, "El que vas a copiar", prompt.SourcePath,
+            prompt.SourceSize, prompt.SourceModified, newer == 1, bigger == 1), 0, 0);
+        compare.Controls.Add(Card(palette, "El que ya está en el destino", prompt.TargetPath,
+            prompt.TargetSize, prompt.TargetModified, newer == 2, bigger == 2), 1, 0);
+
+        _applyAll = new CheckBox
+        {
+            Text = "Hacer lo mismo con el resto de archivos repetidos de esta copia",
+            AutoSize = false,
+            Dock = DockStyle.Fill,
+            ForeColor = palette.Text,
+            BackColor = Color.Transparent,
+            Font = new Font("Segoe UI", 9f)
+        };
+
+        var buttons = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            FlowDirection = FlowDirection.RightToLeft,
+            WrapContents = false,
+            BackColor = palette.Canvas,
+            Margin = new Padding(0, 4, 0, 0)
+        };
+
+        Button Make(string text, string tip, int choice, bool accent = false)
+        {
+            var button = Ui.DialogButton(text, palette, accent);
+            button.Width = Math.Max(button.Width, 128);
+            button.Margin = new Padding(8, 0, 0, 0);
+            new ToolTip().SetToolTip(button, tip);
+            button.Click += (_, _) => { Choice = choice; DialogResult = DialogResult.OK; Close(); };
+            return button;
+        }
+
+        // Orden de izquierda a derecha en pantalla: Cancelar · Omitir · Copiar las dos ·
+        // Reemplazar. El botón resaltado es el que menos daño hace.
+        var replace = Make("Reemplazar", "Borra el archivo del destino y pone el nuevo en su sitio.", 0);
+        var skip = Make("No copiar este", "Deja el destino como está y pasa al siguiente archivo.", 1);
+        var both = Make("Quedarme con los dos", "Copia el nuevo con un nombre distinto; no se pierde ninguno.", 2, accent: true);
+        var cancel = Make("Cancelar la copia", "Detiene la transferencia completa.", 3);
+
+        buttons.Controls.Add(replace);
+        buttons.Controls.Add(skip);
+        buttons.Controls.Add(both);
+        buttons.Controls.Add(cancel);
+
+        root.Controls.Add(heading, 0, 0);
+        root.Controls.Add(subtitle, 0, 1);
+        root.Controls.Add(compare, 0, 2);
+        root.Controls.Add(_applyAll, 0, 3);
+        root.Controls.Add(buttons, 0, 4);
+        Controls.Add(root);
+
+        AcceptButton = both;
+        CancelButton = cancel;
+        Shown += (_, _) => both.Focus();
+        KeyDown += (_, e) =>
+        {
+            if (e.KeyCode != Keys.Escape) return;
+            Choice = 3;
+            DialogResult = DialogResult.Cancel;
+            Close();
+        };
+    }
+
+    /// <summary>Tarjeta con los datos de uno de los dos archivos.</summary>
+    private static Control Card(Palette palette, string title, string path, long size, DateTime modified,
+        bool isNewer, bool isBigger)
+    {
+        var card = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 5,
+            BackColor = palette.Surface,
+            Padding = new Padding(12, 10, 12, 10),
+            Margin = new Padding(0, 0, 8, 0)
+        };
+        card.RowStyles.Add(new RowStyle(SizeType.Absolute, 20));
+        card.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));
+        card.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
+        card.RowStyles.Add(new RowStyle(SizeType.Absolute, 20));
+        card.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+
+        Label Line(string text, float points, Color color, bool bold = false) => new()
+        {
+            Text = text,
+            AutoSize = false,
+            Dock = DockStyle.Fill,
+            TextAlign = ContentAlignment.MiddleLeft,
+            ForeColor = color,
+            Font = new Font("Segoe UI", points, bold ? FontStyle.Bold : FontStyle.Regular),
+            AutoEllipsis = true,
+            UseMnemonic = false,
+            Margin = new Padding(0)
+        };
+
+        var folder = string.Empty;
+        try { folder = Path.GetDirectoryName(path) ?? string.Empty; } catch { }
+
+        var sizeLine = Format.Bytes(size) + (isBigger ? "   ·   el más grande" : string.Empty);
+        var dateLine = modified.ToString("dd/MM/yyyy HH:mm", CultureInfo.InvariantCulture)
+                       + (isNewer ? "   ·   el más nuevo" : string.Empty);
+
+        card.Controls.Add(Line(title.ToUpperInvariant(), 7.5f, palette.Muted, true), 0, 0);
+        card.Controls.Add(Line(sizeLine, 12f, isBigger ? palette.Accent : palette.Text, true), 0, 1);
+        card.Controls.Add(Line(dateLine, 9f, isNewer ? palette.Accent : palette.Text), 0, 2);
+        card.Controls.Add(Line("Carpeta", 7.5f, palette.Muted, true), 0, 3);
+
+        var folderLabel = Line(folder, 8.25f, palette.Muted);
+        folderLabel.TextAlign = ContentAlignment.TopLeft;
+        new ToolTip().SetToolTip(folderLabel, path);
+        card.Controls.Add(folderLabel, 0, 4);
+        return card;
     }
 }

@@ -133,11 +133,14 @@ public static class Icons
     public static Icon PercentBadge(int percent, bool dark, bool paused = false, bool error = false)
     {
         var clamped = Math.Clamp(percent, 0, 100);
-        // La barra de tareas muestra la superposición a 16 px escasos: cualquier detalle
-        // (el «%», un margen grande) roba sitio al número y se vuelve ilegible. Se dibuja
-        // el número a sangre, con el «%» solo si cabe en una esquina, y en tamaño grande
-        // para que Windows lo reduzca con calidad.
+        // Superposición del botón de la barra de tareas (junto al menú Inicio). Antes se
+        // dibujaba a SANGRE sobre los 128 px enteros y Windows la pegaba encima del icono de
+        // la aplicación tapándolo: se veía un número gigantesco. Ahora el número vive dentro
+        // de un círculo con margen, así que la insignia ocupa bastante menos y el icono de
+        // XoPy se sigue viendo detrás.
         const int size = 128;
+        const int margin = 16;           // aire alrededor: la insignia se ve más pequeña
+        var box = new Rectangle(margin, margin, size - margin * 2, size - margin * 2);
         using var bitmap = new Bitmap(size, size);
         using (var graphics = Graphics.FromImage(bitmap))
         {
@@ -148,23 +151,19 @@ public static class Icons
                 : paused ? Color.FromArgb(214, 148, 38)
                 : clamped >= 100 ? Color.FromArgb(38, 160, 96)
                 : Color.FromArgb(48, 140, 240);
-            using var background = new SolidBrush(color);
-            using var path = RoundedRect(new Rectangle(0, 0, size, size), 14);
-            graphics.FillPath(background, path);
+            // Borde blanco: separa la insignia del icono que tiene debajo.
+            using (var halo = new Pen(Color.FromArgb(235, 255, 255, 255), 8f))
+                graphics.DrawEllipse(halo, box);
+            using (var background = new SolidBrush(color))
+                graphics.FillEllipse(background, box);
+
             using var text = new SolidBrush(Color.White);
             using var format = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
+            // Sin el símbolo «%»: a 16 px reales no se lee y solo robaba sitio al número.
             var label = clamped.ToString();
-            // Un dígito ocupa casi todo el icono; dos y tres se ajustan con menos cuerpo.
-            var font = new Font("Segoe UI", label.Length >= 3 ? 74f : label.Length == 2 ? 92f : 104f,
-                FontStyle.Bold, GraphicsUnit.Pixel);
-            graphics.DrawString(label, font, text, new RectangleF(0, -4, size, size + 8), format);
-            // El «%» solo cuando el número es corto: con 3 dígitos no cabe y es lo que hacía
-            // ilegible el badge en versiones anteriores.
-            if (label.Length < 3)
-            {
-                using var small = new Font("Segoe UI", 34f, FontStyle.Bold, GraphicsUnit.Pixel);
-                graphics.DrawString("%", small, text, new RectangleF(88, 80, 34, 34), format);
-            }
+            var pixels = label.Length >= 3 ? 46f : label.Length == 2 ? 62f : 72f;
+            using var font = new Font("Segoe UI", pixels, FontStyle.Bold, GraphicsUnit.Pixel);
+            graphics.DrawString(label, font, text, new RectangleF(box.X, box.Y - 2, box.Width, box.Height + 4), format);
         }
 
         var handle = bitmap.GetHicon();
@@ -194,41 +193,50 @@ public static class Icons
     public static Icon ProgressIcon(int percent, bool dark, bool paused = false, bool error = false, bool completed = false)
     {
         var clamped = Math.Clamp(percent, 0, 100);
-        using var bitmap = new Bitmap(32, 32);
+        // Icono del área de notificación (junto al reloj). Windows lo enseña a 16 px: el
+        // anillo de progreso que llevaba antes se comía el centro y el número quedaba
+        // diminuto. Ahora el número OCUPA TODO el icono —fondo de color liso, cifras a
+        // sangre— y el progreso es una franja fina en la base. Se dibuja a 64 px para que
+        // Windows lo reduzca con buena calidad.
+        const int box = 64;
+        using var bitmap = new Bitmap(box, box);
         using (var graphics = Graphics.FromImage(bitmap))
         {
             graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            graphics.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
             graphics.Clear(Color.Transparent);
-            using var background = new SolidBrush(dark ? Color.FromArgb(30, 34, 40) : Color.FromArgb(250, 250, 252));
-            using var track = new Pen(dark ? Color.FromArgb(66, 74, 86) : Color.FromArgb(205, 212, 222), 4);
             var color = error ? Color.FromArgb(226, 84, 82)
                 : paused ? Color.FromArgb(230, 168, 58)
-                : completed ? Color.FromArgb(56, 186, 116)
+                : completed || clamped >= 100 ? Color.FromArgb(56, 186, 116)
                 : Color.FromArgb(48, 140, 240);
-            using var fill = new Pen(color, 4);
-            using var text = new SolidBrush(dark ? Color.White : Color.FromArgb(30, 40, 55));
-            using var format = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
-            graphics.FillEllipse(background, 1, 1, 30, 30);
-            graphics.DrawArc(track, 4, 4, 24, 24, -90, 359);
 
-            if (clamped > 0) graphics.DrawArc(fill, 4, 4, 24, 24, -90, Math.Min(359, 360 * clamped / 100f));
+            using (var background = new SolidBrush(color))
+            using (var shape = RoundedRect(new Rectangle(0, 0, box, box), 12))
+                graphics.FillPath(background, shape);
+
+            using var white = new SolidBrush(Color.White);
+            using var format = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
 
             if (paused)
             {
-                using var bar = new SolidBrush(color);
-                graphics.FillRectangle(bar, 12, 10, 3, 12);
-                graphics.FillRectangle(bar, 17, 10, 3, 12);
+                graphics.FillRectangle(white, 20, 16, 8, 32);
+                graphics.FillRectangle(white, 36, 16, 8, 32);
             }
             else
             {
-                // Números grandes y legibles: en 32 px caben 2 dígitos a 15 px y 3 a 11 px.
-                // Antes se dibujaban a 12/10 px dentro del anillo y apenas se leían.
+                // Cifras enormes: 1 dígito a 54 px, 2 a 44 px y 3 a 32 px sobre 64 px de alto.
                 var label = clamped.ToString();
-                var fontPixels = label.Length >= 3 ? 11f : label.Length == 2 ? 15f : 18f;
-                using var font = new Font("Segoe UI", fontPixels, FontStyle.Bold, GraphicsUnit.Pixel);
-                graphics.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
-                graphics.DrawString(label, font, text, new RectangleF(0.5f, 0.5f, 31f, 31f), format);
+                var pixels = label.Length >= 3 ? 32f : label.Length == 2 ? 44f : 54f;
+                using var font = new Font("Segoe UI", pixels, FontStyle.Bold, GraphicsUnit.Pixel);
+                graphics.DrawString(label, font, white, new RectangleF(0, -4, box, box - 6), format);
+
+                // Franja de progreso en la base: se entiende de un vistazo aun sin leer el número.
+                using var trackBrush = new SolidBrush(Color.FromArgb(90, 0, 0, 0));
+                graphics.FillRectangle(trackBrush, 6, box - 11, box - 12, 6);
+                var width = (int)Math.Round((box - 12) * clamped / 100.0);
+                if (width > 0) graphics.FillRectangle(white, 6, box - 11, width, 6);
             }
+            _ = dark;
         }
 
         var handle = bitmap.GetHicon();
