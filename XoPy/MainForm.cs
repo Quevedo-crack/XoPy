@@ -1641,16 +1641,19 @@ public sealed partial class MainForm : Form
             // ── Borrar el destino y volver a copiar: NO debe decir «ya está copiado» ──
             // Es el caso que reportó el usuario: copiaba, borraba el archivo del destino y
             // al pulsar Copiar otra vez XoPy contestaba «Todo lo seleccionado ya está copiado».
+            // Los originales se MOVIERON en el paso anterior, así que para esta prueba hacen
+            // falta archivos nuevos y una lista limpia (si no, lo único que se comprobaría es
+            // que un origen inexistente no se copia, que ya se comprueba más arriba).
+            var source2 = Path.Combine(folder, "origen2");
+            Directory.CreateDirectory(source2);
+            for (var i = 1; i <= 4; i++)
+                File.WriteAllBytes(Path.Combine(source2, $"c{i}.bin"), new byte[i * 4096]);
+
             var dest3 = Path.Combine(folder, "destinoC");
             _settings.Destination = dest3;
             _destination.Text = dest3;
-            foreach (var item in _items.Where(i => i.Kind == ItemKind.File))
-            {
-                item.State = ItemState.Pending;
-                item.DestinationPath = string.Empty;
-                item.TransferredBytes = 0;
-                item.Error = null;
-            }
+            ClearList();
+            AddPathsAsync(Directory.GetFiles(source2, "*.bin"), askDestination: false).GetAwaiter().GetResult();
             StartTransfer(OperationType.Copy);
             WaitForEngineIdle(60000);
             var copiadosC = Directory.Exists(dest3) ? Directory.GetFiles(dest3, "*.bin", SearchOption.AllDirectories).Length : 0;
@@ -1688,11 +1691,15 @@ public sealed partial class MainForm : Form
             Directory.CreateDirectory(cutDest);
             try
             {
+                // Hay que poner los archivos Y el efecto en el MISMO objeto: SetFileDropList
+                // reemplaza todo el portapapeles y borraría el «Preferred DropEffect» (por eso
+                // la prueba anterior decía que no se detectaba el corte).
                 var drop = new System.Collections.Specialized.StringCollection();
                 drop.Add(Path.Combine(cutSource, "cortado.bin"));
-                Clipboard.SetDataObject(new DataObject("Preferred DropEffect",
-                    new MemoryStream(BitConverter.GetBytes(2))), true);
-                Clipboard.SetFileDropList(drop);
+                var cutData = new DataObject();
+                cutData.SetFileDropList(drop);
+                cutData.SetData("Preferred DropEffect", new MemoryStream(BitConverter.GetBytes(2)));
+                Clipboard.SetDataObject(cutData, true);
                 var esCorte = ShellPasteHook.ClipboardIsCut();
                 report.Add("portapapeles_detecta_corte=" + esCorte);
                 if (!esCorte) { report.Add("error=no se detecta el efecto cortar del portapapeles"); ok = false; }
