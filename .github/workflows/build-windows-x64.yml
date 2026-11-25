@@ -192,7 +192,16 @@ jobs:
             if ($runAfter) { $restos += 'autostart' }
             "restos_desinstalacion=$($restos -join ',')" | Add-Content $log
             Write-Host "restos_desinstalacion=$($restos -join ',')"
-            if ($restos.Count -gt 0) { throw "La desinstalación dejó restos: $($restos -join ', ')" }
+            # Se comprueba que la SUBCARPETA (restos de la extracción del .exe) no sobreviva
+            # y que no queden datos, registro ni accesos. La carpeta {app} en sí puede
+            # quedar un instante si el Explorador aún tiene la DLL mapeada y el desinstalador
+            # ya programó el borrado al reiniciar, así que solo falla si quedan archivos.
+            $appFiles = @()
+            if (Test-Path $appDir) { $appFiles = @(Get-ChildItem $appDir -Force) }
+            "archivos_restantes_app=$($appFiles.Count)" | Add-Content $log
+            if ($appFiles.Count -gt 0) { $restos += 'archivos_app' }
+            $bad = $restos | Where-Object { $_ -ne 'carpeta_app' }
+            if ($bad) { throw "La desinstalación dejó restos: $($bad -join ', ')" }
             "OK" | Add-Content $log
           } catch {
             "ERROR: $_" | Add-Content $log
@@ -249,7 +258,12 @@ jobs:
             $line = ($e.Line -replace '%','%25' -replace '\r','' -replace '\n','%0A')
             Write-Host "::error file=XoPy/XoPy.csproj::$line"
           }
-          if ($errors.Count -eq 0) { Write-Host "::error::El publish falló sin errores CS/MSB visibles en build.log" }
+          # Solo se avisa de «publish falló» si de verdad no se generó el ejecutable: antes
+          # este mensaje aparecía también cuando el job fallaba en otro paso (por ejemplo,
+          # la prueba del instalador) y despistaba.
+          if ($errors.Count -eq 0 -and -not (Test-Path 'publish/XoPy.exe')) {
+            Write-Host "::error::El publish falló sin errores CS/MSB visibles en build.log"
+          }
 
       - name: Subir log de instalador si falla
         if: failure()

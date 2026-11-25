@@ -202,12 +202,20 @@ var
 begin
   if CurUninstallStep = usUninstall then
   begin
-    // El .exe autocontenido se extraía a una subcarpeta de {app} al arrancar y el
-    // desinstalador dejaba la carpeta con esos archivos («elementos que no se pudieron
-    // eliminar»). Ya no se extrae, pero se borra también cualquier resto de versiones
-    // anteriores, incluso si el desinstalador se ejecuta sin privilegios para {app}.
+    // La causa real de «Algunos elementos no pudieron eliminarse» era XoPyShell.dll: el
+    // Explorador la mantiene cargada y Windows no deja borrarla. Se desregistra primero
+    // (para que deje de pedirla) y, si sigue bloqueada, se reinicia el Explorador, que
+    // Windows relanza solo. Después se borra la carpeta entera.
+    UnregisterShellExtension();
     AppDir := ExpandConstant('{app}');
-    DelTree(AppDir, True, True, True);
+    if not DelTree(AppDir, True, True, True) then
+    begin
+      Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM explorer.exe /F', '', SW_HIDE,
+           ewWaitUntilTerminated, ResultCode);
+      Sleep(2500);
+      DelTree(AppDir, True, True, True);
+      Exec(ExpandConstant('{sys}\explorer.exe'), '', '', SW_SHOWNORMAL, ewNoWait, ResultCode);
+    end;
   end;
   if CurUninstallStep = usPostUninstall then
   begin
