@@ -2222,20 +2222,15 @@ public sealed partial class MainForm
     }
 
     /// <summary>
-    /// Rellena el bloque de metadatos de la pestaña Lista (estilo TeraCopy): cuántos archivos
-    /// hay, de qué carpeta vienen y a qué carpeta van, con el tamaño al lado.
+    /// Rellena el bloque de metadatos de la pestaña Lista (estilo TeraCopy): de qué carpeta
+    /// vienen los archivos y a cuál van. Los contadores y los tamaños están solo en el pie.
     /// </summary>
     private void UpdateMetaBlock(List<TransferItem> leaves, long done, long total)
     {
         if (_metaFilter is null) return;
 
-        // «Archivos» describe QUÉ hay en la lista (filtro/selección), y la columna derecha
-        // solo muestra la velocidad cuando hay copia en marcha. El tamaño total ya está en el
-        // pie, así que repetirlo aquí era otro duplicado de la captura 18.
-        var files = leaves.Count(item => item.Kind == ItemKind.File);
-        _metaFilter.Text = files == 0
-            ? "Ninguno"
-            : files == 1 ? "1 archivo listo para copiar" : $"{files} archivos listos para copiar";
+        // La columna derecha solo muestra la velocidad cuando hay copia en marcha: el tamaño
+        // total ya está en el pie y repetirlo aquí era otro duplicado de la captura 18.
         _metaCount.Text = _engine.IsRunning ? Format.Bytes((long)Math.Max(0, _engine.SpeedBytesPerSecond)) + "/s" : string.Empty;
 
         // Origen: la carpeta común de los elementos añadidos (o el origen del archivo actual).
@@ -2248,9 +2243,15 @@ public sealed partial class MainForm
         };
         _metaOrigin.Text = origin;
         _metaOriginSize.Text = total > 0 ? Format.Bytes(total) : "0 B";
+        // Fila «Origen» del panel: la carpeta de la que se copia (antes repetía el número
+        // de archivos que ya sale en el pie de la ventana).
+        _metaFilter.Text = origin;
+        _metaFilter.ForeColor = roots.Count == 0 ? _palette.Muted : _palette.Text;
 
         var destination = _destination?.Text.Trim() ?? string.Empty;
-        _metaDestination.Text = string.IsNullOrWhiteSpace(destination) ? "Sin destino: elige una carpeta" : destination;
+        // La cabecera ya avisa de que no hay destino: aquí basta con un guion para no repetir
+        // el mismo mensaje dos veces en la misma pantalla.
+        _metaDestination.Text = string.IsNullOrWhiteSpace(destination) ? "—" : destination;
         _metaDestination.ForeColor = string.IsNullOrWhiteSpace(destination) ? _palette.Warning : _palette.Text;
         _metaDestinationSize.Text = _activeList?.DisplayName ?? string.Empty;
     }
@@ -2304,7 +2305,10 @@ public sealed partial class MainForm
         }
         else
         {
-            _speedLabel.Text = _items.Count == 0 ? "Listo" : $"Total {Format.Bytes(total)}";
+            // Parado: el tamaño total ya sale en el resumen de la barra de progreso («… de
+            // 22,0 KB») y el gráfico de al lado ya dice «Velocidad · Sin actividad».
+            // Esta etiqueta se queda vacía para no decir lo mismo por tercera vez.
+            _speedLabel.Text = string.Empty;
         }
 
         var runningLeaf = leaves.FirstOrDefault(item => item.State is ItemState.Running or ItemState.Verifying);

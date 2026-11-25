@@ -67,8 +67,11 @@ public sealed partial class MainForm
         block.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 96));
         for (var i = 0; i < 2; i++) block.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
 
-        block.Controls.Add(MetaTag("Archivos"), 0, 0);
-        _metaFilter = MetaValue("Ninguno");
+        // Esta fila mostraba «N archivos listos para copiar», que es exactamente lo que ya
+        // dice el pie y la barra de estado. Ahora muestra el ORIGEN, que no estaba en
+        // ninguna otra parte de la ventana (y es el par natural de «Destino»).
+        block.Controls.Add(MetaTag("Origen"), 0, 0);
+        _metaFilter = MetaValue("Sin origen");
         block.Controls.Add(_metaFilter, 1, 0);
         _metaCount = MetaValue("0 archivo(s)");
         _metaCount.TextAlign = ContentAlignment.MiddleRight;
