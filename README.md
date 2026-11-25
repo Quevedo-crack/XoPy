@@ -118,6 +118,19 @@ XoPy.exe --multi --copy --to "D:\Copias" "C:\Datos\informe.pdf"
 - En la barra de copia se puede alternar entre modo secuencial y multihilo, también durante una transferencia; un archivo se puede pausar/reanudar individualmente desde el menú contextual de la lista. La lista admite reordenado por arrastre; las carpetas se muestran contraídas al añadirse y se pueden desplegar con la flecha o desde el menú. La columna de trabajos también empieza plegada y puede expandirse.
 - El instalador limpia las antiguas claves del menú contextual antes de iniciar la aplicación.
 
+## Novedades de la versión 2.5.9
+
+**Arreglo crítico: el equipo podía quedarse «pensando» y no abrir nada** (ni XoPy, ni el instalador, ni ningún otro programa).
+
+- **Causa**: desde la 2.5.7, el interceptor de Ctrl+V leía el portapapeles **dentro del gancho global de teclado**. Esa rutina la ejecuta Windows dentro de la cola de entrada del sistema, y hablar con el portapapeles desde ahí puede bloquearse esperando al Explorador… que a su vez espera a que el gancho termine. Interbloqueo: teclado y ratón se quedan «pensando» y los dobles clic no llegan a procesarse.
+- **Arreglo**: el gancho ahora no hace absolutamente nada lento — solo encola el trabajo y devuelve el control. La lectura del portapapeles vuelve a hacerse en el hilo propio de XoPy.
+- **La extensión del menú contextual ya no muestra ningún cuadro de diálogo**: se ejecuta dentro del Explorador y un aviso modal puede dejar el escritorio bloqueado.
+- **Fusible automático**: si XoPy no cierra limpiamente con el interceptor puesto dos veces seguidas, la siguiente vez arranca sin él y lo dice. Se reactiva desde Preferencias.
+- **Modo seguro**: `XoPy.exe --safe` abre solo la ventana, sin integración con el Explorador ni interceptor.
+- **Script de rescate** `RESCATAR-XoPy.bat` (adjunto en la release): cierra XoPy, quita la extensión del menú y el arranque automático y reinicia el Explorador. Funciona aunque el escritorio no responda, lanzándolo desde el Administrador de tareas.
+
+**Prueba nueva en cada compilación**: con el interceptor activo se pulsa Ctrl+V varias veces y se exige que XoPy, el Bloc de notas y la apertura de otras aplicaciones **sigan respondiendo**. Si el sistema se atasca, no se publica la versión.
+
 ## Novedades de la versión 2.5.8
 
 **Arreglo urgente: la 2.5.7 podía quedarse sin abrir.** Tres fallos encadenados, los tres corregidos:

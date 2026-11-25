@@ -220,6 +220,50 @@ jobs:
           Parar-Todo
           Remove-Item $data -Recurse -Force -ErrorAction SilentlyContinue
 
+          # 7) EL INTERCEPTOR DE Ctrl+V NO PUEDE DEJAR EL EQUIPO «PENSANDO».
+          #    Un gancho global de teclado que haga algo lento bloquea la cola de entrada de
+          #    TODO Windows: no responde ni el ratón y los dobles clic no llegan a procesarse.
+          #    Se arranca XoPy con el interceptor activo, se pulsa Ctrl+V varias veces sobre
+          #    el Bloc de notas y se exige que todo siga respondiendo.
+          New-Item -ItemType Directory -Force $data | Out-Null
+          '{"ReplaceWindowsCopier":true,"MinimizeToTray":true}' | Set-Content (Join-Path $data 'settings.json')
+          $p = Start-Process $exe -PassThru
+          $arranco = Esperar-Ventana $p 60
+          $tmpClip = Join-Path $env:TEMP 'xopy-portapapeles'
+          New-Item -ItemType Directory -Force $tmpClip | Out-Null
+          'contenido' | Set-Content (Join-Path $tmpClip 'a.txt')
+          Set-Clipboard -Path (Join-Path $tmpClip 'a.txt')
+          $crono = [Diagnostics.Stopwatch]::StartNew()
+          $np = Start-Process notepad -PassThru
+          $abrioOtraApp = Esperar-Ventana $np 30
+          try {
+            $wsh = New-Object -ComObject WScript.Shell
+            for ($i = 0; $i -lt 5; $i++) {
+              $wsh.AppActivate($np.Id) | Out-Null
+              $wsh.SendKeys('^v')
+              Start-Sleep -Milliseconds 400
+            }
+          } catch { Write-Host "::notice::no_se_pudieron_enviar_teclas=$($_.Exception.Message)" }
+          $crono.Stop()
+          $p.Refresh(); $np.Refresh()
+          $xopyResponde = $p.Responding
+          $notepadResponde = $np.Responding
+          $segundos = [int]$crono.Elapsed.TotalSeconds
+          Write-Host "::notice::con_interceptor arranco=$arranco otra_app_abre=$abrioOtraApp segundos=$segundos xopy_responde=$xopyResponde notepad_responde=$notepadResponde"
+          Stop-Process -Id $np.Id -Force -ErrorAction SilentlyContinue
+          if (-not $abrioOtraApp) { $fallos += 'Con el interceptor de Ctrl+V puesto, otra aplicación no llega a abrirse (sistema atascado)' }
+          if (-not $xopyResponde -or -not $notepadResponde) { $fallos += 'Con el interceptor de Ctrl+V puesto, las ventanas dejan de responder' }
+          if ($segundos -gt 30) { $fallos += "El sistema se ralentiza con el interceptor puesto ($segundos s para cinco Ctrl+V)" }
+          Parar-Todo
+
+          # 8) Modo seguro: abre sin integración ni interceptor.
+          $p = Start-Process $exe -ArgumentList '--safe' -PassThru
+          $r = Esperar-Ventana $p 60
+          Write-Host "::notice::modo_seguro_abre=$r"
+          if (-not $r) { $fallos += 'El modo seguro (--safe) no abre la ventana'; Log-XoPy }
+          Parar-Todo
+          Remove-Item $data -Recurse -Force -ErrorAction SilentlyContinue
+
           foreach ($f in $fallos) { Write-Host "::error file=XoPy/Program.cs::$f" }
           if ($fallos.Count -gt 0) { throw "La aplicación no abre correctamente en $($fallos.Count) caso(s)" }
           Write-Host 'ARRANQUE PORTABLE: CORRECTO'
@@ -455,7 +499,7 @@ jobs:
           RELEASE_TARGET: ${{ github.sha }}
         run: |
           $tag = $env:RELEASE_TAG
-          $assets = @('installer-output/XoPy-Setup-win-x64.exe', 'publish/XoPy.exe')
+          $assets = @('installer-output/XoPy-Setup-win-x64.exe', 'publish/XoPy.exe', 'herramientas/RESCATAR-XoPy.bat')
           gh release view $tag 2>$null | Out-Null
           if ($LASTEXITCODE -ne 0) {
             gh release create $tag $assets --target $env:RELEASE_TARGET --title "XoPy $tag" --generate-notes

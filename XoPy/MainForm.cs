@@ -2005,6 +2005,13 @@ public sealed partial class MainForm : Form
 
     private void ApplyCopierReplacement()
     {
+        // Modo seguro: ni se toca el registro ni la integración con el Explorador.
+        if (_startupRequest.SafeMode)
+        {
+            FileLog.Write("Modo seguro: no se aplica la integración con el Explorador.");
+            SetStatus("Modo seguro: XoPy funciona sin integración con el Explorador ni interceptor de Ctrl+V.");
+            return;
+        }
         try
         {
             ShellIntegration.Apply(_settings.ReplaceWindowsCopier);
@@ -2054,12 +2061,42 @@ public sealed partial class MainForm : Form
     }
 
     /// <summary>Instala el hook de pegado de teclado tras mostrarse la ventana.</summary>
+    /// <summary>Marca de «gancho de teclado puesto». Si sobrevive a la sesión es que XoPy
+    /// no cerró bien con el gancho activo (se colgó o lo mataron).</summary>
+    private string HookGuardPath => Path.Combine(_store.DataFolder, "gancho.marca");
+
+    /// <summary>
+    /// Instala el interceptor de Ctrl+V con un fusible: un gancho global de teclado que se
+    /// porte mal puede dejar TODO el equipo sin responder, y entonces el usuario no puede
+    /// ni abrir XoPy para desactivarlo. Si dos arranques seguidos terminan sin retirarlo,
+    /// no se vuelve a poner y se avisa; se puede reactivar desde Preferencias.
+    /// </summary>
     private void InstallShellHookIfNeeded()
     {
         if (_shellHookInstalled || _pasteHook is null) return;
-        if (_startupRequest.NoShellHook) return;
+        if (_startupRequest.NoShellHook || _startupRequest.SafeMode)
+        {
+            FileLog.Write("Modo seguro: no se instala el interceptor de Ctrl+V.");
+            return;
+        }
         try
         {
+            var fallos = 0;
+            if (File.Exists(HookGuardPath) && int.TryParse(File.ReadAllText(HookGuardPath).Trim(), out var leidos))
+                fallos = leidos;
+            if (fallos >= 2)
+            {
+                FileLog.Write($"Interceptor de Ctrl+V desactivado: {fallos} arranques sin cierre limpio.");
+                SetStatus("El interceptor de Ctrl+V se ha desactivado solo porque la sesión anterior no cerró bien. " +
+                          "Puedes volver a activarlo en Preferencias → Integración con el Explorador.");
+                _settings.ReplaceWindowsCopier = false;
+                try { _store.Save(_settings); } catch { }
+                try { File.Delete(HookGuardPath); } catch { }
+                return;
+            }
+            Directory.CreateDirectory(_store.DataFolder);
+            File.WriteAllText(HookGuardPath, (fallos + 1).ToString());
+
             _pasteHook.Install();
             _shellHookInstalled = true;
         }
@@ -2067,6 +2104,12 @@ public sealed partial class MainForm : Form
         {
             FileLog.Write("No se pudo instalar el hook de pegado: " + ex.Message);
         }
+    }
+
+    /// <summary>Cierre limpio: se borra la marca, así el fusible no salta sin motivo.</summary>
+    private void ClearHookGuard()
+    {
+        try { if (File.Exists(HookGuardPath)) File.Delete(HookGuardPath); } catch { }
     }
 
     /// <summary>

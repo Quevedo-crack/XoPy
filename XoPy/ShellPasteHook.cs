@@ -157,38 +157,59 @@ public sealed class ShellPasteHook : IDisposable
 
             _explorerWindow = window;
 
-            // Se cancela el pegado nativo y el trabajo se hace en el hilo STA.
-            // Los datos se capturan AQUÍ, en el hilo del gancho y ANTES de que el Explorador
-            // procese nada: al cancelar el pegado nativo, Windows puede limpiar el efecto
-            // «cortar» del portapapeles y luego la copia se hacía como copia (o no se hacía).
-            // Antes se leía en otro hilo y en otro momento, y con «Cortar» no funcionaba.
-            var snapshot = new PasteSnapshot(ClipboardFilesCore(), ClipboardIsCutCore());
-            if (snapshot.Files.Count == 0) return CallNextHookEx(_hook, code, wParam, lParam);
+            // ──────────────────────────────────────────────────────────────────────────
+            // AQUÍ DENTRO NO SE PUEDE HACER NADA LENTO. Este método es la rutina de un
+            // gancho global de teclado: Windows la ejecuta DENTRO de la cola de entrada
+            // del sistema. Si tarda, TODO el equipo se queda «pensando» (ratón y teclado
+            // incluidos) y los dobles clic no llegan a procesarse.
+            //
+            // En 2.5.7 se leía el portapapeles aquí (COM/OLE) para detectar «cortar». Eso
+            // podía bloquear el sistema entero, porque el dueño del portapapeles es el
+            // propio Explorador y la llamada se queda esperando a que conteste… mientras
+            // su respuesta espera a que este gancho termine. Interbloqueo.
+            //
+            // Lo único que se hace: encolar el trabajo y cancelar el pegado nativo. La
+            // lectura del portapapeles (archivos y efecto cortar) la hace el hilo STA.
+            // ──────────────────────────────────────────────────────────────────────────
             if (!_work.IsAddingCompleted)
-                _work.Add(() => ProcessPaste(_explorerWindow, snapshot));
+                _work.Add(() => ProcessPaste(_explorerWindow));
 
             return (IntPtr)1;
         }
-        catch (Exception ex)
+        catch
         {
-            FileLog.Write("Error en el interceptor de pegado: " + ex.Message);
+            // Ni siquiera se escribe en el registro: tocar disco dentro del gancho es
+            // exactamente lo que no se puede hacer. El error se verá en el hilo STA.
             return CallNextHookEx(_hook, code, wParam, lParam);
         }
     }
 
-    private readonly record struct PasteSnapshot(IReadOnlyList<string> Files, bool Move);
-
-    private void ProcessPaste(IntPtr explorerWindow, PasteSnapshot snapshot)
+    /// <summary>
+    /// Trabajo real del pegado, SIEMPRE en el hilo STA propio (nunca en el gancho).
+    /// Aquí sí se puede hablar con el portapapeles: cancelar la pulsación no borra su
+    /// contenido, así que tanto los archivos como el efecto «cortar» siguen disponibles.
+    /// </summary>
+    private void ProcessPaste(IntPtr explorerWindow)
     {
-        var handler = PasteRequested;
-        if (handler is null) return;
-        if (snapshot.Files.Count == 0) return;
+        try
+        {
+            var handler = PasteRequested;
+            if (handler is null) return;
 
-        var destination = ExplorerDestinationCore(explorerWindow);
-        if (string.IsNullOrWhiteSpace(destination)) return;
+            var files = ClipboardFilesCore();
+            if (files.Count == 0) return;
+            var move = ClipboardIsCutCore();
 
-        handler(snapshot.Files, destination, snapshot.Move);
-        FileLog.Write($"Pegado interceptado: {snapshot.Files.Count} elemento(s) a {destination} ({(snapshot.Move ? "mover" : "copiar")})");
+            var destination = ExplorerDestinationCore(explorerWindow);
+            if (string.IsNullOrWhiteSpace(destination)) return;
+
+            handler(files, destination, move);
+            FileLog.Write($"Pegado interceptado: {files.Count} elemento(s) a {destination} ({(move ? "mover" : "copiar")})");
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write("Error al procesar el pegado: " + ex.Message);
+        }
     }
 
     private static bool IsExplorer(IntPtr window)
