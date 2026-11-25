@@ -1,5 +1,5 @@
   Determining projects to restore...
-  Restored D:\a\XoPy\XoPy\XoPy\XoPy.csproj (in 20 ms).
+  Restored D:\a\XoPy\XoPy\XoPy\XoPy.csproj (in 27 ms).
 D:\a\XoPy\XoPy\XoPy\MainForm.cs(2173,9): warning WFDEV004: 'Form.Closed' is obsolete: 'Form.OnClosing, Form.OnClosed and the corresponding events are obsolete. Use Form.OnFormClosing, Form.OnFormClosed, Form.FormClosing and Form.FormClosed instead.' (https://aka.ms/winforms-warnings/WFDEV004) [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
 D:\a\XoPy\XoPy\XoPy\MainForm.cs(2454,13): warning CS8602: Dereference of a possibly null reference. [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
 D:\a\XoPy\XoPy\XoPy\MainForm.cs(2489,74): warning CS8602: Dereference of a possibly null reference. [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
@@ -19,7 +19,7 @@ CSC : warning WFO0003: Remove high DPI settings from D:\a\XoPy\XoPy\XoPy\app.man
     6 Warning(s)
     0 Error(s)
 
-Time Elapsed 00:00:02.37
+Time Elapsed 00:00:03.89
 FILE: carpeta (1 bytes)
 FILE: dest-rbcopy (1 bytes)
 FILE: dest3 (1 bytes)
@@ -31,28 +31,28 @@ FILE: jerarquia (1 bytes)
 FILE: misma (1 bytes)
 FILE: perf (1 bytes)
 FILE: perf-destino (1 bytes)
-FILE: advanced.png (30010 bytes)
+FILE: advanced.png (33046 bytes)
 FILE: cola.txt (534 bytes)
 FILE: conflict.png (8779 bytes)
 FILE: conflictotest.txt (70 bytes)
 FILE: copiatest.txt (83 bytes)
 FILE: exitcode.txt (24 bytes)
 FILE: grande.bin (300000 bytes)
-FILE: history.png (29982 bytes)
+FILE: history.png (31410 bytes)
 FILE: informe.pdf (10242 bytes)
 FILE: jerarquiatest.txt (111 bytes)
 FILE: menu-context.png (5636 bytes)
-FILE: menu-menu.png (22898 bytes)
+FILE: menu-menu.png (22658 bytes)
 FILE: mismacarpeta.txt (59 bytes)
 FILE: movetest.txt (88 bytes)
-FILE: options.png (50861 bytes)
-FILE: perf.txt (175 bytes)
+FILE: options.png (53486 bytes)
+FILE: perf.txt (174 bytes)
 FILE: rbcopy.bin (200002 bytes)
 FILE: reanudartest.txt (41 bytes)
 FILE: repeticion.txt (738 bytes)
 FILE: robocopytest.txt (49 bytes)
-FILE: shot.png (30010 bytes)
-FILE: verify.png (30010 bytes)
+FILE: shot.png (33046 bytes)
+FILE: verify.png (33046 bytes)
 FILE: video.mp4 (20482 bytes)
 --- C:\xopytest\exitcode.txt
 exitcode=0 exited=True
@@ -183,25 +183,25 @@ MF15. InstallShellHookIfNeeded start
 MF15. InstallShellHookIfNeeded done
 MF-OnShown end (UI lista)
 --- transfer.log (últimas 120 líneas)
-2026-11-25 20:36:49  Sustitución real: se activa el arranque de XoPy con Windows para que Ctrl+V siga pasando por XoPy tras reiniciar.
-2026-11-25 20:36:49  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
-2026-11-25 20:36:49  Arranque: destinos extra=[] guardados=[]
-2026-11-25 20:36:49  Inicio: 1 elementos, destinos=C:\xopytest\misma, verificar=False (Sha256), reanudar=False
-2026-11-25 20:36:49  Copia nativa: C:\xopytest\misma\original.txt -> C:\xopytest\misma\original (1).txt
-2026-11-25 20:36:49  Fin: 3002 bytes en 0.0s, errores=0
-2026-11-25 20:37:03  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
-2026-11-25 20:37:05  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
-2026-11-25 20:37:05  Inicio: 4 elementos, destinos=C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\destinoA, verificar=False (Sha256), reanudar=False
-2026-11-25 20:37:05  Copia nativa: C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\origen\r3.bin -> C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\destinoA\r3.bin
-2026-11-25 20:37:05  Copia nativa: C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\origen\r4.bin -> C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\destinoA\r4.bin
-2026-11-25 20:37:05  Copia nativa: C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\origen\r1.bin -> C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\destinoA\r1.bin
-2026-11-25 20:37:05  Copia nativa: C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\origen\r2.bin -> C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\destinoA\r2.bin
-2026-11-25 20:37:05  Fin: 40960 bytes en 0.0s, errores=0
-2026-11-25 20:37:06  Inicio: 4 elementos, destinos=C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\destinoB, verificar=False (Sha256), reanudar=False
-2026-11-25 20:37:06  Copia nativa: C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\origen\r2.bin -> C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\destinoB\r2.bin
-2026-11-25 20:37:06  Copia nativa: C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\origen\r1.bin -> C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\destinoB\r1.bin
-2026-11-25 20:37:06  Copia nativa: C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\origen\r3.bin -> C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\destinoB\r3.bin
-2026-11-25 20:37:06  Copia nativa: C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\origen\r4.bin -> C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\destinoB\r4.bin
-2026-11-25 20:37:06  Fin: 40960 bytes en 0.0s, errores=0
-2026-11-25 20:37:06  Aviso: 4 elemento(s) sin origen en disco; se marcan como Error sin reintentarlos.
-2026-11-25 20:37:06  Aviso: 4 elemento(s) sin origen en disco; se marcan como Error sin reintentarlos.
+2026-11-25 20:41:43  Sustitución real: se activa el arranque de XoPy con Windows para que Ctrl+V siga pasando por XoPy tras reiniciar.
+2026-11-25 20:41:43  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
+2026-11-25 20:41:43  Arranque: destinos extra=[] guardados=[]
+2026-11-25 20:41:43  Inicio: 1 elementos, destinos=C:\xopytest\misma, verificar=False (Sha256), reanudar=False
+2026-11-25 20:41:43  Copia nativa: C:\xopytest\misma\original.txt -> C:\xopytest\misma\original (1).txt
+2026-11-25 20:41:43  Fin: 3002 bytes en 0.0s, errores=0
+2026-11-25 20:41:58  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
+2026-11-25 20:42:00  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
+2026-11-25 20:42:00  Inicio: 4 elementos, destinos=C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\destinoA, verificar=False (Sha256), reanudar=False
+2026-11-25 20:42:00  Copia nativa: C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\origen\r1.bin -> C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\destinoA\r1.bin
+2026-11-25 20:42:00  Copia nativa: C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\origen\r2.bin -> C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\destinoA\r2.bin
+2026-11-25 20:42:00  Copia nativa: C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\origen\r3.bin -> C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\destinoA\r3.bin
+2026-11-25 20:42:00  Copia nativa: C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\origen\r4.bin -> C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\destinoA\r4.bin
+2026-11-25 20:42:00  Fin: 40960 bytes en 0.0s, errores=0
+2026-11-25 20:42:01  Inicio: 4 elementos, destinos=C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\destinoB, verificar=False (Sha256), reanudar=False
+2026-11-25 20:42:01  Copia nativa: C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\origen\r1.bin -> C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\destinoB\r1.bin
+2026-11-25 20:42:01  Copia nativa: C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\origen\r2.bin -> C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\destinoB\r2.bin
+2026-11-25 20:42:01  Copia nativa: C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\origen\r3.bin -> C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\destinoB\r3.bin
+2026-11-25 20:42:01  Copia nativa: C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\origen\r4.bin -> C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\destinoB\r4.bin
+2026-11-25 20:42:01  Fin: 40960 bytes en 0.0s, errores=0
+2026-11-25 20:42:01  Aviso: 4 elemento(s) sin origen en disco; se marcan como Error sin reintentarlos.
+2026-11-25 20:42:01  Aviso: 4 elemento(s) sin origen en disco; se marcan como Error sin reintentarlos.
