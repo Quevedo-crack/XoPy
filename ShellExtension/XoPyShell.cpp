@@ -9,6 +9,12 @@
 #include <string>
 #include <new>
 
+// El icono del menú necesita GDI (CreateDIBSection, SelectObject, DeleteDC…). Se declara
+// aquí además de en la línea de enlazado para que cualquier compilación local funcione.
+#pragma comment(lib, "gdi32.lib")
+#pragma comment(lib, "user32.lib")
+#pragma comment(lib, "shell32.lib")
+
 // Classic Windows Explorer context-menu handler. It contributes exactly one verb,
 // captioned "Pegar con XoPy" with its own icon, and forwards the selected folder to XoPy.
 static const CLSID CLSID_XoPyPaste = { 0x3b1e92a7, 0x7ad6, 0x4e71, {0xa2,0x18,0x75,0x44,0x9c,0xe1,0x30,0x61} };
