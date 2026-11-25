@@ -1977,7 +1977,9 @@ public sealed partial class MainForm
             if (_jobsToggleButton is not null)
             {
                 _jobsToggleButton.Text = visible ? "\u00AB" : "\u00BB";
-                _jobsToggleButton.ToolTipText = visible
+                // Button no tiene ToolTipText (eso es de ToolStripButton): se usa el nombre
+                // accesible, que es lo que lee el lector de pantalla y lo que cambia de sentido.
+                _jobsToggleButton.AccessibleName = visible
                     ? "Ocultar el historial de listas de copia"
                     : "Mostrar el historial de listas de copia";
             }
