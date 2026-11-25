@@ -118,6 +118,21 @@ XoPy.exe --multi --copy --to "D:\Copias" "C:\Datos\informe.pdf"
 - En la barra de copia se puede alternar entre modo secuencial y multihilo, también durante una transferencia; un archivo se puede pausar/reanudar individualmente desde el menú contextual de la lista. La lista admite reordenado por arrastre; las carpetas se muestran contraídas al añadirse y se pueden desplegar con la flecha o desde el menú. La columna de trabajos también empieza plegada y puede expandirse.
 - El instalador limpia las antiguas claves del menú contextual antes de iniciar la aplicación.
 
+## Novedades de la versión 2.5.8
+
+**Arreglo urgente: la 2.5.7 podía quedarse sin abrir.** Tres fallos encadenados, los tres corregidos:
+
+- **Al abrir XoPy estando ya en la bandeja, la ventana se mostraba y volvía a esconderse sola.** La lógica de «arrancar en el área de notificación» también se ejecutaba al activar la aplicación, así que el usuario hacía doble clic y no aparecía nada. Ahora esa decisión se toma **una sola vez, al arrancar**; cualquier activación termina siempre con la ventana a la vista.
+- **El aviso entre instancias se daba por bueno sin confirmación.** Bastaba con que el mensaje se entregara: si la instancia abierta estaba bloqueada, el proceso nuevo se cerraba creyendo que todo había ido bien. Ahora la instancia abierta **contesta solo cuando la ventana ha atendido la orden**.
+- **Una instancia colgada dejaba a XoPy sin poder abrirse nunca más.** Si nadie contestaba, el proceso nuevo se cerraba en silencio. Ahora **abre su propia ventana**: antes una ventana de más que ninguna.
+
+Además:
+
+- **Abrir XoPy a mano muestra siempre la ventana.** La casilla «arrancar minimizado» solo se aplica al inicio con Windows, y su texto ahora lo dice.
+- **Si el icono de la bandeja no llega a aparecer, la ventana se queda visible**, para que XoPy no pueda quedar en marcha sin nada a la vista.
+
+**Para que no vuelva a pasar, la compilación ahora ejecuta la aplicación y exige que abra**, en siete situaciones: doble clic; con «arrancar minimizado» guardado; con `--tray` (debe quedarse en la bandeja); abriéndolo otra vez estando en la bandeja; con el bloqueo de instancia ocupado por un proceso que no responde; al actualizar sobre ajustes, historial y cola de una versión anterior; y con los datos de configuración corruptos. La **prueba del instalador deja de ser manual** y se ejecuta en cada compilación: instala en silencio, abre la aplicación instalada, exige ventana visible y desinstala. Si algo de esto falla, **no se publica la versión**.
+
 ## Novedades de la versión 2.5.7
 
 - **El instalador ya no cierra el Explorador ni pide reiniciar**: nunca se mata `explorer.exe`, no se relanza una ventana nueva al terminar ni al desinstalar, y se acabó el diálogo «Seleccione acción» (Reintentar / Ignorar). Si la DLL sigue en uso, se sustituye al reiniciar más adelante, sin interrumpir la instalación. El refresco del menú contextual se hace notificando al shell (`SHChangeNotify`), no abriendo el Explorador.
