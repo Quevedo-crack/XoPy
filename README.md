@@ -118,6 +118,21 @@ XoPy.exe --multi --copy --to "D:\Copias" "C:\Datos\informe.pdf"
 - En la barra de copia se puede alternar entre modo secuencial y multihilo, también durante una transferencia; un archivo se puede pausar/reanudar individualmente desde el menú contextual de la lista. La lista admite reordenado por arrastre; las carpetas se muestran contraídas al añadirse y se pueden desplegar con la flecha o desde el menú. La columna de trabajos también empieza plegada y puede expandirse.
 - El instalador limpia las antiguas claves del menú contextual antes de iniciar la aplicación.
 
+## Novedades de la versión 2.5.7
+
+- **El instalador ya no cierra el Explorador ni pide reiniciar**: nunca se mata `explorer.exe`, no se relanza una ventana nueva al terminar ni al desinstalar, y se acabó el diálogo «Seleccione acción» (Reintentar / Ignorar). Si la DLL sigue en uso, se sustituye al reiniciar más adelante, sin interrumpir la instalación. El refresco del menú contextual se hace notificando al shell (`SHChangeNotify`), no abriendo el Explorador.
+- **Cortar + Ctrl+V funciona**: el efecto «cortar» del portapapeles se lee al interceptar el pegado (antes se leía después y en otro hilo, así que la copia se hacía como copia o no se hacía). Se aceptan las dos formas en que Windows entrega «Preferred DropEffect» (`MemoryStream` y `byte[]`), sin consumir el flujo. El pegado espera a que la lista esté preparada antes de arrancar el motor, y al terminar el movimiento se vacía el portapapeles.
+- **«Pegar con XoPy» del menú contextual ya no falla en silencio**: se reconoce el argumento `--replace` que envía la extensión (antes se ignoraba) y, si algo no puede ejecutarse, sale un aviso en vez de no pasar nada.
+- **«Enviar a» vuelve a existir**: el arranque lo creaba y lo borraba a la vez (y además quitaba la aprobación de la extensión). Ahora se crea y se conserva, el menú contextual lista también los destinos recientes del historial y «Enviar a» mantiene la estructura de subcarpetas al enviar.
+- **Al añadir archivos se pregunta siempre**: «Abrir en una lista nueva» (opción marcada por defecto) o «Añadir a la lista actual». Solo se salta la pregunta si la lista activa está vacía. Antes, con una sola lista, los archivos se apilaban al final sin avisar.
+- **Recopiar tras borrar el destino**: si el archivo ya no está en el destino, se vuelve a copiar. El mensaje «ya está copiado» solo sale cuando de verdad sigue estando ahí, y si el origen desapareció se explica con su motivo.
+- **Al empezar una copia la ventana pasa sola a su versión reducida**, y si estaba en la bandeja aparece para que se vea el progreso.
+- **Cerrar deja de reabrir**: el arranque en la bandeja (`--tray` / «arrancar minimizado») no muestra la ventana ni un instante ni lanza el globo de aviso.
+- **Sin saltos en la lista**: al mover, borrar o reordenar se conserva la posición del desplazamiento (antes volvía al principio de la lista).
+- **Interfaz sin duplicados** (captura 18): el total de archivos y el tamaño están una sola vez, en la barra de progreso del pie con su resumen; la cabecera de la lista solo cuenta elementos; la cabecera «Copiando» muestra el avance y el tiempo restante, y «Destino» la ruta real de la carpeta en curso.
+- **Ventana estable al redimensionar**: los recálculos de columnas y de alto se agrupan (90 ms) en lugar de ejecutarse en cada píxel, que es lo que hacía que la ventana «se volviera loca».
+- **Auto-pruebas ampliadas**: `--self-test-repeat` comprueba ahora también «borrar el destino y volver a copiar» (que no aparezca «ya está copiado») y la detección del efecto cortar del portapapeles.
+
 ## Novedades de la versión 2.5.6
 
 - **Seguridad al mover (lo más importante de esta versión)**: el original **solo** se borra si la copia de destino existe, tiene el mismo tamaño y (hasta 64 MB) el mismo contenido byte a byte. Si no se puede confirmar, el original se queda y se avisa. Mover a la **misma carpeta** está bloqueado. Las carpetas de origen **nunca** se borran si dentro queda algún archivo o si hubo cualquier error. Antes de mover se guarda `%LOCALAPPDATA%\XoPy\mover-FECHA.txt` con todas las rutas `origen -> destino`, para poder recuperar nada más fallar. Ver `docs/RECUPERAR-ARCHIVOS.md`.

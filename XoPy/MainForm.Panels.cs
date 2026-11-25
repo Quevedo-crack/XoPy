@@ -67,8 +67,11 @@ public sealed partial class MainForm
         block.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 96));
         for (var i = 0; i < 2; i++) block.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
 
-        block.Controls.Add(MetaTag("Archivos"), 0, 0);
-        _metaFilter = MetaValue("Ninguno");
+        // Esta fila mostraba «N archivos listos para copiar», que es exactamente lo que ya
+        // dice el pie y la barra de estado. Ahora muestra el ORIGEN, que no estaba en
+        // ninguna otra parte de la ventana (y es el par natural de «Destino»).
+        block.Controls.Add(MetaTag("Origen"), 0, 0);
+        _metaFilter = MetaValue("Sin origen");
         block.Controls.Add(_metaFilter, 1, 0);
         _metaCount = MetaValue("0 archivo(s)");
         _metaCount.TextAlign = ContentAlignment.MiddleRight;
@@ -842,20 +845,23 @@ public sealed partial class MainForm
         {
             _hdrCopyInfo.Text = string.Empty;
         }
+        // En la cabecera «Copiando» solo va el AVANCE (archivos terminados y tiempo que
+        // queda). El total de archivos, el tamaño y el porcentaje ya están en el pie y en la
+        // barra: repetirlos aquí era el duplicado de la captura 18.
         else if (running && _engine.IsPaused)
         {
-            _hdrCopyInfo.Text = $"{leaves.Count(item => item.State == ItemState.Completed)}/{leaves.Count} · en pausa · {percent:0.0} %";
+            _hdrCopyInfo.Text = "En pausa";
         }
         else if (running)
         {
             var remaining = _engine.Remaining;
             _hdrCopyInfo.Text = remaining > TimeSpan.Zero
-                ? $"{leaves.Count(item => item.State == ItemState.Completed)}/{leaves.Count} · {Format.Bytes(done)} de {Format.Bytes(total)} · quedan {Format.Duration(remaining)}"
-                : $"{leaves.Count(item => item.State == ItemState.Completed)}/{leaves.Count} · {Format.Bytes(done)} de {Format.Bytes(total)}";
+                ? $"Quedan {Format.Duration(remaining)}"
+                : "Terminando…";
         }
         else
         {
-            _hdrCopyInfo.Text = $"{leaves.Count(item => item.State == ItemState.Completed)}/{leaves.Count} · {Format.Bytes(done)} de {Format.Bytes(total)}";
+            _hdrCopyInfo.Text = string.Empty;
         }
         _hdrCopyBar.Value = percent;
         _hdrCopyPercent.Text = leaves.Count == 0 ? "—" : $"{percent:0.0} %";
@@ -896,7 +902,8 @@ public sealed partial class MainForm
         }
         else
         {
-            _hdrTargetInfo.Text = leaves.Count > 0 ? $"{leaves.Count} archivo(s)" : string.Empty;
+            // Sin velocidad que mostrar no se repite el número de archivos: ya está en el pie.
+            _hdrTargetInfo.Text = string.Empty;
         }
 
         var filePercent = runningLeaf is { SizeBytes: > 0 }
@@ -1129,10 +1136,40 @@ public sealed partial class MainForm
 
     private bool _updatingColumns;
     private bool _columnUpdatePending;
+    private readonly System.Windows.Forms.Timer _resizeDebounce = new() { Interval = 90 };
+    private Size _lastSizedClient = Size.Empty;
 
+    /// <summary>
+    /// Recalcula columnas y alto de la lista. Se agrupa con un temporizador corto porque
+    /// Windows lanza OnResize por CADA píxel mientras se arrastra el borde y recalcular las
+    /// siete columnas en cada uno bloqueaba la ventana («a veces se vuelve loco»). Ahora se
+    /// recalcula una sola vez, 90 ms después de la última variación de tamaño.
+    /// </summary>
     private void ScheduleColumnUpdate()
     {
-        if (!IsHandleCreated || _columnUpdatePending) return;
+        if (!IsHandleCreated || IsDisposed) return;
+        // El primer tamaño (al mostrarse la ventana) se aplica YA: si esperase al
+        // temporizador, las columnas se verían con el ancho de la ventana anterior.
+        if (_lastSizedClient.IsEmpty && _list is not null && _list.ClientSize.Width > 0)
+        {
+            _lastSizedClient = _list.ClientSize;
+            ResizeDebounceTick(this, EventArgs.Empty);
+            return;
+        }
+        _resizeDebounce.Stop();
+        _resizeDebounce.Tick -= ResizeDebounceTick;
+        _resizeDebounce.Tick += ResizeDebounceTick;
+        _resizeDebounce.Start();
+    }
+
+    private void ResizeDebounceTick(object? sender, EventArgs e)
+    {
+        _resizeDebounce.Stop();
+        if (IsDisposed || _list is null) return;
+        // Si el tamaño no cambió de verdad, no se toca nada: evita repintados en bucle.
+        if (_list.ClientSize == _lastSizedClient && _columnUpdatePending) return;
+        _lastSizedClient = _list.ClientSize;
+        if (_columnUpdatePending) return;
         _columnUpdatePending = true;
         BeginInvoke(new Action(() =>
         {
@@ -1438,23 +1475,23 @@ public sealed partial class MainForm
     {
         if (_scrollCover is null || _list is null || !_list.IsHandleCreated) return;
         var width = SystemInformation.VerticalScrollBarWidth;
-        // El recuadro blanco aparece en la cabecera cuando la lista NO tiene filas: el control
-        // nativo mantiene igualmente su franja de desplazamiento. Con filas de verdad la barra
-        // es necesaria y se deja ver, así que la tapa solo actúa con la lista vacía.
-        if (_list.Items.Count > 0)
-        {
-            _scrollCover.Visible = false;
-            return;
-        }
         try
         {
             var origin = _list.PointToScreen(Point.Empty);
             var local = PointToClient(origin);
-            // Se cubre un poco más de ancho que la barra: el control nativo deja un borde de
-            // 4 px fuera del ancho estándar del scrollbar que también salía en blanco.
+            // ResizeColumns deja libre el ancho de la barra vertical para que nunca aparezca
+            // desplazamiento horizontal. Esa franja no pertenece a ninguna columna y el
+            // ListView la pinta con el color del sistema: es el RECUADRO BLANCO de la esquina
+            // de la cabecera. Se tapa siempre con el color del panel.
+            // Con filas solo se cubre el alto de la cabecera (debajo está el fondo de la lista
+            // y, si hace falta, la barra de verdad, que no se debe ocultar). Con la lista
+            // vacía se cubre entera, porque el control sigue dibujando el canal del pulgar.
             var cover = width + 4;
+            var headerHeight = _list.Items.Count > 0
+                ? Math.Max(1, _list.Items[0].Bounds.Top)
+                : _list.ClientSize.Height;
             _scrollCover.Bounds = new Rectangle(local.X + _list.ClientSize.Width - cover,
-                local.Y, cover, _list.ClientSize.Height);
+                local.Y, cover, headerHeight);
             _scrollCover.Visible = true;
             _scrollCover.BringToFront();
         }

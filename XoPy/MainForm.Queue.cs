@@ -466,6 +466,11 @@ public sealed partial class MainForm
         if (_list is null) return;
         var selectedIds = SelectedItems().Select(item => item.Id).ToHashSet();
 
+        // Al reconstruir la lista (tras mover, borrar o reordenar) se perdía el scroll y el
+        // usuario volvía al principio de 6.000 archivos. Se recuerda la fila que estaba
+        // arriba y se devuelve exactamente ahí al terminar.
+        var anchorId = (_list.TopItem?.Tag as TransferItem)?.Id;
+
         _list.BeginUpdate();
         try
         {
@@ -500,6 +505,11 @@ public sealed partial class MainForm
         // Al pasar de lista vacía a con filas se reparte de nuevo el alto: ResizeColumns es
         // quien devuelve la fila del ListView a Percent y, si no, las filas no se ven.
         ResizeColumns();
+        // Devolver la vista a la fila donde estaba antes de reconstruir.
+        if (anchorId is not null && _rows.TryGetValue(anchorId.Value, out var anchorRow))
+        {
+            try { _list.EnsureVisible(anchorRow.Index); } catch { }
+        }
         UpdateScrollCover();
     }
 
@@ -639,6 +649,11 @@ public sealed partial class MainForm
         }
     }
 
+    /// <summary>
+    /// Cabecera de la lista. El total de archivos y el tamaño están en la barra de progreso
+    /// del pie, así que aquí solo va lo que NO se repite. (En la captura 18 salían
+    /// «6387 archivo(s)» dos veces y «6,2 GB» tres.)
+    /// </summary>
     private void UpdateCountLabel(int leaves, long total)
     {
         if (_countLabel is null) return;
@@ -647,7 +662,10 @@ public sealed partial class MainForm
             _countLabel.Text = "Lista vacía — arrastra archivos o carpetas aquí";
             return;
         }
-        _countLabel.Text = $"{_items.Count} elemento(s) · {leaves} archivo(s) · {Format.Bytes(total)}";
+        var folders = _items.Count - leaves;
+        _countLabel.Text = folders > 0
+            ? $"{_items.Count} elemento(s) · {folders} carpeta(s)"
+            : $"{leaves} archivo(s)";
     }
 
     private string? _currentStatus;
@@ -1053,7 +1071,7 @@ public sealed partial class MainForm
         }
     }
 
-    private async Task StartTransferAsync(OperationType operation, bool onlyPending = false)
+    private async Task StartTransferAsync(OperationType operation)
     {
         if (_engine.IsRunning)
         {
@@ -1294,14 +1312,42 @@ public sealed partial class MainForm
             catch { }
         }
 
-        // Lo que ya se copió NO se vuelve a poner en cola: al reintentar una lista terminada
-        // (o después de mover, cuando el origen ya no existe) todo acababa en «Error» al 0 %.
-        leaves = leaves.Where(item => item.State != ItemState.Completed).ToList();
+        // Un elemento «Completed» se vuelve a copiar si su archivo YA NO ESTÁ en el destino
+        // (por ejemplo, porque el usuario lo borró): antes se decía «ya está copiado» y no
+        // había forma de volver a copiarlo desde XoPy. Solo se salta lo que de verdad sigue
+        // estando en el destino, y nunca se reprocesa un origen que ya no existe (eso es lo
+        // que provocaba el «Error al 0 %» de la captura 15).
+        var skippedAlreadyThere = 0;
+        var effective = new List<TransferItem>(leaves.Count);
+        foreach (var leaf in leaves)
+        {
+            if (leaf.State == ItemState.Completed)
+            {
+                if (!File.Exists(leaf.SourcePath) && !Directory.Exists(leaf.SourcePath))
+                {
+                    leaf.Error = "El archivo de origen ya no existe (se movió o se borró). Añádelo de nuevo.";
+                    continue;
+                }
+                var expected = Path.Combine(destination, leaf.RelativePath);
+                if (string.Equals(leaf.DestinationPath, expected, StringComparison.OrdinalIgnoreCase) && File.Exists(expected))
+                {
+                    skippedAlreadyThere++;
+                    continue;
+                }
+            }
+            effective.Add(leaf);
+        }
+        leaves = effective;
         if (leaves.Count == 0)
         {
-            SetStatus("Todo lo seleccionado ya está copiado. Añade archivos nuevos para volver a copiar.");
+            SetStatus(skippedAlreadyThere > 0
+                ? $"{skippedAlreadyThere} archivo(s) ya están en el destino. Bórralos del destino para volver a copiarlos."
+                : "No hay archivos que se puedan copiar: su origen ya no existe. Añádelos de nuevo.");
+            SyncRows();
             return;
         }
+        if (skippedAlreadyThere > 0)
+            SetStatus($"{skippedAlreadyThere} archivo(s) ya estaban en el destino; se copian los demás.");
 
         foreach (var leaf in leaves)
         {
@@ -1329,14 +1375,6 @@ public sealed partial class MainForm
             target.State = ItemState.Pending;
             target.TransferredBytes = 0;
             target.Error = null;
-        }
-
-        // Tras el filtro de arriba ya no queda nada completado: si la lista era solo de
-        // archivos ya copiados, se avisa en vez de dejar el motor sin trabajo.
-        if (onlyPending && operation != OperationType.Delete && leaves.Count == 0)
-        {
-            SetStatus("No hay archivos nuevos que copiar.");
-            return;
         }
 
         var targets = operation == OperationType.Delete ? deleteTargets : leaves;
@@ -1385,6 +1423,20 @@ public sealed partial class MainForm
                 : "No hay archivos pendientes que transferir.");
             UpdateButtons();
             return;
+        }
+
+        // Al empezar una copia la ventana pasa sola a su versión reducida (como TeraCopy):
+        // antes había que pulsar «Ocultar» a mano y el usuario veía la ventana completa.
+        // Solo si el usuario no la había dejado ya reducida, para no pelearse con su elección.
+        if (!_compactView && !IsDisposed && IsHandleCreated)
+        {
+            try { ApplyCompactView(true, persist: false); } catch { }
+        }
+        // Si el arranque fue en la bandeja y el usuario acaba de lanzar una copia desde el
+        // Explorador, la ventana debe aparecer para que vea el progreso.
+        if (!Visible)
+        {
+            try { RestoreWindow(); } catch { }
         }
 
         _wasRunning = true;
@@ -1884,7 +1936,17 @@ public sealed partial class MainForm
         if (failed == 0 && cancelled == 0) RunCompletionTask(failed);
 
         if (_lastOperation == OperationType.Move && failed == 0)
+        {
             CleanupMovedSourceFolders();
+            // Tras un «cortar y pegar» el portapapeles se queda con los archivos ya movidos:
+            // el Explorador los seguía mostrando como pendientes de pegar. Se vacía, como
+            // hace Windows al terminar el movimiento.
+            try
+            {
+                if (ShellPasteHook.ClipboardIsCut()) Clipboard.Clear();
+            }
+            catch { }
+        }
 
         if (_followUpOperation is { } followUp)
         {
@@ -2160,20 +2222,16 @@ public sealed partial class MainForm
     }
 
     /// <summary>
-    /// Rellena el bloque de metadatos de la pestaña Lista (estilo TeraCopy): cuántos archivos
-    /// hay, de qué carpeta vienen y a qué carpeta van, con el tamaño al lado.
+    /// Rellena el bloque de metadatos de la pestaña Lista (estilo TeraCopy): de qué carpeta
+    /// vienen los archivos y a cuál van. Los contadores y los tamaños están solo en el pie.
     /// </summary>
     private void UpdateMetaBlock(List<TransferItem> leaves, long done, long total)
     {
         if (_metaFilter is null) return;
 
-        var files = leaves.Count(item => item.Kind == ItemKind.File);
-        _metaFilter.Text = files == 0
-            ? "Ninguno"
-            : files == 1 ? "1 archivo listo para copiar" : $"{files} archivos listos para copiar";
-        _metaCount.Text = done > 0
-            ? $"{Format.Bytes(done)} / {Format.Bytes(total)}"
-            : Format.Bytes(total);
+        // La columna derecha solo muestra la velocidad cuando hay copia en marcha: el tamaño
+        // total ya está en el pie y repetirlo aquí era otro duplicado de la captura 18.
+        _metaCount.Text = _engine.IsRunning ? Format.Bytes((long)Math.Max(0, _engine.SpeedBytesPerSecond)) + "/s" : string.Empty;
 
         // Origen: la carpeta común de los elementos añadidos (o el origen del archivo actual).
         var roots = RootItems().Select(item => item.SourcePath).Where(path => !string.IsNullOrWhiteSpace(path)).ToList();
@@ -2185,9 +2243,15 @@ public sealed partial class MainForm
         };
         _metaOrigin.Text = origin;
         _metaOriginSize.Text = total > 0 ? Format.Bytes(total) : "0 B";
+        // Fila «Origen» del panel: la carpeta de la que se copia (antes repetía el número
+        // de archivos que ya sale en el pie de la ventana).
+        _metaFilter.Text = origin;
+        _metaFilter.ForeColor = roots.Count == 0 ? _palette.Muted : _palette.Text;
 
         var destination = _destination?.Text.Trim() ?? string.Empty;
-        _metaDestination.Text = string.IsNullOrWhiteSpace(destination) ? "Sin destino: elige una carpeta" : destination;
+        // La cabecera ya avisa de que no hay destino: aquí basta con un guion para no repetir
+        // el mismo mensaje dos veces en la misma pantalla.
+        _metaDestination.Text = string.IsNullOrWhiteSpace(destination) ? "—" : destination;
         _metaDestination.ForeColor = string.IsNullOrWhiteSpace(destination) ? _palette.Warning : _palette.Text;
         _metaDestinationSize.Text = _activeList?.DisplayName ?? string.Empty;
     }
@@ -2241,7 +2305,10 @@ public sealed partial class MainForm
         }
         else
         {
-            _speedLabel.Text = _items.Count == 0 ? "Listo" : $"Total {Format.Bytes(total)}";
+            // Parado: el tamaño total ya sale en el resumen de la barra de progreso («… de
+            // 22,0 KB») y el gráfico de al lado ya dice «Velocidad · Sin actividad».
+            // Esta etiqueta se queda vacía para no decir lo mismo por tercera vez.
+            _speedLabel.Text = string.Empty;
         }
 
         var runningLeaf = leaves.FirstOrDefault(item => item.State is ItemState.Running or ItemState.Verifying);
@@ -2325,9 +2392,28 @@ public sealed partial class MainForm
                 (_, _) => SendSelectionTo(target)) { ToolTipText = target });
         }
 
+        // Destinos recientes del historial: así «Enviar a» funciona aunque el usuario no haya
+        // guardado ningún favorito (era el caso en el que el menú salía vacío y parecía roto).
+        var recent = _history
+            .Where(entry => !string.IsNullOrWhiteSpace(entry.Destination) && Directory.Exists(entry.Destination))
+            .Select(entry => entry.Destination)
+            .Where(folder => seen.Add(folder))
+            .Take(5)
+            .ToList();
+        if (recent.Count > 0)
+        {
+            sendTo.DropDownItems.Add(new ToolStripSeparator());
+            foreach (var folder in recent)
+            {
+                var target = folder;
+                sendTo.DropDownItems.Add(new ToolStripMenuItem("Reciente: " + ShortPath(target), null,
+                    (_, _) => SendSelectionTo(target)) { ToolTipText = target });
+            }
+        }
+
         if (sendTo.DropDownItems.Count == 2)
         {
-            var empty = new ToolStripMenuItem("(No hay carpetas favoritas)") { Enabled = false };
+            var empty = new ToolStripMenuItem("(No hay carpetas favoritas: usa «Elegir destino…»)") { Enabled = false };
             sendTo.DropDownItems.Add(empty);
         }
     }
@@ -2359,16 +2445,24 @@ public sealed partial class MainForm
         var destination = folder!;
         try { Directory.CreateDirectory(destination); } catch { }
 
+        // Se recogen TODOS los archivos afectados: los seleccionados y, si se seleccionó una
+        // carpeta, todo su contenido. Antes, al seleccionar archivos sueltos de una subcarpeta
+        // se les aplanaba la ruta («CARS\CHE\x.dds» pasaba a «x.dds») y el envío acababa
+        // dejando los archivos sueltos en la raíz del destino o, con la lista plegada, sin
+        // mover nada: eso era el «Enviar a no funciona» con el historial oculto.
         var roots = selected.Where(item => item.ParentId is null || !selected.Any(other => other.Id == item.ParentId)).ToList();
+        // HashSet para no procesar dos veces el mismo archivo (si se seleccionó una carpeta y
+        // además un archivo suelto dentro de ella, antes se recalculaba dos veces su destino).
+        var seenLeaves = new HashSet<Guid>();
         foreach (var root in roots)
         {
             foreach (var leaf in root.Kind == ItemKind.Folder ? Descendants(root).Append(root) : new[] { root })
             {
                 if (leaf.Kind != ItemKind.File) continue;
-                // Se mantiene la ruta relativa para no perder la estructura de subcarpetas.
-                leaf.RelativePath = string.IsNullOrWhiteSpace(leaf.RelativePath)
-                    ? leaf.Name
-                    : Path.GetFileName(leaf.RelativePath);
+                if (!seenLeaves.Add(leaf.Id)) continue;
+                // La ruta relativa se CONSERVA tal cual (incluye sus subcarpetas). Solo se
+                // rellena con el nombre si viniera vacía.
+                if (string.IsNullOrWhiteSpace(leaf.RelativePath)) leaf.RelativePath = leaf.Name;
                 leaf.DestinationPath = Path.Combine(destination, leaf.RelativePath);
             }
         }
@@ -3042,6 +3136,8 @@ public sealed partial class MainForm
             // estado Normal, después mostrar. Al revés, la ventana quedaba «visible»
             // pero sin foco y parecía que XoPy no abría.
             EnsureTrayIcon();
+            // El usuario ha pedido ver la ventana: el «arranque oculto» ya no aplica.
+            _startHidden = false;
             ShowInTaskbar = true;
             // Restaurar SIEMPRE al frente: antes, con el proceso ya minimizado, la ventana
             // volvía en estado minimizado en la barra de tareas. Pero si estaba maximizada,
@@ -3089,11 +3185,17 @@ public sealed partial class MainForm
         }
     }
 
-    private void MinimizeToTray()
+    /// <summary>
+    /// Oculta la ventana en el área de notificación. Con <paramref name="silent"/> no muestra
+    /// globo: se usa al arrancar en la bandeja, donde un aviso emergente también se percibía
+    /// como «la ventana se abre sola».
+    /// </summary>
+    private void MinimizeToTray(bool silent = false)
     {
         EnsureTrayIcon();
         Hide();
         ShowInTaskbar = false;
+        if (silent) return;
         try
         {
             _tray.ShowBalloonTip(1500, "XoPy", "XoPy sigue abierto en el área de notificación. " +
@@ -3163,6 +3265,8 @@ public sealed partial class MainForm
         {
             _timer.Stop();
             _timer.Dispose();
+            _resizeDebounce.Stop();
+            _resizeDebounce.Dispose();
             _engine.Cancel();
             _tray.Visible = false;
             _tray.Dispose();

@@ -88,6 +88,9 @@ public static class ShellIntegration
             // CLSID de la extensión «Pegar»: esa clave es la que hace funcionar Ctrl+V.
             try { RegisterAppPath(Application.ExecutablePath); } catch { }
             try { Unregister(); } catch { }
+            // «Enviar a → XoPy»: se crea y se deja. Antes el arranque llamaba a Cleanup(),
+            // que borraba el acceso, y por eso «Enviar a» no existía nunca.
+            try { CreateSendToShortcut(); } catch (Exception ex) { FileLog.Write("No se pudo crear Enviar a: " + ex.Message); }
             try { EnsurePasteExtension(); } catch (Exception ex) { FileLog.Write("No se pudo registrar el Pegar: " + ex.Message); }
             try { SHChangeNotify(0x08000000, 0, IntPtr.Zero, IntPtr.Zero); } catch { }
             return;
@@ -258,14 +261,10 @@ public static class ShellIntegration
             catch { }
         }
         // La clave CLSID de la extensión «Pegar» NO se borra aquí: es la que registra el
-        // instalador y la que hace que Ctrl+V abra XoPy. Antes se borraba al arrancar y por
-        // eso la integración no sustituía al copiador de Windows.
-        try
-        {
-            using var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved", true);
-            key?.DeleteValue("{3B1E92A7-7AD6-4E71-A218-75449CE13061}", false);
-        }
-        catch { }
+        // instalador y la que hace que Ctrl+V abra XoPy.
+        // TAMPOCO se borra «Approved»: sin esa aprobación el Explorador NO muestra la entrada
+        // «Pegar con XoPy» del menú contextual (por eso el pegado del menú no funcionaba y
+        // acababa copiando Windows). Solo se quita al desinstalar (RemovePasteExtension).
     }
 
     public static void SetAutoStart(bool enabled)
