@@ -3189,10 +3189,11 @@ public sealed partial class MainForm
     /// Garantiza que la ventana se ve. Es la última red de seguridad contra el peor fallo
     /// posible: que XoPy esté en ejecución y el usuario no vea nada por ninguna parte.
     /// </summary>
-    private void EnsureWindowVisible()
+    private void EnsureWindowVisible(string motivo = "")
     {
         try
         {
+            Program.Log("EnsureWindowVisible " + motivo);
             _startHidden = false;
             ShowInTaskbar = true;
             if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
@@ -3214,6 +3215,7 @@ public sealed partial class MainForm
     private void MinimizeToTray(bool silent = false)
     {
         EnsureTrayIcon();
+        Program.Log($"MinimizeToTray icono_visible={_tray.Visible}");
         if (!_tray.Visible)
         {
             FileLog.Write("No hay icono en la bandeja: la ventana se deja visible para no perder XoPy de vista.");
