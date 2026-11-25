@@ -1,5 +1,5 @@
   Determining projects to restore...
-  Restored D:\a\XoPy\XoPy\XoPy\XoPy.csproj (in 24 ms).
+  Restored D:\a\XoPy\XoPy\XoPy\XoPy.csproj (in 30 ms).
 D:\a\XoPy\XoPy\XoPy\MainForm.cs(2099,9): warning WFDEV004: 'Form.Closed' is obsolete: 'Form.OnClosing, Form.OnClosed and the corresponding events are obsolete. Use Form.OnFormClosing, Form.OnFormClosed, Form.FormClosing and Form.FormClosed instead.' (https://aka.ms/winforms-warnings/WFDEV004) [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
 D:\a\XoPy\XoPy\XoPy\MainForm.cs(2369,13): warning CS8602: Dereference of a possibly null reference. [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
 D:\a\XoPy\XoPy\XoPy\MainForm.cs(2404,74): warning CS8602: Dereference of a possibly null reference. [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
@@ -19,7 +19,7 @@ CSC : warning WFO0003: Remove high DPI settings from D:\a\XoPy\XoPy\XoPy\app.man
     6 Warning(s)
     0 Error(s)
 
-Time Elapsed 00:00:02.72
+Time Elapsed 00:00:04.07
 FILE: carpeta (1 bytes)
 FILE: dest-rbcopy (1 bytes)
 FILE: dest3 (1 bytes)
@@ -31,27 +31,27 @@ FILE: jerarquia (1 bytes)
 FILE: misma (1 bytes)
 FILE: perf (1 bytes)
 FILE: perf-destino (1 bytes)
-FILE: advanced.png (29962 bytes)
+FILE: advanced.png (29956 bytes)
 FILE: cola.txt (534 bytes)
 FILE: conflict.png (8779 bytes)
 FILE: conflictotest.txt (70 bytes)
 FILE: copiatest.txt (83 bytes)
 FILE: exitcode.txt (24 bytes)
 FILE: grande.bin (300000 bytes)
-FILE: history.png (29947 bytes)
+FILE: history.png (30033 bytes)
 FILE: informe.pdf (10242 bytes)
 FILE: jerarquiatest.txt (111 bytes)
 FILE: menu-context.png (5636 bytes)
-FILE: menu-menu.png (23026 bytes)
+FILE: menu-menu.png (22840 bytes)
 FILE: mismacarpeta.txt (59 bytes)
 FILE: movetest.txt (88 bytes)
-FILE: options.png (50799 bytes)
+FILE: options.png (50786 bytes)
 FILE: perf.txt (175 bytes)
 FILE: rbcopy.bin (200002 bytes)
 FILE: reanudartest.txt (41 bytes)
 FILE: robocopytest.txt (49 bytes)
-FILE: shot.png (29962 bytes)
-FILE: verify.png (29962 bytes)
+FILE: shot.png (29956 bytes)
+FILE: verify.png (29956 bytes)
 FILE: video.mp4 (20482 bytes)
 --- C:\xopytest\exitcode.txt
 exitcode=0 exited=True
@@ -182,11 +182,11 @@ MF14. ApplyCopierReplacement done
 MF15. InstallShellHookIfNeeded start
 MF15. InstallShellHookIfNeeded done
 --- transfer.log (últimas 120 líneas)
-2026-11-25 18:21:55  Sustitución real: se activa el arranque de XoPy con Windows para que Ctrl+V siga pasando por XoPy tras reiniciar.
-2026-11-25 18:21:55  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
-2026-11-25 18:21:55  Arranque: destinos extra=[] guardados=[]
-2026-11-25 18:21:55  Inicio: 1 elementos, destinos=C:\xopytest\misma, verificar=False (Sha256), reanudar=False
-2026-11-25 18:21:55  Copia nativa: C:\xopytest\misma\original.txt -> C:\xopytest\misma\original (1).txt
-2026-11-25 18:21:55  Fin: 3002 bytes en 0.0s, errores=0
-2026-11-25 18:22:10  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
-2026-11-25 18:22:12  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
+2026-11-25 18:28:57  Sustitución real: se activa el arranque de XoPy con Windows para que Ctrl+V siga pasando por XoPy tras reiniciar.
+2026-11-25 18:28:57  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
+2026-11-25 18:28:57  Arranque: destinos extra=[] guardados=[]
+2026-11-25 18:28:58  Inicio: 1 elementos, destinos=C:\xopytest\misma, verificar=False (Sha256), reanudar=False
+2026-11-25 18:28:58  Copia nativa: C:\xopytest\misma\original.txt -> C:\xopytest\misma\original (1).txt
+2026-11-25 18:28:58  Fin: 3002 bytes en 0.0s, errores=0
+2026-11-25 18:29:12  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
+2026-11-25 18:29:14  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
