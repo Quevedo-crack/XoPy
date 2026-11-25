@@ -114,7 +114,7 @@ jobs:
           Start-Process $viejo | Out-Null
           Start-Sleep -Seconds 25
           $ventanas = @(Get-Process XoPy -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero }).Count
-          Write-Host "2.5.7_ventana_tras_segunda_apertura=$ventanas"
+          Write-Host "::notice::DIAGNOSTICO v2.5.7: ventanas_visibles_tras_abrirlo_estando_en_bandeja=$ventanas (0 = no abre)"
           $startupLog = Join-Path $data 'startup.log'
           if (Test-Path $startupLog) { Write-Host '--- startup.log 2.5.7 ---'; Get-Content $startupLog -Tail 30 }
           Get-Process XoPy -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
@@ -163,24 +163,42 @@ jobs:
           Parar-Todo
           Remove-Item $data -Recurse -Force -ErrorAction SilentlyContinue
           $p = Start-Process $exe -PassThru
-          if (Esperar-Ventana $p 60) { Write-Host 'ok_doble_clic=true' }
-          else { $fallos += 'Abrir XoPy sin argumentos NO muestra ninguna ventana'; Log-XoPy }
+          $r = Esperar-Ventana $p 60
+          Write-Host "::notice::doble_clic_muestra_ventana=$r"
+          if (-not $r) { $fallos += 'Abrir XoPy sin argumentos NO muestra ninguna ventana'; Log-XoPy }
           Parar-Todo
 
           # 2) Con la casilla «arrancar minimizado» guardada: abrirlo a mano DEBE verse.
           New-Item -ItemType Directory -Force $data | Out-Null
           '{"StartMinimized":true,"MinimizeToTray":true}' | Set-Content (Join-Path $data 'settings.json')
           $p = Start-Process $exe -PassThru
-          if (Esperar-Ventana $p 60) { Write-Host 'ok_manual_con_ajuste_minimizado=true' }
-          else { $fallos += 'Con «arrancar minimizado» guardado, abrir XoPy a mano no muestra la ventana'; Log-XoPy }
+          $r = Esperar-Ventana $p 60
+          Write-Host "::notice::manual_con_ajuste_minimizado_muestra_ventana=$r"
+          if (-not $r) { $fallos += 'Con «arrancar minimizado» guardado, abrir XoPy a mano no muestra la ventana'; Log-XoPy }
           Parar-Todo
 
           # 3) Arranque con Windows (--tray): sin ventana, pero al abrirlo otra vez SÍ.
           $tray = Start-Process $exe -ArgumentList '--tray' -PassThru
           Start-Sleep -Seconds 20
           $tray.Refresh()
-          if (-not $tray.HasExited -and $tray.MainWindowHandle -eq [IntPtr]::Zero) { Write-Host 'ok_tray_sin_ventana=true' }
-          else { $fallos += 'Con --tray la ventana no debería aparecer (o el proceso murió)' }
+          $trayVivo = -not $tray.HasExited
+          $trayVentana = $trayVivo -and $tray.MainWindowHandle -ne [IntPtr]::Zero
+          $sinBandeja = $false
+          $trazas = Join-Path $data 'transfer.log'
+          if (Test-Path $trazas) { $sinBandeja = (Select-String -Path $trazas -Pattern 'No hay icono en la bandeja' -Quiet) -eq $true }
+          Write-Host "::notice::tray_proceso_vivo=$trayVivo ventana=$trayVentana sin_area_notificacion=$sinBandeja"
+          if (-not $trayVivo) {
+            $fallos += 'Con --tray el proceso se cierra en lugar de quedarse en la bandeja'
+            Log-XoPy
+          }
+          elseif ($trayVentana -and -not $sinBandeja) {
+            $fallos += 'Con --tray aparece la ventana aunque el área de notificación funciona'
+          }
+          else {
+            # Si el entorno no tiene área de notificación (runner sin shell), la ventana
+            # visible es la red de seguridad correcta: XoPy nunca debe quedar invisible.
+            Write-Host 'ok_tray=true'
+          }
           Start-Process $exe | Out-Null
           $visible = $false
           $limite = (Get-Date).AddSeconds(60)
@@ -189,8 +207,8 @@ jobs:
             $visible = @(Get-Process XoPy -ErrorAction SilentlyContinue |
                          Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero }).Count -gt 0
           }
-          if ($visible) { Write-Host 'ok_segunda_instancia_muestra_ventana=true' }
-          else { $fallos += 'Con XoPy en la bandeja, volver a abrirlo NO muestra la ventana'; Log-XoPy }
+          Write-Host "::notice::segunda_apertura_muestra_ventana=$visible"
+          if (-not $visible) { $fallos += 'Con XoPy en la bandeja, volver a abrirlo NO muestra la ventana'; Log-XoPy }
           Parar-Todo
 
           # 4) Mutex ocupado por alguien que no contesta: XoPy debe abrirse igualmente.
@@ -199,8 +217,9 @@ jobs:
             '$creado=$false; $m=New-Object System.Threading.Mutex($true,"Local\XoPy.SingleInstance.5C1A93",[ref]$creado); Start-Sleep -Seconds 120')
           Start-Sleep -Seconds 5
           $p = Start-Process $exe -PassThru
-          if (Esperar-Ventana $p 90) { Write-Host 'ok_mutex_ocupado_abre_igual=true' }
-          else { $fallos += 'Con el mutex ocupado por un proceso colgado, XoPy no abre ninguna ventana'; Log-XoPy }
+          $r = Esperar-Ventana $p 90
+          Write-Host "::notice::mutex_ocupado_abre_igual=$r"
+          if (-not $r) { $fallos += 'Con el mutex ocupado por un proceso colgado, XoPy no abre ninguna ventana'; Log-XoPy }
           Stop-Process -Id $bloqueo.Id -Force -ErrorAction SilentlyContinue
           Parar-Todo
           Remove-Item $data -Recurse -Force -ErrorAction SilentlyContinue
