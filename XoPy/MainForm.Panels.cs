@@ -1472,23 +1472,23 @@ public sealed partial class MainForm
     {
         if (_scrollCover is null || _list is null || !_list.IsHandleCreated) return;
         var width = SystemInformation.VerticalScrollBarWidth;
-        // El recuadro blanco aparece en la cabecera cuando la lista NO tiene filas: el control
-        // nativo mantiene igualmente su franja de desplazamiento. Con filas de verdad la barra
-        // es necesaria y se deja ver, así que la tapa solo actúa con la lista vacía.
-        if (_list.Items.Count > 0)
-        {
-            _scrollCover.Visible = false;
-            return;
-        }
         try
         {
             var origin = _list.PointToScreen(Point.Empty);
             var local = PointToClient(origin);
-            // Se cubre un poco más de ancho que la barra: el control nativo deja un borde de
-            // 4 px fuera del ancho estándar del scrollbar que también salía en blanco.
+            // ResizeColumns deja libre el ancho de la barra vertical para que nunca aparezca
+            // desplazamiento horizontal. Esa franja no pertenece a ninguna columna y el
+            // ListView la pinta con el color del sistema: es el RECUADRO BLANCO de la esquina
+            // de la cabecera. Se tapa siempre con el color del panel.
+            // Con filas solo se cubre el alto de la cabecera (debajo está el fondo de la lista
+            // y, si hace falta, la barra de verdad, que no se debe ocultar). Con la lista
+            // vacía se cubre entera, porque el control sigue dibujando el canal del pulgar.
             var cover = width + 4;
+            var headerHeight = _list.Items.Count > 0
+                ? Math.Max(1, _list.Items[0].Bounds.Top)
+                : _list.ClientSize.Height;
             _scrollCover.Bounds = new Rectangle(local.X + _list.ClientSize.Width - cover,
-                local.Y, cover, _list.ClientSize.Height);
+                local.Y, cover, headerHeight);
             _scrollCover.Visible = true;
             _scrollCover.BringToFront();
         }

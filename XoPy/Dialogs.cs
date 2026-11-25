@@ -642,9 +642,12 @@ internal sealed class OptionsDialog : Form
     private void BuildPages()
     {
         // La pestaña «General» ya no existe: sus opciones están en la pantalla principal.
-        _tabs.TabPages.Add(Page("Destino predeterminado", 4,
+        // Un control de WinForms solo puede tener UN padre: los que ya están en la vista
+        // principal (tema, sonido al terminar y abrir el destino) no se pueden repetir aquí
+        // porque al añadirlos otra vez desaparecen de una de las dos pantallas. Es lo que
+        // dejaba «Tema de la interfaz» como un rótulo suelto sin su desplegable.
+        _tabs.TabPages.Add(Page("Destino predeterminado", 3,
             ("Carpeta de destino predeterminada", _destination, 48),
-            ("Tema de la interfaz", _theme, 48),
             ("", _confirmDelete, 40),
             ("", _startMinimized, 40)));
 
@@ -756,9 +759,10 @@ internal sealed class OptionsDialog : Form
                 BackColor = Color.Transparent
             }, 160)));
 
-        _tabs.TabPages.Add(Page("Al terminar", 5,
-            ("", _sound, 42),
-            ("", _openDestination, 42),
+        // «Reproducir un sonido» y «Abrir la carpeta de destino» están en la pantalla
+        // principal de Preferencias (sección «Al finalizar»): repetirlos aquí los borraba
+        // de allí y dejaba esta página con filas vacías.
+        _tabs.TabPages.Add(Page("Al terminar", 3,
             ("", _closeWhenDone, 42),
             ("", _shutdown, 42),
             ("", _askWhenBusy, 42)));
@@ -832,6 +836,12 @@ internal sealed class OptionsDialog : Form
         var row = 0;
         foreach (var (label, control, height) in items)
         {
+            // Aviso temprano: si el control ya tiene padre, al añadirlo aquí se lo quita a la
+            // otra pantalla y esa fila queda con el rótulo y sin control (el fallo del «Tema
+            // de la interfaz»). Queda registrado en el log en vez de pasar inadvertido.
+            if (control.Parent is not null)
+                FileLog.Write($"Preferencias: «{label}» reutiliza un control que ya está en otra pantalla.");
+
             // Las descripciones largas crecen solas: fila automática y ajuste de línea real,
             // en lugar de un alto fijo que recortaba el texto a media frase.
             var isDescription = control is Label && string.IsNullOrEmpty(label);
