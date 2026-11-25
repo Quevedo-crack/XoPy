@@ -30,10 +30,16 @@ jobs:
         shell: pwsh
         run: |
           dotnet publish XoPy/XoPy.csproj -c Release -r win-x64 --self-contained true `
-            -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
+            -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=false `
             -p:EnableCompressionInSingleFile=true -p:DebugType=none -p:DebugSymbols=false `
             -o publish -v:d 2>&1 | Tee-Object -FilePath build.log
-          if ($LASTEXITCODE -ne 0) { throw "No se pudo publicar la aplicación (código $LASTEXITCODE)" }
+          $publishExit = $LASTEXITCODE
+          # Se comprueba el resultado real además del código de salida: con Tee-Object el
+          # código podía leerse antes de tiempo y fallar un publish que sí había funcionado.
+          if ($publishExit -ne 0 -or -not (Test-Path 'publish/XoPy.exe')) {
+            Write-Host "publish_exit=$publishExit"
+            throw "No se pudo publicar la aplicación (código $publishExit)"
+          }
 
       - uses: ilammy/msvc-dev-cmd@v1
         with:
@@ -168,6 +174,12 @@ jobs:
               Start-Sleep -Seconds 5
             }
             "sigue_instalado=$(Test-Path $exe)" | Add-Content $log
+            # El .exe autocontenido ya no se extrae; se comprueba también su subcarpeta de
+            # extracción por si quedara de una versión anterior.
+            $appDir = Join-Path $env:ProgramFiles 'XoPy'
+            if (Test-Path $appDir) {
+              "contenido_restante=$((Get-ChildItem $appDir -Force | Select-Object -ExpandProperty Name) -join ',')" | Add-Content $log
+            }
             $restos = @()
             if (Test-Path $exe) { $restos += 'exe' }
             if (Test-Path (Join-Path $env:ProgramFiles 'XoPy')) { $restos += 'carpeta_app' }

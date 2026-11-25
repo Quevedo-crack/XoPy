@@ -196,9 +196,19 @@ end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
+  AppDir: String;
   ResultCode: Integer;
   DataDir: String;
 begin
+  if CurUninstallStep = usUninstall then
+  begin
+    // El .exe autocontenido se extraía a una subcarpeta de {app} al arrancar y el
+    // desinstalador dejaba la carpeta con esos archivos («elementos que no se pudieron
+    // eliminar»). Ya no se extrae, pero se borra también cualquier resto de versiones
+    // anteriores, incluso si el desinstalador se ejecuta sin privilegios para {app}.
+    AppDir := ExpandConstant('{app}');
+    DelTree(AppDir, True, True, True);
+  end;
   if CurUninstallStep = usPostUninstall then
   begin
     // Datos del usuario: ajustes, historial, última cola y registro. Quedaban en
