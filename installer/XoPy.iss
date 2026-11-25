@@ -32,8 +32,9 @@ RestartApplications=no
 ; Permite que «restartreplace» programe la sustitución de la DLL al reiniciar, sin abortar
 ; y sin pedir confirmación al usuario.
 RestartIfNeededByRun=no
-; No se reinicia jamás el equipo desde el instalador.
-AllowNoRestart=yes
+; No se reinicia jamás el equipo: AlwaysRestart=no es el valor por defecto y se deja
+; explícito para que nadie lo cambie por accidente.
+AlwaysRestart=no
 AppMutex=Local\\XoPy.SingleInstance.5C1A93
 AllowNoIcons=yes
 VersionInfoVersion=2.5.7.0
@@ -91,7 +92,7 @@ Filename: "{app}\XoPy.exe"; Description: "Iniciar XoPy"; Flags: postinstall nowa
 // Notificación al shell para refrescar el menú contextual sin reiniciar el Explorador.
 // (SHCNE_ASSOCCHANGED = $08000000, SHCNF_IDLIST = 0)
 procedure SHChangeNotify(wEventId: Longint; uFlags: Cardinal; dwItem1, dwItem2: Cardinal);
-  external 'SHChangeNotifyW@shell32.dll stdcall';
+  external 'SHChangeNotify@shell32.dll stdcall';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // El Explorador mantiene cargada XoPyShell.dll mientras la extensión «Pegar» está
@@ -168,23 +169,37 @@ end;
 
 procedure ReleaseShellExtensionQuietly();
 var
-  ResultCode: Integer;
-  DllPath, ProbePath: String;
+  DllPath, TempOld: String;
 begin
   // Restos .old de una desinstalación anterior que Windows programó para el arranque.
   RepeatDeleteOld(ExpandConstant('{app}'));
   DllPath := ExpandConstant('{app}\XoPyShell.dll');
   if not FileExists(DllPath) then exit;
-  // Si la DLL se puede renombrar, el Explorador NO la tiene bloqueada: no hay nada que hacer.
-  ProbePath := DllPath + '.probe';
-  if RenameFile(DllPath, ProbePath) then
+
+  // 1) Si se puede borrar, el Explorador no la tiene cargada y no hay nada más que hacer.
+  if DeleteFile(DllPath) then exit;
+
+  // 2) Está en uso. Windows NO deja BORRAR un DLL mapeado, pero SÍ deja RENOMBRARLO: se
+  //    aparta a la carpeta temporal para que el archivo nuevo se escriba en una ruta libre.
+  //    Así no hace falta restartreplace y el instalador NO pide reiniciar el equipo.
+  TempOld := ExpandConstant('{tmp}\XoPyShell-anterior.dll');
+  if RenameFile(DllPath, TempOld) then
   begin
-    RenameFile(ProbePath, DllPath);
+    Log('XoPyShell.dll estaba en uso: apartada a la carpeta temporal.');
     exit;
   end;
-  // Está en uso. NO se mata el Explorador (eso rompía el escritorio y bloqueaba la
-  // instalación). Se deja que la sustitución la haga restartreplace al reiniciar.
-  Log('XoPyShell.dll en uso: se sustituirá al reiniciar (restartreplace).');
+
+  // 3) Si el temporal está en otra unidad, se aparta dentro de la misma carpeta y se
+  //    programa su borrado para el próximo arranque (sin avisos ni reinicio forzado).
+  if RenameFile(DllPath, DllPath + '.old') then
+  begin
+    MoveFileEx(DllPath + '.old', '', $4);
+    Log('XoPyShell.dll estaba en uso: renombrada y marcada para borrarse al reiniciar.');
+    exit;
+  end;
+
+  // 4) Último recurso: lo resuelve restartreplace. NUNCA se cierra el Explorador.
+  Log('XoPyShell.dll sigue bloqueada: se sustituirá en el próximo arranque.');
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);

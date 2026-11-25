@@ -81,6 +81,17 @@ jobs:
           $installerExit = $LASTEXITCODE
           if ($installerExit -ne 0) { throw "No se pudo compilar el instalador (código $installerExit)" }
 
+      # El log del instalador solo se puede leer descargando un artefacto; publicarlo como
+      # anotación deja el error de Inno Setup visible directamente en el resumen del job.
+      - name: Publicar errores del instalador como anotación
+        if: failure() && hashFiles('installer-build.log') != ''
+        shell: pwsh
+        run: |
+          Get-Content installer-build.log | Where-Object { $_ -match 'Error|error|Fatal|falló|failed' } |
+            Select-Object -First 20 | ForEach-Object { Write-Host "::error file=installer/XoPy.iss::$_" }
+          Get-Content installer-build.log | Select-Object -Last 15 |
+            ForEach-Object { Write-Host "::error file=installer/XoPy.iss::$_" }
+
       - name: Comprobar el resultado
         shell: pwsh
         run: |
