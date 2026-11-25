@@ -2,8 +2,8 @@
 
 [Setup]
 AppName=XoPy
-AppVersion=2.5.5
-AppVerName=XoPy 2.5.5
+AppVersion=2.5.6
+AppVerName=XoPy 2.5.6
 AppPublisher=Quevedo-crack
 AppPublisherURL=https://github.com/Quevedo-crack/XoPy
 AppSupportURL=https://github.com/Quevedo-crack/XoPy/issues
@@ -14,7 +14,7 @@ DisableProgramGroupPage=yes
 OutputDir=..\installer-output
 OutputBaseFilename=XoPy-Setup-win-x64
 UninstallDisplayIcon={app}\XoPy.exe
-UninstallDisplayName=XoPy 2.5.5
+UninstallDisplayName=XoPy 2.5.6
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
@@ -30,7 +30,7 @@ RestartApplications=no
 RestartIfNeededByRun=yes
 AppMutex=Local\\XoPy.SingleInstance.5C1A93
 AllowNoIcons=yes
-VersionInfoVersion=2.5.5.0
+VersionInfoVersion=2.5.6.0
 VersionInfoProductName=XoPy
 VersionInfoDescription=Gestor de copias XoPy
 VersionInfoCompany=Quevedo-crack
@@ -93,6 +93,32 @@ const
   CLSID_XoPy = '{3B1E92A7-7AD6-4E71-A218-75449CE13061}';
   MutexXoPy = 'Local\XoPy.SingleInstance.5C1A93';
 
+// Salvaguarda: el desinstalador SOLO puede borrar la carpeta de la aplicación
+// ({autopf}\XoPy). Si por un fallo de configuración {app} apuntara a una carpeta con datos
+// del usuario (Escritorio, Documentos, Descargas, Juegos, Series…), no se borra NADA.
+function SafeToDeleteAppDir(const Dir: String): Boolean;
+var
+  Normalized: String;
+begin
+  Normalized := Lowercase(Dir);
+  // La carpeta debe ser la de XoPy y no debe estar dentro de una carpeta de datos.
+  Result := (Pos('\xopy', Normalized) > 0)
+    and (Pos('\desktop', Normalized) = 0)
+    and (Pos('\escritorio', Normalized) = 0)
+    and (Pos('\documents', Normalized) = 0)
+    and (Pos('\downloads', Normalized) = 0)
+    and (Pos('\juegos', Normalized) = 0)
+    and (Pos('\series', Normalized) = 0)
+    and (Pos('\pictures', Normalized) = 0)
+    and (Pos('\music', Normalized) = 0)
+    and (Pos('\videos', Normalized) = 0);
+end;
+// MoveFileEx permite programar el borrado de un archivo bloqueado para el próximo arranque.
+// Es la vía canónica de Windows cuando un DLL sigue cargado (aquí, XoPyShell.dll mientras el
+// Explorador tenga mapeada la extensión). Sin ella, la desinstalación dejaba esa DLL.
+function MoveFileEx(lpExistingFileName, lpNewFileName: String; dwFlags: Cardinal): Boolean;
+  external 'MoveFileExW@kernel32.dll stdcall';
+
 procedure UnregisterShellExtension();
 var
   ResultCode: Integer;
@@ -119,12 +145,23 @@ end;
 
 // Si el Explorador conserva la DLL cargada, se reinicia ANTES de copiar archivos.
 // Renombrarla es la prueba fiable: si se puede renombrar, no está bloqueada.
+// Borra los XoPyShell.dll.old que dejó una desinstalación anterior (o un borrado
+// programado para el arranque). Se hace con RemoveDir/DeleteFile directos: sin bucles.
+procedure RepeatDeleteOld(const Dir: String);
+begin
+  if not DirExists(Dir) then exit;
+  DeleteFile(Dir + '\XoPyShell.dll.old');
+  DeleteFile(Dir + '\XoPyShell.dll.probe');
+end;
+
 procedure RestartExplorerIfNeeded();
 var
   ResultCode: Integer;
   Attempt: Integer;
   DllPath, ProbePath: String;
 begin
+  // Restos .old de una desinstalación anterior que Windows programó para el arranque.
+  RepeatDeleteOld(ExpandConstant('{app}'));
   DllPath := ExpandConstant('{app}\XoPyShell.dll');
   if not FileExists(DllPath) then exit;
   ProbePath := DllPath + '.probe';
@@ -176,6 +213,115 @@ begin
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM XoPy.exe /F', '', SW_HIDE,
        ewWaitUntilTerminated, KillCode);
   Result := '';
+end;
+
+function InitializeUninstall(): Boolean;
+var
+  ResultCode: Integer;
+begin
+  // Sin esto la desinstalación avisaba «Algunos elementos no pudieron eliminarse»: XoPy
+  // seguía en la bandeja con XoPy.exe y XoPyShell.dll cargados, y el Explorador mantenía
+  // la DLL de la extensión «Pegar». Se desregistra, se cierran los procesos y se espera.
+  UnregisterShellExtension();
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM XoPy.exe /F', '', SW_HIDE,
+       ewWaitUntilTerminated, ResultCode);
+  Sleep(600);
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM XoPyShell.dll /F', '', SW_HIDE,
+       ewWaitUntilTerminated, ResultCode);
+  Result := True;
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  AppDir: String;
+  ResultCode: Integer;
+  DataDir: String;
+  DllPath: String;
+  TempOld: String;
+begin
+  if CurUninstallStep = usUninstall then
+  begin
+    AppDir := ExpandConstant('{app}');
+    if not SafeToDeleteAppDir(AppDir) then
+    begin
+      // No es la carpeta de XoPy: nunca se borra. (El resto de la limpieza sigue igual.)
+      AppDir := '';
+    end;
+  end;
+  if (CurUninstallStep = usUninstall) and (AppDir <> '') then
+  begin
+    // La causa real de «Algunos elementos no pudieron eliminarse» era XoPyShell.dll: el
+    // Explorador la mantiene cargada y Windows no deja borrarla. Se desregistra primero
+    // (para que deje de pedirla) y, si sigue bloqueada, se reinicia el Explorador, que
+    // Windows relanza solo. Después se borra la carpeta entera.
+    UnregisterShellExtension();
+    DllPath := AppDir + '\XoPyShell.dll';
+    // La DLL solo se puede borrar si el Explorador ya la soltó. Se intenta en varios
+    // pasos y, si sigue en uso, se programa su borrado para el próximo arranque, que es
+    // lo que hace Windows: así no queda el aviso de «elementos que no se pudieron eliminar».
+    if FileExists(DllPath) and not DeleteFile(DllPath) then
+    begin
+      // Windows NO permite borrar un DLL que el Explorador tiene mapeado… pero SÍ permite
+      // RENOMBRARLO (el nombre es solo una entrada del directorio; los datos siguen en uso).
+      // Renombrar y borrar es la forma fiable de que la carpeta quede vacía sin reiniciar.
+      if not RenameFile(DllPath, DllPath + '.old') then
+      begin
+        Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM explorer.exe /F', '', SW_HIDE,
+             ewWaitUntilTerminated, ResultCode);
+        Sleep(2500);
+        RenameFile(DllPath, DllPath + '.old');
+      end;
+      // El .old aún está mapeado por el Explorador, así que tampoco se puede borrar. La
+      // solución es la misma que ya funcionó para renombrar el DLL: se mueve a %TEMP% (fuera
+      // de {app}) y allí se borra o se deja para el próximo arranque. Así {app} queda vacía.
+      if FileExists(DllPath + '.old') then
+      begin
+        if not DeleteFile(DllPath + '.old') then
+        begin
+          TempOld := ExpandConstant('{tmp}\XoPyShell.dll.old');
+          DeleteFile(TempOld);
+          if MoveFileEx(DllPath + '.old', TempOld, 0) then
+          begin
+            if not DeleteFile(TempOld) then MoveFileEx(TempOld, '', $4);
+          end
+          else
+            MoveFileEx(DllPath + '.old', '', $4);
+        end;
+      end
+      else if FileExists(DllPath) then
+        MoveFileEx(DllPath, '', $4);
+    end;
+    DelTree(AppDir, True, True, True);
+    // El propio desinstalador (unins000.exe) sigue en ejecución dentro de {app}: se mueve a
+    // %TEMP% igual que la DLL para que la carpeta quede realmente vacía ahora, sin esperar
+    // al reinicio.
+    if FileExists(AppDir + '\unins000.exe') then
+    begin
+      TempOld := ExpandConstant('{tmp}\unins000.exe');
+      DeleteFile(TempOld);
+      MoveFileEx(AppDir + '\unins000.exe', TempOld, 0);
+    end;
+    DeleteFile(AppDir + '\unins000.dat');
+    DelTree(AppDir, True, True, True);
+    if DirExists(AppDir) then
+      // Último recurso: la carpeta se borra al arrancar si algún archivo seguía mapeado.
+      MoveFileEx(AppDir, '', $4);
+  end;
+  if CurUninstallStep = usPostUninstall then
+  begin
+    // Datos del usuario: ajustes, historial, última cola y registro. Quedaban en
+    // %LOCALAPPDATA%\XoPy tras desinstalar y son «elementos que no se pudieron eliminar».
+    DataDir := ExpandConstant('{localappdata}\XoPy');
+    DelTree(DataDir, True, True, True);
+    // Restos de la integración con el Explorador que no dependen de {app}.
+    RegDeleteKeyIncludingSubkeys(HKCU, 'Software\Classes\Directory\shellex\ContextMenuHandlers\XoPyPaste');
+    RegDeleteKeyIncludingSubkeys(HKCU, 'Software\Classes\DesktopBackground\shellex\ContextMenuHandlers\XoPyPaste');
+    RegDeleteValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved', CLSID_XoPy);
+    RegDeleteValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'XoPy');
+    RegDeleteKeyIfEmpty(HKCU, 'Software\Microsoft\Windows\CurrentVersion\App Paths\XoPy.exe');
+    // Se relanza el Explorador para que suelte la DLL y refresque el menú contextual.
+    Exec(ExpandConstant('{sys}\explorer.exe'), '', '', SW_SHOWNORMAL, ewNoWait, ResultCode);
+  end;
 end;
 
 [UninstallDelete]

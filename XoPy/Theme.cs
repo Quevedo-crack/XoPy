@@ -133,9 +133,11 @@ public static class Icons
     public static Icon PercentBadge(int percent, bool dark, bool paused = false, bool error = false)
     {
         var clamped = Math.Clamp(percent, 0, 100);
-        // 64 px en lugar de 32: en pantallas con escalado alto el número de la barra de tareas
-        // se veía diminuto. Se dibuja grande y Windows lo reduce con buena calidad.
-        const int size = 64;
+        // La barra de tareas muestra la superposición a 16 px escasos: cualquier detalle
+        // (el «%», un margen grande) roba sitio al número y se vuelve ilegible. Se dibuja
+        // el número a sangre, con el «%» solo si cabe en una esquina, y en tamaño grande
+        // para que Windows lo reduzca con calidad.
+        const int size = 128;
         using var bitmap = new Bitmap(size, size);
         using (var graphics = Graphics.FromImage(bitmap))
         {
@@ -149,16 +151,19 @@ public static class Icons
             using var background = new SolidBrush(color);
             using var path = RoundedRect(new Rectangle(0, 0, size, size), 14);
             graphics.FillPath(background, path);
-            using var format = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
             using var text = new SolidBrush(Color.White);
-            var label = clamped >= 100 ? "100" : clamped.ToString();
-            // Números grandes y consistentes: el número ocupa casi todo el icono.
-            using var font = new Font("Segoe UI", label.Length >= 3 ? 26f : 34f, FontStyle.Bold, GraphicsUnit.Pixel);
-            graphics.DrawString(label, font, text, new RectangleF(0, 0, size, size), format);
-            if (clamped < 100)
+            using var format = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
+            var label = clamped.ToString();
+            // Un dígito ocupa casi todo el icono; dos y tres se ajustan con menos cuerpo.
+            var font = new Font("Segoe UI", label.Length >= 3 ? 74f : label.Length == 2 ? 92f : 104f,
+                FontStyle.Bold, GraphicsUnit.Pixel);
+            graphics.DrawString(label, font, text, new RectangleF(0, -4, size, size + 8), format);
+            // El «%» solo cuando el número es corto: con 3 dígitos no cabe y es lo que hacía
+            // ilegible el badge en versiones anteriores.
+            if (label.Length < 3)
             {
-                using var small = new Font("Segoe UI", 18f, FontStyle.Bold, GraphicsUnit.Pixel);
-                graphics.DrawString("%", small, text, new RectangleF(28, 24, 34, 34), format);
+                using var small = new Font("Segoe UI", 34f, FontStyle.Bold, GraphicsUnit.Pixel);
+                graphics.DrawString("%", small, text, new RectangleF(88, 80, 34, 34), format);
             }
         }
 

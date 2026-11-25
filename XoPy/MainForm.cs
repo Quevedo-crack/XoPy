@@ -127,6 +127,9 @@ public sealed partial class MainForm : Form
     private int _trayPercent = -1;
     private TableLayoutPanel _contentGrid = null!;
     private Control _jobsPanel = null!;
+    private Button? _jobsToggleButton;
+    /// <summary>El historial de listas (columna de trabajos) está a la vista.</summary>
+    private bool _jobsVisible = true;
     private Button _collapseButton = null!;
     private bool _jobsCollapsed;
     private OperationType? _followUpOperation;
@@ -397,6 +400,7 @@ public sealed partial class MainForm : Form
         viewMenu.DropDownItems.Add(MenuItem("Contraer todo", (_, _) => ExpandAll(false)));
         viewMenu.DropDownItems.Add(new ToolStripSeparator());
         viewMenu.DropDownItems.Add(MenuItem("Ocultar o mostrar la lista de copia", (_, _) => ToggleCompactView()));
+        viewMenu.DropDownItems.Add(MenuItem("Ocultar o mostrar el historial de listas", (_, _) => SetJobsVisible(!_jobsVisible, persist: true)));
         viewMenu.DropDownItems.Add(MenuItem("Mostrar u ocultar la columna de trabajos", (_, _) => ToggleJobsPanel()));
         queue.DropDownItems.Add(viewMenu);
         queue.DropDownItems.Add(new ToolStripSeparator());
@@ -739,9 +743,25 @@ public sealed partial class MainForm : Form
         panel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
 
+        // Cabecera con el título y el botón que oculta/muestra el historial completo de
+        // listas de copia. El estado se guarda, así que al reabrir se mantiene.
+        var headerRow = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
+            BackColor = _palette.Canvas,
+            Margin = new Padding(0)
+        };
         var title = Ui.Label("TRABAJOS", _palette, 8f, true, _palette.Muted);
         title.Anchor = AnchorStyles.Left;
         title.Margin = new Padding(2, 5, 0, 0);
+        _jobsToggleButton = Ui.IconButton("\u00AB", _palette, "Ocultar el historial de listas de copia");
+        _jobsToggleButton.Size = new Size(22, 22);
+        _jobsToggleButton.Margin = new Padding(4, 2, 0, 0);
+        _jobsToggleButton.Click += (_, _) => SetJobsVisible(!_jobsVisible, persist: true);
+        headerRow.Controls.Add(title);
+        headerRow.Controls.Add(_jobsToggleButton);
 
         _jobsList = new ListBox
         {
@@ -769,7 +789,7 @@ public sealed partial class MainForm : Form
         historyButton.Click += (_, _) => ShowHistory();
         buttons.Controls.Add(historyButton);
 
-        panel.Controls.Add(title, 0, 0);
+        panel.Controls.Add(headerRow, 0, 0);
         panel.Controls.Add(_jobsList, 0, 1);
         panel.Controls.Add(buttons, 0, 2);
         return panel;
@@ -1110,7 +1130,11 @@ public sealed partial class MainForm : Form
         _list.DragEnter += ListDragEnter;
         _list.DragOver += ListDragEnter;
         _list.DragDrop += ListDragDrop;
-        _list.SelectedIndexChanged += (_, _) => UpdateButtons();
+        _list.SelectedIndexChanged += (_, _) =>
+        {
+            UpdateButtons();
+            ShowSelectedError();
+        };
         _list.ColumnClick += ListColumnClick;
 
         // Doble búfer para que la lista no parpadee mientras se actualiza el progreso.
@@ -1324,25 +1348,22 @@ public sealed partial class MainForm : Form
 
     private void ApplyWindowGeometry()
     {
+        // Solo se restaura la POSICIÓN. El tamaño lo decide el modo de ventana (reducida o
+        // completa) y el usuario cuando la redimensiona a mano. Restaurar aquí el tamaño
+        // guardado deshacía el arranque contraído: la ventana se abría grande.
         var workingArea = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1920, 1080);
-        // Se respeta el tamaño guardado (antes se recortaba a 1080×660 y por eso «no guardaba
-        // el tamaño»): solo se limita a la pantalla disponible.
-        var width = _settings.WindowWidth >= MinimumSize.Width ? _settings.WindowWidth : 940;
-        var height = _settings.WindowHeight >= 420 ? _settings.WindowHeight : 600;
-        if (!_startupRequest.Screenshot)
-        {
-            width = Math.Min(width, workingArea.Width - 20);
-            height = Math.Min(height, workingArea.Height - 20);
-        }
-
-        var x = _settings.WindowX != int.MinValue ? _settings.WindowX : workingArea.X + (workingArea.Width - width) / 2;
-        var y = _settings.WindowY != int.MinValue ? _settings.WindowY : workingArea.Y + (workingArea.Height - height) / 2;
-        if (x < workingArea.Left - 40 || x > workingArea.Right - 240) x = workingArea.Left + 40;
-        if (y < workingArea.Top - 10 || y > workingArea.Bottom - 180) y = workingArea.Top + 30;
+        var posX = _settings.WindowX != int.MinValue
+            ? _settings.WindowX
+            : workingArea.X + (workingArea.Width - Width) / 2;
+        var posY = _settings.WindowY != int.MinValue
+            ? _settings.WindowY
+            : workingArea.Y + (workingArea.Height - Height) / 2;
+        if (posX < workingArea.Left - 40 || posX > workingArea.Right - 240) posX = workingArea.Left + 40;
+        if (posY < workingArea.Top - 10 || posY > workingArea.Bottom - 180) posY = workingArea.Top + 30;
 
         StartPosition = FormStartPosition.Manual;
-        Bounds = new Rectangle(x, y, width, height);
-        if (_settings.WindowMaximized) WindowState = FormWindowState.Maximized;
+        Location = new Point(posX, posY);
+        if (_settings.WindowMaximized && !_compactView) WindowState = FormWindowState.Maximized;
     }
 
     /// <summary>
@@ -1542,6 +1563,99 @@ public sealed partial class MainForm : Form
         report.Add(ok ? "resultado=OK" : "resultado=FALLO");
         try { File.WriteAllLines(reportPath, report); } catch { }
         return ok;
+    }
+
+    /// <summary>
+    /// Reproduce el fallo de la captura 15: copiar una carpeta, volver a pulsar Copiar con la
+    /// misma lista, mover y reintentar. Antes todo acababa en «Error» al 0 % porque se
+    /// reprocesaban elementos ya completados cuyo origen ya no existía.
+    /// </summary>
+    private bool RunRepeatSelfTest(string reportPath)
+    {
+        var report = new List<string>();
+        var ok = true;
+        var folder = Path.Combine(Path.GetTempPath(), "xopy-repeat");
+        try
+        {
+            if (Directory.Exists(folder)) Directory.Delete(folder, true);
+            Directory.CreateDirectory(folder);
+            var source = Path.Combine(folder, "origen");
+            Directory.CreateDirectory(source);
+            for (var i = 1; i <= 4; i++)
+                File.WriteAllBytes(Path.Combine(source, $"r{i}.bin"), new byte[i * 4096]);
+
+            EnsureDefaultList();
+            var dest1 = Path.Combine(folder, "destinoA");
+            _settings.Destination = dest1;
+            _destination.Text = dest1;
+            // Archivos sueltos: es lo que hace el usuario al arrastrarlos, y evita depender
+            // de que el escaneo de una carpeta haya terminado en este contexto sin ventana.
+            var files = Directory.GetFiles(source, "*.bin");
+            AddPathsAsync(files, askDestination: false).GetAwaiter().GetResult();
+
+            StartTransfer(OperationType.Copy);
+            WaitForEngineIdle(60000);
+            report.Add($"añadidos={_items.Count(item => item.Kind == ItemKind.File)},destino={_destination.Text},motor={_engine.IsRunning}");
+            var firstCompleted = _items.Count(item => item.Kind == ItemKind.File && item.State == ItemState.Completed);
+            var firstFailed = _items.Count(item => item.State == ItemState.Failed);
+            report.Add($"copia1_completados={firstCompleted},fallidos={firstFailed},motor={_engine.IsRunning}");
+            if (firstCompleted != 4 || firstFailed != 0) { report.Add("error=la primera copia no completo los 4 archivos"); ok = false; }
+
+            // ── Segunda pulsación de Copiar con la MISMA lista: no debe marcar nada como Error ──
+            // Sin tocar la lista: se vuelve a pulsar Copiar tal cual.
+            StartTransfer(OperationType.Copy);
+            WaitForEngineIdle(60000);
+            var secondFailed = _items.Count(item => item.State == ItemState.Failed);
+            report.Add($"copia2_fallidos={secondFailed},estado={_statusLabel.Text}");
+            if (secondFailed != 0) { report.Add("error=la segunda copia marco archivos como Error"); ok = false; }
+
+            // ── Mover a otro destino y reintentar: los orígenes ya no existen ──
+            // Se marca lo demás como pendiente para que el botón Mover tenga trabajo: una
+            // lista entera «Completed» ya no se reintenta (eso es lo que causaba los falsos
+            // «Error al 0 %»). Aquí se prueba el camino normal del usuario.
+            foreach (var item in _items.Where(i => i.Kind == ItemKind.File)) item.State = ItemState.Pending;
+            var dest2 = Path.Combine(folder, "destinoB");
+            _settings.Destination = dest2;
+            _destination.Text = dest2;
+            StartTransfer(OperationType.Move);
+            WaitForEngineIdle(60000);
+            var movedFiles = Directory.Exists(dest2) ? Directory.GetFiles(dest2, "*.bin", SearchOption.AllDirectories).Length : 0;
+            report.Add($"movidos={movedFiles}");
+            if (movedFiles != 4) { report.Add("error=el movimiento no llevo los 4 archivos"); ok = false; }
+
+            // La lista conserva ítems completados: un tercer intento no debe convertirlos en Error.
+            StartTransfer(OperationType.Copy);
+            WaitForEngineIdle(60000);
+            var thirdFailed = _items.Count(item => item.State == ItemState.Failed);
+            var thirdCompleted = _items.Count(item => item.Kind == ItemKind.File && item.State == ItemState.Completed);
+            report.Add($"reintento_tras_mover_fallidos={thirdFailed},completados={thirdCompleted}");
+            if (thirdFailed != 0) { report.Add("error=reintentar tras mover marco Error"); ok = false; }
+
+            // Los orígenes del primer destino siguen intactos (la copia no borra nada).
+            var origenIntacto = File.Exists(Path.Combine(dest1, "r1.bin"));
+            report.Add("destinoA_intacto=" + origenIntacto);
+            if (!origenIntacto) { report.Add("error=el primer destino perdio archivos"); ok = false; }
+        }
+        catch (Exception ex)
+        {
+            report.Add("excepcion=" + ex.GetType().Name + ": " + ex.Message);
+            ok = false;
+        }
+
+        report.Add(ok ? "resultado=OK" : "resultado=FALLO");
+        try { File.WriteAllLines(reportPath, report); } catch { }
+        return ok;
+    }
+
+    /// <summary>Espera a que el motor termine (o al tiempo límite) sin bloquear el bombeo de mensajes.</summary>
+    private void WaitForEngineIdle(int milliseconds)
+    {
+        var deadline = Environment.TickCount64 + milliseconds;
+        while (_engine.IsRunning && Environment.TickCount64 < deadline)
+        {
+            Application.DoEvents();
+            Thread.Sleep(25);
+        }
     }
 
     /// <summary>Espera a que no haya transferencia en curso y guarda la captura.</summary>
@@ -1776,13 +1890,7 @@ public sealed partial class MainForm : Form
         try { TopMost = _settings.AlwaysOnTop; } catch { }
 
         // El selector de modo refleja lo guardado en Preferencias sin volver a guardar.
-        if (_multiThreadButton is not null)
-        {
-            // El botón refleja el ajuste: activo = multihilo, atenuado = secuencial.
-            _multiThreadButton.Text = MultiThreadLabel();
-            _multiThreadButton.ForeColor = _settings.MultiThreadCopy ? _palette.Accent : _palette.Muted;
-            _multiThreadButton.ToolTipText = MultiThreadTooltip();
-        }
+        UpdateMultiThreadButton();
 
         _verifyCheck.Checked = _settings.VerifyAfterCopy;
         _verifyCheck.Text = _settings.VerifyAfterCopy
@@ -2042,7 +2150,7 @@ public sealed partial class MainForm : Form
             Program.Log("MF3. ApplyCompactView done");
 
             Program.Log("MF4. ApplyJobsCollapsed");
-            ApplyJobsCollapsed(_settings.CollapseJobs);
+            SetJobsVisible(_settings.ShowJobs, persist: false);
             Program.Log("MF4. ApplyJobsCollapsed done");
 
             Program.Log("MF5. WireEngine");
@@ -2100,6 +2208,7 @@ public sealed partial class MainForm : Form
                 Environment.Exit(ok ? 0 : 1);
                 return;
             }
+
         }
         catch (Exception ex)
         {
@@ -2115,6 +2224,18 @@ public sealed partial class MainForm : Form
 
         _uiReady = true;
         Program.Log("MF-OnShown end (UI lista)");
+
+        // Prueba de repetición (CI): necesita la UI ya lista, porque arranca transferencias
+        // por la misma ruta que el botón Copiar. Antes se ejecutaba en OnShown temprano y
+        // StartTransfer la rechazaba con «La ventana aún se está preparando».
+        if (_startupRequest.SelfTestRepeat)
+        {
+            var reportPath = _startupRequest.ScreenshotPath
+                ?? Path.Combine(Path.GetTempPath(), "repeticion.txt");
+            var repeatOk = RunRepeatSelfTest(reportPath);
+            Environment.Exit(repeatOk ? 0 : 1);
+            return;
+        }
 
         // Petición recibida al arrancar (--copy/--move/--to, archivos del Explorador…).
         // Sin esto, abrir XoPy con archivos solo mostraba la ventana vacía.

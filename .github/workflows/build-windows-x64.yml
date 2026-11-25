@@ -30,10 +30,16 @@ jobs:
         shell: pwsh
         run: |
           dotnet publish XoPy/XoPy.csproj -c Release -r win-x64 --self-contained true `
-            -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
+            -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=false `
             -p:EnableCompressionInSingleFile=true -p:DebugType=none -p:DebugSymbols=false `
             -o publish -v:d 2>&1 | Tee-Object -FilePath build.log
-          if ($LASTEXITCODE -ne 0) { throw "No se pudo publicar la aplicación (código $LASTEXITCODE)" }
+          $publishExit = $LASTEXITCODE
+          # Se comprueba el resultado real además del código de salida: con Tee-Object el
+          # código podía leerse antes de tiempo y fallar un publish que sí había funcionado.
+          if ($publishExit -ne 0 -or -not (Test-Path 'publish/XoPy.exe')) {
+            Write-Host "publish_exit=$publishExit"
+            throw "No se pudo publicar la aplicación (código $publishExit)"
+          }
 
       - uses: ilammy/msvc-dev-cmd@v1
         with:
@@ -152,13 +158,53 @@ jobs:
             if (-not $after) { throw 'La aplicación borró la extensión Pegar al arrancar' }
             if (-not $inproc) { throw 'El instalador no registró la extensión Pegar' }
 
+            # Se crean datos de usuario para comprobar que la desinstalación NO deja restos
+            # (settings.json, history.json, ultima-cola.xopyq, transfer.log).
+            $dataDir = Join-Path $env:LOCALAPPDATA 'XoPy'
+            New-Item -ItemType Directory -Force $dataDir | Out-Null
+            '{"SettingsVersion":1}' | Set-Content (Join-Path $dataDir 'settings.json')
+            '[]' | Set-Content (Join-Path $dataDir 'history.json')
+            'datos' | Set-Content (Join-Path $dataDir 'transfer.log')
+            "datos_antes=$(Test-Path $dataDir)" | Add-Content $log
+
             $uninstaller = Join-Path $env:ProgramFiles 'XoPy\unins000.exe'
             "desinstalador=$(Test-Path $uninstaller)" | Add-Content $log
             if (Test-Path $uninstaller) {
               Start-Process -FilePath $uninstaller -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') -Wait
-              Start-Sleep -Seconds 3
+              Start-Sleep -Seconds 5
             }
             "sigue_instalado=$(Test-Path $exe)" | Add-Content $log
+            # El .exe autocontenido ya no se extrae; se comprueba también su subcarpeta de
+            # extracción por si quedara de una versión anterior.
+            $appDir = Join-Path $env:ProgramFiles 'XoPy'
+            if (Test-Path $appDir) {
+              "contenido_restante=$((Get-ChildItem $appDir -Force | Select-Object -ExpandProperty Name) -join ',')" | Add-Content $log
+            }
+            $restos = @()
+            if (Test-Path $exe) { $restos += 'exe' }
+            if (Test-Path (Join-Path $env:ProgramFiles 'XoPy')) { $restos += 'carpeta_app' }
+            if (Test-Path $dataDir) { $restos += 'datos_localappdata' }
+            $clsidAfterUninstall = [Microsoft.Win32.Registry]::GetValue('HKEY_CURRENT_USER\Software\Classes\CLSID\{3B1E92A7-7AD6-4E71-A218-75449CE13061}', 'x', $null)
+            if ($null -ne $clsidAfterUninstall) { $restos += 'clsid' }
+            $pasteAfter = [Microsoft.Win32.Registry]::GetValue('HKEY_CURRENT_USER\Software\Classes\Directory\Background\shellex\ContextMenuHandlers\XoPyPaste', '', $null)
+            if ($pasteAfter) { $restos += 'pegar' }
+            $runAfter = [Microsoft.Win32.Registry]::GetValue('HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run', 'XoPy', $null)
+            if ($runAfter) { $restos += 'autostart' }
+            "restos_desinstalacion=$($restos -join ',')" | Add-Content $log
+            Write-Host "restos_desinstalacion=$($restos -join ',')"
+            # Se comprueba que la SUBCARPETA (restos de la extracción del .exe) no sobreviva
+            # y que no queden datos, registro ni accesos. La carpeta {app} en sí puede
+            # quedar un instante si el Explorador aún tiene la DLL mapeada y el desinstalador
+            # ya programó el borrado al reiniciar, así que solo falla si quedan archivos.
+            $appFiles = @()
+            if (Test-Path $appDir) { $appFiles = @(Get-ChildItem $appDir -Force) }
+            "archivos_restantes_app=$($appFiles.Count)" | Add-Content $log
+            if ($appFiles.Count -gt 0) {
+              $restos += 'archivos_app'
+              "detalle_archivos=$((($appFiles | ForEach-Object { "$($_.Name)($($_.Length))" }) -join ','))" | Add-Content $log
+            }
+            $bad = $restos | Where-Object { $_ -ne 'carpeta_app' }
+            if ($bad) { throw "La desinstalación dejó restos: $($bad -join ', ')" }
             "OK" | Add-Content $log
           } catch {
             "ERROR: $_" | Add-Content $log
@@ -215,7 +261,12 @@ jobs:
             $line = ($e.Line -replace '%','%25' -replace '\r','' -replace '\n','%0A')
             Write-Host "::error file=XoPy/XoPy.csproj::$line"
           }
-          if ($errors.Count -eq 0) { Write-Host "::error::El publish falló sin errores CS/MSB visibles en build.log" }
+          # Solo se avisa de «publish falló» si de verdad no se generó el ejecutable: antes
+          # este mensaje aparecía también cuando el job fallaba en otro paso (por ejemplo,
+          # la prueba del instalador) y despistaba.
+          if ($errors.Count -eq 0 -and -not (Test-Path 'publish/XoPy.exe')) {
+            Write-Host "::error::El publish falló sin errores CS/MSB visibles en build.log"
+          }
 
       - name: Subir log de instalador si falla
         if: failure()

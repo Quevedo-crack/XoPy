@@ -34,15 +34,18 @@ public static class Taskbar
     {
         var list = List();
         if (list is null || window == IntPtr.Zero) return;
+        // El icono se crea como copia propia: el handle anterior se guarda y se libera al
+        // final. Antes se destruía después de asignarlo y GetHicon reutilizaba el mismo
+        // handle, con lo que la barra de tareas acababa mostrando el icono por defecto.
+        var icon = Icons.PercentBadge(percent, dark, paused, error);
+        var previous = _overlayIcon;
+        _overlayIcon = icon.Handle;
         try
         {
-            var icon = Icons.PercentBadge(percent, dark, paused, error);
-            var handle = icon.Handle;
-            list.SetOverlayIcon(window, handle, $"{percent} %");
-            if (_overlayIcon != IntPtr.Zero) DestroyIcon(_overlayIcon);
-            _overlayIcon = handle;
+            list.SetOverlayIcon(window, _overlayIcon, $"{percent} %");
         }
         catch { }
+        if (previous != IntPtr.Zero) DestroyIcon(previous);
     }
 
     public static void Clear(IntPtr window)

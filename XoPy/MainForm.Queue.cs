@@ -581,6 +581,22 @@ public sealed partial class MainForm
         return string.IsNullOrEmpty(parentRelative) ? baseDestination : Path.Combine(baseDestination, parentRelative);
     }
 
+    /// <summary>
+    /// Al seleccionar una fila con error se muestra el motivo completo en la barra de estado.
+    /// Antes el texto solo estaba en el tooltip y era difícil de encontrar cuando la lista
+    /// entera estaba en «Error» al 0 %.
+    /// </summary>
+    private void ShowSelectedError()
+    {
+        if (_list is null || _statusLabel is null) return;
+        var withError = _list.SelectedItems.Cast<ListViewItem>()
+            .Select(row => row.Tag as TransferItem)
+            .OfType<TransferItem>()
+            .FirstOrDefault(item => !string.IsNullOrWhiteSpace(item.Error));
+        if (withError is null) return;
+        SetStatus($"{withError.Name}: {withError.Error}");
+    }
+
     private static string BuildTooltip(TransferItem item)
     {
         var text = item.SourcePath;
@@ -767,7 +783,21 @@ public sealed partial class MainForm
     {
         var failed = _items.Where(item => item.State is ItemState.Failed or ItemState.Cancelled or ItemState.Skipped).ToList();
         if (failed.Count == 0) { SetStatus("No hay elementos fallidos."); return; }
-        foreach (var item in failed)
+
+        // Si el origen ya no existe (por ejemplo, tras mover) no se puede reintentar: se
+        // explica el motivo en vez de volver a marcarlo como «Error» al 0 %.
+        var missing = failed.Where(item => !File.Exists(item.SourcePath) && !Directory.Exists(item.SourcePath)).ToList();
+        foreach (var item in missing)
+            item.Error = "El archivo de origen ya no existe (se movió o se borró). Añádelo de nuevo.";
+        var retry = failed.Except(missing).ToList();
+        if (retry.Count == 0)
+        {
+            SyncRows();
+            SetStatus($"{missing.Count} elemento(s) no se pueden reintentar: su origen ya no existe. Añádelos de nuevo.");
+            return;
+        }
+
+        foreach (var item in retry)
         {
             item.State = ItemState.Pending;
             item.Error = null;
@@ -776,7 +806,9 @@ public sealed partial class MainForm
             item.HashTarget = null;
         }
         SyncRows();
-        SetStatus($"{failed.Count} elemento(s) listos para reintentar. Pulsa Copiar, Mover o Test.");
+        SetStatus(missing.Count > 0
+            ? $"{retry.Count} listo(s) para reintentar; {missing.Count} sin origen en disco."
+            : $"{retry.Count} elemento(s) listos para reintentar. Pulsa Copiar, Mover o Test.");
     }
 
     private void SelectRows(IEnumerable<Guid> ids)
@@ -1068,15 +1100,28 @@ public sealed partial class MainForm
         }
         else
         {
+            // Solo se transfiere lo seleccionado (o todo si no hay selección). Antes además se
+            // añadían los hijos de TODAS las carpetas de la lista: al volver a pulsar Copiar
+            // entraban archivos que el usuario no había elegido y se remarcaban como Error.
+            var bases = new HashSet<Guid>(basis.Select(item => item.Id));
             foreach (var item in basis)
             {
-                if (item.Kind == ItemKind.Folder) leaves.AddRange(Descendants(item));
-                else leaves.Add(item);
+                if (item.Kind == ItemKind.Folder)
+                {
+                    leaves.AddRange(Descendants(item));
+                    for (var folder = item.ParentId; folder is { } pid;)
+                    {
+                        var parent = _items.FirstOrDefault(candidate => candidate.Id == pid);
+                        if (parent is null) break;
+                        bases.Add(parent.Id);
+                        folder = parent.ParentId;
+                    }
+                }
+                else
+                {
+                    leaves.Add(item);
+                }
             }
-
-            // Elementos de carpetas que se hayan añadido sueltos (no seleccionadas como bloque).
-            foreach (var folder in _items.Where(item => item.Kind == ItemKind.Folder))
-                leaves.AddRange(Children(folder));
             leaves = leaves
                 .Where(item => item.Kind == ItemKind.File || (item.Kind == ItemKind.DirectoryEntry && operation != OperationType.Test))
                 .Distinct()
@@ -1096,6 +1141,30 @@ public sealed partial class MainForm
             {
                 PromptDestinationAndStart(operation);
                 return;
+            }
+
+            // Mover a la MISMA carpeta del archivo no mueve nada: solo crearía un nombre
+            // nuevo y, con la operación de mover, borraría el original sin necesidad. Se
+            // bloquea de raíz antes de tocar el disco.
+            if (operation == OperationType.Move)
+            {
+                var sameFolder = basis
+                    .Where(item => item.Kind == ItemKind.File)
+                    .FirstOrDefault(item =>
+                    {
+                        var parent = Path.GetDirectoryName(Path.GetFullPath(item.SourcePath));
+                        return parent is not null &&
+                               string.Equals(Path.GetFullPath(parent).TrimEnd('\\'),
+                                   Path.GetFullPath(destination).TrimEnd('\\'),
+                                   StringComparison.OrdinalIgnoreCase);
+                    });
+                if (sameFolder is not null)
+                {
+                    SetStatus("Para mover, elige una carpeta distinta de la de origen. " +
+                              "Los archivos ya están ahí: no se ha tocado nada.");
+                    PromptDestinationForList(_activeList!, sayNothingIfCancelled: true);
+                    return;
+                }
             }
 
             // Si el destino no es válido se ofrece qué hacer, en lugar de mostrar solo un error.
@@ -1206,6 +1275,34 @@ public sealed partial class MainForm
         }
         _freeSpaceMode = FreeSpaceMode.Ignore;
 
+        // En MOVER se guarda el origen antes de tocar el disco: si algo va mal y el usuario
+        // necesita recuperar algo, queda una lista con las rutas exactas en
+        // %LOCALAPPDATA%\XoPy\mover-*.txt (ubicación de los archivos que se van a mover).
+        if (operation == OperationType.Move)
+        {
+            try
+            {
+                Directory.CreateDirectory(_store.DataFolder);
+                var listPath = Path.Combine(_store.DataFolder, $"mover-{DateTime.Now:yyyyMMdd-HHmmss}.txt");
+                var lines = leaves
+                    .Where(item => item.Kind is ItemKind.File or ItemKind.DirectoryEntry)
+                    .Select(item => item.SourcePath + " -> " + Path.Combine(destination, item.RelativePath))
+                    .ToList();
+                lines.Insert(0, "# XoPy: archivos que se van a mover. Guárdalo para poder recuperarlos.");
+                File.WriteAllLines(listPath, lines);
+            }
+            catch { }
+        }
+
+        // Lo que ya se copió NO se vuelve a poner en cola: al reintentar una lista terminada
+        // (o después de mover, cuando el origen ya no existe) todo acababa en «Error» al 0 %.
+        leaves = leaves.Where(item => item.State != ItemState.Completed).ToList();
+        if (leaves.Count == 0)
+        {
+            SetStatus("Todo lo seleccionado ya está copiado. Añade archivos nuevos para volver a copiar.");
+            return;
+        }
+
         foreach (var leaf in leaves)
         {
             leaf.Operation = operation;
@@ -1218,10 +1315,10 @@ public sealed partial class MainForm
             leaf.DestinationPath = Path.Combine(destination, leaf.RelativePath);
         }
 
-        foreach (var folder in _items.Where(item => item.Kind == ItemKind.Folder))
+        // Las carpetas quedan como contenedor; su estado lo decide el resultado de sus hijos.
+        foreach (var folder in _items.Where(item => item.Kind == ItemKind.Folder && item.State != ItemState.Completed))
         {
             folder.Operation = operation;
-            folder.State = ItemState.Pending;
             folder.TransferredBytes = 0;
             folder.DestinationPath = string.Empty;
         }
@@ -1234,14 +1331,12 @@ public sealed partial class MainForm
             target.Error = null;
         }
 
-        if (onlyPending && operation != OperationType.Delete)
+        // Tras el filtro de arriba ya no queda nada completado: si la lista era solo de
+        // archivos ya copiados, se avisa en vez de dejar el motor sin trabajo.
+        if (onlyPending && operation != OperationType.Delete && leaves.Count == 0)
         {
-            leaves = leaves.Where(item => item.State != ItemState.Completed).ToList();
-            if (leaves.Count == 0)
-            {
-                SetStatus("No hay archivos nuevos que copiar.");
-                return;
-            }
+            SetStatus("No hay archivos nuevos que copiar.");
+            return;
         }
 
         var targets = operation == OperationType.Delete ? deleteTargets : leaves;
@@ -1284,7 +1379,10 @@ public sealed partial class MainForm
 
         if (!_engine.Start(targets, options))
         {
-            SetStatus("No se pudo iniciar la transferencia.");
+            var missing = targets.Count(item => item.State == ItemState.Failed && item.Error?.Contains("ya no existe") == true);
+            SetStatus(missing > 0
+                ? $"No se pudo transferir: {missing} archivo(s) de origen ya no existen (se movieron antes). Añádelos de nuevo."
+                : "No hay archivos pendientes que transferir.");
             UpdateButtons();
             return;
         }
@@ -1337,6 +1435,24 @@ public sealed partial class MainForm
         return list;
     }
 
+    /// <summary>
+    /// Refleja el estado del multihilo en el botón: activado se ve con fondo de acento y el
+    /// icono en blanco; desactivado queda apagado. Solo cambiar el color del texto no se
+    /// distinguía a simple vista y el usuario no sabía si estaba activado.
+    /// </summary>
+    private void UpdateMultiThreadButton()
+    {
+        if (_multiThreadButton is null) return;
+        _multiThreadButton.Text = MultiThreadLabel();
+        _multiThreadButton.ToolTipText = MultiThreadTooltip();
+        // Activado: fondo de acento y rayo blanco; desactivado: apagado. Además del color, el
+        // TEXTO cambia («Multihilo · N» / «Un archivo a la vez»), que se ve sin depender del tema.
+        _multiThreadButton.BackColor = _settings.MultiThreadCopy ? _palette.Accent : _palette.Surface;
+        _multiThreadButton.ForeColor = _settings.MultiThreadCopy ? Color.White : _palette.Muted;
+        _multiThreadButton.Image = Icons.Glyph(Icons.Lightning,
+            _settings.MultiThreadCopy ? Color.White : _palette.Muted, 18);
+    }
+
     private string MultiThreadLabel() =>
         _settings.MultiThreadCopy ? $"Multihilo · {_settings.Parallelism}" : "Un archivo a la vez";
 
@@ -1349,12 +1465,7 @@ public sealed partial class MainForm
     {
         _settings.MultiThreadCopy = !_settings.MultiThreadCopy;
         _store.Save(_settings);
-        if (_multiThreadButton is not null)
-        {
-            _multiThreadButton.Text = MultiThreadLabel();
-            _multiThreadButton.ForeColor = _settings.MultiThreadCopy ? _palette.Accent : _palette.Muted;
-            _multiThreadButton.ToolTipText = MultiThreadTooltip();
-        }
+        UpdateMultiThreadButton();
         SetStatus(_settings.MultiThreadCopy
             ? $"Multihilo activado ({_settings.Parallelism} archivos a la vez)."
             : "Modo secuencial: un archivo a la vez.");
@@ -1838,11 +1949,16 @@ public sealed partial class MainForm
         try
         {
             SaveWindowGeometry();
-            EnsureTrayIcon();
-            Hide();
-            if (!_settings.MinimizeToTray)
+            // Si el usuario no quiere bandeja, la ventana se minimiza al terminar: ocultarla
+            // sin icono la dejaba inaccesible y parecía que se «reabría» sola.
+            if (_settings.MinimizeToTray)
             {
-                // Sin bandeja no habría forma de recuperar la ventana: se deja minimizada.
+                EnsureTrayIcon();
+                Hide();
+                ShowInTaskbar = false;
+            }
+            else
+            {
                 WindowState = FormWindowState.Minimized;
                 ShowInTaskbar = true;
             }
@@ -1854,14 +1970,22 @@ public sealed partial class MainForm
         }
     }
 
-    /// <summary>Tras mover, elimina las carpetas de origen que se hayan quedado vacías.</summary>
+    /// <summary>
+    /// Tras mover, elimina las carpetas de origen que se hayan quedado TOTALMENTE vacías.
+    /// Solo se hace cuando no hubo ningún error y la carpeta no contiene nada: con un
+    /// destino equivocado o un fallo a medias, borrar la carpeta dejaba al usuario sin el
+    /// original y sin copia donde esperaba. Ante la duda, no se borra nada.
+    /// </summary>
     private void CleanupMovedSourceFolders()
     {
+        if (_items.Any(item => item.State == ItemState.Failed)) return;
         foreach (var folder in RootItems().Where(item => item.Kind == ItemKind.Folder))
         {
             try
             {
                 if (!Directory.Exists(folder.SourcePath)) continue;
+                // Si la carpeta aún tiene CUALQUIER archivo (aunque sea de otra lista), se deja.
+                if (Directory.EnumerateFiles(folder.SourcePath, "*", SearchOption.AllDirectories).Any()) continue;
                 foreach (var directory in Directory.GetDirectories(folder.SourcePath, "*", SearchOption.AllDirectories)
                              .OrderByDescending(path => path.Length))
                 {
@@ -1876,7 +2000,7 @@ public sealed partial class MainForm
                     Directory.Delete(folder.SourcePath);
                     folder.State = ItemState.Completed;
                     folder.Error = null;
-                    FileLog.Write("Carpeta de origen eliminada tras mover: " + folder.SourcePath);
+                    FileLog.Write("Carpeta de origen vacía eliminada tras mover: " + folder.SourcePath);
                 }
             }
             catch { }
@@ -1886,25 +2010,42 @@ public sealed partial class MainForm
 
     // ---------------------------------------------------------------- temporizador
 
-    private void ToggleJobsPanel()
-    {
-        ApplyJobsCollapsed(!_jobsCollapsed);
-        _settings.CollapseJobs = _jobsCollapsed;
-        _store.Save(_settings);
-        SetStatus(_jobsCollapsed ? "Columna de trabajos oculta. Pulsa « para mostrarla." : "Columna de trabajos visible.");
-    }
+    private void ToggleJobsPanel() => SetJobsVisible(_jobsCollapsed, persist: true);
 
-    private void ApplyJobsCollapsed(bool collapsed)
+    /// <summary>
+    /// Muestra u oculta el historial de listas de copia. El estado se guarda en los ajustes
+    /// y también hay un botón en la cabecera del panel (y en el menú Ver).
+    /// </summary>
+    private void SetJobsVisible(bool visible, bool persist)
     {
-        _jobsCollapsed = collapsed;
+        _jobsVisible = visible;
+        _jobsCollapsed = !visible;
         try
         {
             if (_contentGrid is not null && _contentGrid.ColumnStyles.Count > 0)
-                _contentGrid.ColumnStyles[0].Width = collapsed ? 0 : 228;
-            if (_jobsPanel is not null) _jobsPanel.Visible = !collapsed;
-            if (_collapseButton is not null) _collapseButton.Text = collapsed ? "\u00BB" : "\u00AB";
+                _contentGrid.ColumnStyles[0].Width = visible ? 228 : 0;
+            if (_jobsPanel is not null) _jobsPanel.Visible = visible;
+            // « y » son caracteres de texto, no del set de iconos: se cambia el TEXTO del
+            // botón en lugar de generar la imagen con la fuente de iconos (que no los tiene).
+            if (_jobsToggleButton is not null)
+            {
+                _jobsToggleButton.Text = visible ? "\u00AB" : "\u00BB";
+                // Button no tiene ToolTipText (eso es de ToolStripButton): se usa el nombre
+                // accesible, que es lo que lee el lector de pantalla y lo que cambia de sentido.
+                _jobsToggleButton.AccessibleName = visible
+                    ? "Ocultar el historial de listas de copia"
+                    : "Mostrar el historial de listas de copia";
+            }
+            if (_collapseButton is not null) _collapseButton.Text = visible ? "\u00AB" : "\u00BB";
         }
         catch { }
+        if (persist)
+        {
+            _settings.ShowJobs = visible;
+            _settings.CollapseJobs = !visible;
+            _store.Save(_settings);
+            SetStatus(visible ? "Historial de listas visible." : "Historial de listas oculto.");
+        }
     }
 
     private void TimerTick()
@@ -2007,10 +2148,13 @@ public sealed partial class MainForm
         _skipButton.Enabled = running;
         _stopButton.Enabled = running;
         _verifyCheck.Enabled = !running;
-        _removeButton.Enabled = !running && _items.Count > 0;
-        _clearButton.Enabled = !running && _items.Count > 0;
-        _upButton.Enabled = !running && _items.Count > 0;
-        _downButton.Enabled = !running && _items.Count > 0;
+        // Reordenar y quitar de la LISTA se permite siempre: el motor trabaja con su propia
+        // instantánea, así que no cancela ni corrompe la copia. Antes se deshabilitaban con
+        // cualquier transferencia en curso y parecía que los botones «no funcionaban».
+        _removeButton.Enabled = _items.Count > 0;
+        _clearButton.Enabled = _items.Count > 0;
+        _upButton.Enabled = _items.Count > 0;
+        _downButton.Enabled = _items.Count > 0;
         _destination.ReadOnly = running;
         if (_trayPauseItem is not null) _trayPauseItem.Enabled = running;
     }
@@ -2277,7 +2421,7 @@ public sealed partial class MainForm
         LoadSettingsIntoUi();
         ApplyMenuBarSetting();
         ApplyCopierReplacement();
-        ApplyJobsCollapsed(_settings.CollapseJobs);
+        SetJobsVisible(_settings.ShowJobs, persist: false);
         UpdateHashColumns();
         UpdateButtons();
         UpdateFooter();
@@ -2980,24 +3124,22 @@ public sealed partial class MainForm
         SaveWindowGeometry();
         if (_items.Count > 0) SaveQueueFile(_store.LastQueueFile, silent: true);
 
-        // Mientras XoPy sustituye al copiador de Windows debe seguir vivo: si se cerrara con
-        // la X, el Ctrl+V del Explorador volvería a copiar con Windows y parecería que la
-        // sustitución «no funciona». Se queda en la bandeja y se avisa la primera vez; el
-        // cierre definitivo es «Archivo → Salir» o el menú del icono.
-        var mustStayResident = _settings.ReplaceWindowsCopier || _settings.MinimizeToTray;
-        if (!_exitRequested && mustStayResident && e.CloseReason == CloseReason.UserClosing)
+        // Cerrar con la X se comporta como el usuario espera: la ventana se cierra y NO se
+        // reabre sola. Solo se queda en la bandeja si el usuario marcó expresamente
+        // «Minimizar al cerrar», y en ese caso se pregunta una sola vez si prefiere salir.
+        if (!_exitRequested && _settings.MinimizeToTray && e.CloseReason == CloseReason.UserClosing)
         {
             e.Cancel = true;
             MinimizeToTray();
-            if (_settings.ReplaceWindowsCopier && !_settings.TrayHintShown)
+            if (!_settings.TrayHintShown)
             {
                 _settings.TrayHintShown = true;
                 _store.Save(_settings);
                 try
                 {
                     _tray.ShowBalloonTip(4000, "XoPy sigue activo",
-                        "Se queda en el área de notificación para seguir sustituyendo al copiador de Windows. " +
-                        "Para cerrarlo del todo: clic derecho en el icono → Salir.", ToolTipIcon.Info);
+                        "Está minimizado en el área de notificación. Para cerrarlo del todo: " +
+                        "clic derecho en el icono → Salir.", ToolTipIcon.Info);
                 }
                 catch { }
             }

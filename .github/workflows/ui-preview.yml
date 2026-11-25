@@ -26,7 +26,7 @@ jobs:
       - name: Publicar
         run: >
           dotnet publish XoPy/XoPy.csproj -c Release -r win-x64 --self-contained true
-          -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=false
           -p:EnableCompressionInSingleFile=true -p:DebugType=none -p:DebugSymbols=false
           -o publish
 
@@ -367,6 +367,23 @@ jobs:
             throw "La prueba de la cola falló: $(Get-Content C:\xopytest\cola.txt)"
           }
           Write-Host "Prueba de la cola superada" 
+
+      - name: Copiar, recopiar y mover la misma lista (captura 15)
+        shell: pwsh
+        run: |
+          $exe = (Resolve-Path .\publish\XoPy.exe).Path
+          $report = 'C:\xopytest\repeticion.txt'
+          $process = Start-Process -FilePath $exe -ArgumentList @('--self-test-repeat', $report) -PassThru
+          if (-not $process.WaitForExit(180000)) { $process.Kill(); throw 'La prueba de repetición no terminó' }
+          Get-Content $report
+          $detail = (Get-Content $report) -join ' | '
+          $detail = $detail -replace '%','%25' -replace '\r','' -replace '\n','%0A'
+          Write-Host "::notice title=Prueba de repeticion::$detail"
+          if ($process.ExitCode -ne 0) {
+            Write-Host "::error title=Prueba de repeticion::$detail"
+            throw "La prueba de repetición falló: $detail"
+          }
+          Write-Host "Prueba de repetición superada"
 
       - name: Guardar la captura en el repositorio
         shell: pwsh

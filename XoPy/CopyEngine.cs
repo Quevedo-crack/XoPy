@@ -178,7 +178,30 @@ public sealed class CopyEngine
     public bool Start(IEnumerable<TransferItem> items, EngineOptions options)
     {
         if (Interlocked.CompareExchange(ref _running, 1, 0) != 0) return false;
-        var list = items.ToList();
+        // Una lista puede reintentarse cuando ya se transfirió entera (o después de mover: el
+        // origen ya no existe). Antes se volvía a procesar todo y cada archivo acababa en
+        // «Error» al 0 %. Se descartan los ya completados y los que no tienen origen.
+        var requested = items.ToList();
+        var list = new List<TransferItem>(requested.Count);
+        var stale = 0;
+        foreach (var item in requested)
+        {
+            if (item.State == ItemState.Completed) continue;
+            if (!HasSource(item))
+            {
+                item.State = ItemState.Failed;
+                item.Error = item.Kind == ItemKind.Folder
+                    ? "La carpeta de origen ya no existe (puede haberse movido antes)."
+                    : "El archivo de origen ya no existe (puede haberse movido antes).";
+                item.TransferredBytes = 0;
+                stale++;
+                continue;
+            }
+            list.Add(item);
+        }
+        if (stale > 0)
+            FileLog.Write($"Aviso: {stale} elemento(s) sin origen en disco; se marcan como Error sin reintentarlos.");
+
         if (list.Count == 0)
         {
             Volatile.Write(ref _running, 0);
@@ -321,13 +344,53 @@ public sealed class CopyEngine
         }
     }
 
+    /// <summary>Indica si el origen del elemento sigue existiendo en disco.</summary>
+    private static bool HasSource(TransferItem item)
+    {
+        var path = item.SourcePath;
+        if (string.IsNullOrWhiteSpace(path)) return false;
+        if (item.Kind == ItemKind.File) return File.Exists(path);
+        // Carpeta o entrada de directorio: basta con que exista la carpeta. Si existe, sus
+        // hijos se comprueban uno a uno al copiarse.
+        return Directory.Exists(path);
+    }
+
     /// <summary>Tras mover, borra las carpetas de origen que quedaron vacías (incluidas las raíz).</summary>
+    /// <summary>Compara byte a byte dos archivos del mismo tamaño.</summary>
+    private static bool SameContent(string first, string second)
+    {
+        try
+        {
+            using var a = new FileStream(first, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 128 * 1024);
+            using var b = new FileStream(second, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 128 * 1024);
+            var bufferA = new byte[128 * 1024];
+            var bufferB = new byte[128 * 1024];
+            while (true)
+            {
+                var readA = a.Read(bufferA, 0, bufferA.Length);
+                var readB = b.Read(bufferB, 0, bufferB.Length);
+                if (readA != readB) return false;
+                if (readA == 0) return true;
+                if (!bufferA.AsSpan(0, readA).SequenceEqual(bufferB.AsSpan(0, readB))) return false;
+            }
+        }
+        catch
+        {
+            // Si no se puede leer, no se da por buena la copia: el original se queda.
+            return false;
+        }
+    }
+
     private static void CleanupMovedFolders(IEnumerable<TransferItem> items)
     {
+        // Solo se eliminan carpetas que quedaron VACÍAS: si algo se quedó dentro, no se toca.
+        // Antes, con un destino equivocado, la carpeta de origen acababa borrada aunque la
+        // copia no se hubiera hecho donde el usuario esperaba.
         foreach (var root in items
                      .Where(item => item.Kind == ItemKind.Folder && item.Operation == OperationType.Move)
                      .Select(item => item.SourcePath)
-                     .Where(path => !string.IsNullOrWhiteSpace(path))
+                     .Where(path => !string.IsNullOrWhiteSpace(path) && Directory.Exists(path))
+                     .Where(path => !Directory.EnumerateFileSystemEntries(path).Any())
                      .Distinct(StringComparer.OrdinalIgnoreCase))
         {
             try
@@ -460,9 +523,40 @@ public sealed class CopyEngine
 
         if (item.Operation == OperationType.Move)
         {
+            // Nunca borrar el origen «porque sí». Antes se borraba en cuanto se daba la
+            // copia por buena, y con un destino equivocado o vacío eso destruía el original.
+            // Ahora solo se borra si el destino existe, tiene el MISMO tamaño y no es el
+            // propio archivo de origen (misma ruta => el «mover» no movería nada).
             try
             {
-                DeleteFileForcibly(source);
+                var verifiedDone = false;
+                foreach (var destination in destinations)
+                {
+                    var candidate = Path.Combine(destination, relative);
+                    if (!File.Exists(candidate)) continue;
+                    if (string.Equals(Path.GetFullPath(candidate), source, StringComparison.OrdinalIgnoreCase)) continue;
+                    var original = new FileInfo(source);
+                    var copy = new FileInfo(candidate);
+                    if (copy.Length != original.Length) continue;
+                    // Doble comprobación: además del tamaño, se comparan los bytes de los
+                    // archivos pequeños/medianos (< 64 MB). Con copias grandes se confía en
+                    // el tamaño para no duplicar el tiempo de lectura.
+                    if (original.Length <= 64L * 1024 * 1024 && !SameContent(source, candidate)) continue;
+                    verifiedDone = true;
+                    break;
+                }
+
+                if (!verifiedDone)
+                {
+                    item.Error = "No se borró el original: la copia de destino no se pudo confirmar. " +
+                                 "El archivo de origen sigue intacto.";
+                    Interlocked.Increment(ref _errors);
+                    FileLog.Write($"Mover: no se borra {source} (copia no confirmada en el destino)");
+                }
+                else
+                {
+                    DeleteFileForcibly(source);
+                }
             }
             catch (Exception ex)
             {
