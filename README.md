@@ -120,6 +120,7 @@ XoPy.exe --multi --copy --to "D:\Copias" "C:\Datos\informe.pdf"
 
 ## Novedades de la versión 2.5.6
 
+- **Seguridad al mover (lo más importante de esta versión)**: el original **solo** se borra si la copia de destino existe, tiene el mismo tamaño y (hasta 64 MB) el mismo contenido byte a byte. Si no se puede confirmar, el original se queda y se avisa. Mover a la **misma carpeta** está bloqueado. Las carpetas de origen **nunca** se borran si dentro queda algún archivo o si hubo cualquier error. Antes de mover se guarda `%LOCALAPPDATA%\XoPy\mover-FECHA.txt` con todas las rutas `origen -> destino`, para poder recuperar nada más fallar. Ver `docs/RECUPERAR-ARCHIVOS.md`.
 - **«Error» al 0 % en toda la lista** (el fallo de la captura): al volver a pulsar Copiar sobre una lista ya copiada, o después de mover, se volvía a procesar todo y cada archivo acababa en Error porque su origen ya no existía. Ahora lo completado no se reintenta, lo que ya no está en disco se explica con su motivo («El archivo de origen ya no existe…») y las carpetas de otras listas ya no se cuelan en la selección.
 - **Mover dentro de la lista**: las flechas ↑/↓ y quitar/vaciar ya no se deshabilitan con una transferencia en curso, así que reordenar funciona siempre (el motor trabaja con su propia copia y la ruta de destino no cambia).
 - **Ya no se reabre la ventana**: cerrar con la X cierra de verdad (solo se queda en la bandeja si se marca «Minimizar al cerrar»). «Cerrar al terminar» viene desactivado y, si se activa, deja la ventana visible.
@@ -131,6 +132,7 @@ XoPy.exe --multi --copy --to "D:\Copias" "C:\Datos\informe.pdf"
 - **Diagnóstico de errores**: al seleccionar una fila en Error se muestra el motivo completo en la barra de estado (antes solo en el tooltip).
 - **Rutas largas**: soporte explícito de rutas de más de 260 caracteres (una de las causas de Error más comunes en TeraCopy).
 - **Preferencias**: la casilla «Mostrar la barra de menús superior» existía pero no se mostraba en ninguna página; ahora está, junto a la del historial.
+- **Salvaguarda del desinstalador**: si la carpeta de la aplicación no es la de XoPy o está dentro de Escritorio, Documentos, Descargas, Juegos, Series, Música, Imágenes o Vídeos, **no se borra nada**. Para dejar `{app}` vacía, la DLL y el desinstalador bloqueados se mueven a `%TEMP%` antes de borrar.
 
 ## Novedades de la versión 2.5.5
 
