@@ -356,6 +356,31 @@ public sealed class CopyEngine
     }
 
     /// <summary>Tras mover, borra las carpetas de origen que quedaron vacías (incluidas las raíz).</summary>
+    /// <summary>Compara byte a byte dos archivos del mismo tamaño.</summary>
+    private static bool SameContent(string first, string second)
+    {
+        try
+        {
+            using var a = new FileStream(first, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 128 * 1024);
+            using var b = new FileStream(second, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 128 * 1024);
+            var bufferA = new byte[128 * 1024];
+            var bufferB = new byte[128 * 1024];
+            while (true)
+            {
+                var readA = a.Read(bufferA, 0, bufferA.Length);
+                var readB = b.Read(bufferB, 0, bufferB.Length);
+                if (readA != readB) return false;
+                if (readA == 0) return true;
+                if (!bufferA.AsSpan(0, readA).SequenceEqual(bufferB.AsSpan(0, readB))) return false;
+            }
+        }
+        catch
+        {
+            // Si no se puede leer, no se da por buena la copia: el original se queda.
+            return false;
+        }
+    }
+
     private static void CleanupMovedFolders(IEnumerable<TransferItem> items)
     {
         // Solo se eliminan carpetas que quedaron VACÍAS: si algo se quedó dentro, no se toca.
@@ -513,6 +538,10 @@ public sealed class CopyEngine
                     var original = new FileInfo(source);
                     var copy = new FileInfo(candidate);
                     if (copy.Length != original.Length) continue;
+                    // Doble comprobación: además del tamaño, se comparan los bytes de los
+                    // archivos pequeños/medianos (< 64 MB). Con copias grandes se confía en
+                    // el tamaño para no duplicar el tiempo de lectura.
+                    if (original.Length <= 64L * 1024 * 1024 && !SameContent(source, candidate)) continue;
                     verifiedDone = true;
                     break;
                 }

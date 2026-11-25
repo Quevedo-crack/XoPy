@@ -237,6 +237,7 @@ var
   ResultCode: Integer;
   DataDir: String;
   DllPath: String;
+  TempOld: String;
 begin
   if CurUninstallStep = usUninstall then
   begin
@@ -270,14 +271,37 @@ begin
         Sleep(2500);
         RenameFile(DllPath, DllPath + '.old');
       end;
+      // El .old aún está mapeado por el Explorador, así que tampoco se puede borrar. La
+      // solución es la misma que ya funcionó para renombrar el DLL: se mueve a %TEMP% (fuera
+      // de {app}) y allí se borra o se deja para el próximo arranque. Así {app} queda vacía.
       if FileExists(DllPath + '.old') then
       begin
         if not DeleteFile(DllPath + '.old') then
-          MoveFileEx(DllPath + '.old', '', $4); // MOVEFILE_DELAY_UNTIL_REBOOT
+        begin
+          TempOld := ExpandConstant('{tmp}\XoPyShell.dll.old');
+          DeleteFile(TempOld);
+          if MoveFileEx(DllPath + '.old', TempOld, 0) then
+          begin
+            if not DeleteFile(TempOld) then MoveFileEx(TempOld, '', $4);
+          end
+          else
+            MoveFileEx(DllPath + '.old', '', $4);
+        end;
       end
       else if FileExists(DllPath) then
         MoveFileEx(DllPath, '', $4);
     end;
+    DelTree(AppDir, True, True, True);
+    // El propio desinstalador (unins000.exe) sigue en ejecución dentro de {app}: se mueve a
+    // %TEMP% igual que la DLL para que la carpeta quede realmente vacía ahora, sin esperar
+    // al reinicio.
+    if FileExists(AppDir + '\unins000.exe') then
+    begin
+      TempOld := ExpandConstant('{tmp}\unins000.exe');
+      DeleteFile(TempOld);
+      MoveFileEx(AppDir + '\unins000.exe', TempOld, 0);
+    end;
+    DeleteFile(AppDir + '\unins000.dat');
     DelTree(AppDir, True, True, True);
     if DirExists(AppDir) then
       // Último recurso: la carpeta se borra al arrancar si algún archivo seguía mapeado.
