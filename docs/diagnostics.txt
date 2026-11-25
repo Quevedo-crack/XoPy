@@ -1,8 +1,8 @@
   Determining projects to restore...
-  Restored D:\a\XoPy\XoPy\XoPy\XoPy.csproj (in 24 ms).
+  Restored D:\a\XoPy\XoPy\XoPy\XoPy.csproj (in 29 ms).
 D:\a\XoPy\XoPy\XoPy\MainForm.cs(2103,9): warning WFDEV004: 'Form.Closed' is obsolete: 'Form.OnClosing, Form.OnClosed and the corresponding events are obsolete. Use Form.OnFormClosing, Form.OnFormClosed, Form.FormClosing and Form.FormClosed instead.' (https://aka.ms/winforms-warnings/WFDEV004) [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
-D:\a\XoPy\XoPy\XoPy\MainForm.cs(2373,13): warning CS8602: Dereference of a possibly null reference. [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
-D:\a\XoPy\XoPy\XoPy\MainForm.cs(2408,74): warning CS8602: Dereference of a possibly null reference. [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
+D:\a\XoPy\XoPy\XoPy\MainForm.cs(2376,13): warning CS8602: Dereference of a possibly null reference. [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
+D:\a\XoPy\XoPy\XoPy\MainForm.cs(2411,74): warning CS8602: Dereference of a possibly null reference. [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
 D:\a\XoPy\XoPy\XoPy\MainForm.cs(121,18): warning CS0414: The field 'MainForm._loadingUi' is assigned but its value is never used [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
 D:\a\XoPy\XoPy\XoPy\MainForm.cs(117,18): warning CS0414: The field 'MainForm._wasRunning' is assigned but its value is never used [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
 CSC : warning WFO0003: Remove high DPI settings from D:\a\XoPy\XoPy\XoPy\app.manifest and configure via Application.SetHighDpiMode API or 'ApplicationHighDpiMode' project property (https://aka.ms/winforms-warnings/wfo0003) [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
@@ -11,15 +11,15 @@ CSC : warning WFO0003: Remove high DPI settings from D:\a\XoPy\XoPy\XoPy\app.man
 Build succeeded.
 
 D:\a\XoPy\XoPy\XoPy\MainForm.cs(2103,9): warning WFDEV004: 'Form.Closed' is obsolete: 'Form.OnClosing, Form.OnClosed and the corresponding events are obsolete. Use Form.OnFormClosing, Form.OnFormClosed, Form.FormClosing and Form.FormClosed instead.' (https://aka.ms/winforms-warnings/WFDEV004) [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
-D:\a\XoPy\XoPy\XoPy\MainForm.cs(2373,13): warning CS8602: Dereference of a possibly null reference. [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
-D:\a\XoPy\XoPy\XoPy\MainForm.cs(2408,74): warning CS8602: Dereference of a possibly null reference. [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
+D:\a\XoPy\XoPy\XoPy\MainForm.cs(2376,13): warning CS8602: Dereference of a possibly null reference. [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
+D:\a\XoPy\XoPy\XoPy\MainForm.cs(2411,74): warning CS8602: Dereference of a possibly null reference. [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
 D:\a\XoPy\XoPy\XoPy\MainForm.cs(121,18): warning CS0414: The field 'MainForm._loadingUi' is assigned but its value is never used [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
 D:\a\XoPy\XoPy\XoPy\MainForm.cs(117,18): warning CS0414: The field 'MainForm._wasRunning' is assigned but its value is never used [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
 CSC : warning WFO0003: Remove high DPI settings from D:\a\XoPy\XoPy\XoPy\app.manifest and configure via Application.SetHighDpiMode API or 'ApplicationHighDpiMode' project property (https://aka.ms/winforms-warnings/wfo0003) [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
     6 Warning(s)
     0 Error(s)
 
-Time Elapsed 00:00:02.89
+Time Elapsed 00:00:03.89
 FILE: carpeta (1 bytes)
 FILE: dest-rbcopy (1 bytes)
 FILE: dest3 (1 bytes)
@@ -31,28 +31,28 @@ FILE: jerarquia (1 bytes)
 FILE: misma (1 bytes)
 FILE: perf (1 bytes)
 FILE: perf-destino (1 bytes)
-FILE: advanced.png (30060 bytes)
+FILE: advanced.png (33281 bytes)
 FILE: cola.txt (534 bytes)
 FILE: conflict.png (8779 bytes)
 FILE: conflictotest.txt (70 bytes)
 FILE: copiatest.txt (83 bytes)
 FILE: exitcode.txt (24 bytes)
 FILE: grande.bin (300000 bytes)
-FILE: history.png (29805 bytes)
+FILE: history.png (31265 bytes)
 FILE: informe.pdf (10242 bytes)
 FILE: jerarquiatest.txt (111 bytes)
 FILE: menu-context.png (5636 bytes)
-FILE: menu-menu.png (22966 bytes)
+FILE: menu-menu.png (22708 bytes)
 FILE: mismacarpeta.txt (59 bytes)
 FILE: movetest.txt (88 bytes)
-FILE: options.png (50892 bytes)
-FILE: perf.txt (172 bytes)
+FILE: options.png (53681 bytes)
+FILE: perf.txt (173 bytes)
 FILE: rbcopy.bin (200002 bytes)
 FILE: reanudartest.txt (41 bytes)
-FILE: repeticion.txt (479 bytes)
+FILE: repeticion.txt (392 bytes)
 FILE: robocopytest.txt (49 bytes)
-FILE: shot.png (30060 bytes)
-FILE: verify.png (30060 bytes)
+FILE: shot.png (33281 bytes)
+FILE: verify.png (33281 bytes)
 FILE: video.mp4 (20482 bytes)
 --- C:\xopytest\exitcode.txt
 exitcode=0 exited=True
@@ -102,6 +102,18 @@ resultado=OK
 robocopy_copiado=True
 robocopy_hash_igual=True
 --- startup.log (últimas 80 líneas)
+MF-OnShown base.OnShown done
+MF-OnShown Activate
+MF-OnShown Activate done
+MF1. BuildUi
+MF1. BuildUi done
+MF2. LoadSettingsIntoUi
+MF2. LoadSettingsIntoUi done
+MF3. ApplyCompactView
+MF3. ApplyCompactView done
+MF4. ApplyJobsCollapsed
+MF4. ApplyJobsCollapsed done
+MF5. WireEngine
 MF5. WireEngine done
 MF6. EnsureDefaultList start
 MF6. EnsureDefaultList done
@@ -169,25 +181,19 @@ MF14. ApplyCopierReplacement start
 MF14. ApplyCopierReplacement done
 MF15. InstallShellHookIfNeeded start
 MF15. InstallShellHookIfNeeded done
-6. ThreadException: Win32Exception - Error creating window handle.
-System.ComponentModel.Win32Exception (1406): Error creating window handle.
-   at System.Windows.Forms.NativeWindow.CreateHandle(CreateParams cp)
-   at System.Windows.Forms.Control.CreateHandle()
-   at System.Windows.Forms.Control.get_Handle()
-   at System.Windows.Forms.Control.Windows.Win32.Foundation.IHandle<Windows.Win32.Foundation.HWND>.get_Handle()
-   at Windows.Win32.PInvokeCore.GetWindowText[T](T hWnd)
-   at System.Windows.Forms.Control.get_WindowText()
-   at System.Windows.Forms.Control.set_CacheTextInternal(Boolean value)
-   at System.Windows.Forms.Control.PaintWithErrorHandling(PaintEventArgs e, Int16 layer)
-   at System.Windows.Forms.Control.WmPaint(Message& m)
-   at System.Windows.Forms.Control.WndProc(Message& m)
-   at System.Windows.Forms.NativeWindow.Callback(HWND hWnd, UInt32 msg, WPARAM wparam, LPARAM lparam)
+MF-OnShown end (UI lista)
 --- transfer.log (últimas 120 líneas)
-2026-11-25 18:37:01  Sustitución real: se activa el arranque de XoPy con Windows para que Ctrl+V siga pasando por XoPy tras reiniciar.
-2026-11-25 18:37:01  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
-2026-11-25 18:37:01  Arranque: destinos extra=[] guardados=[]
-2026-11-25 18:37:01  Inicio: 1 elementos, destinos=C:\xopytest\misma, verificar=False (Sha256), reanudar=False
-2026-11-25 18:37:01  Copia nativa: C:\xopytest\misma\original.txt -> C:\xopytest\misma\original (1).txt
-2026-11-25 18:37:01  Fin: 3002 bytes en 0.0s, errores=0
-2026-11-25 18:37:15  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
-2026-11-25 18:37:17  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
+2026-11-25 18:47:01  Sustitución real: se activa el arranque de XoPy con Windows para que Ctrl+V siga pasando por XoPy tras reiniciar.
+2026-11-25 18:47:01  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
+2026-11-25 18:47:01  Arranque: destinos extra=[] guardados=[]
+2026-11-25 18:47:02  Inicio: 1 elementos, destinos=C:\xopytest\misma, verificar=False (Sha256), reanudar=False
+2026-11-25 18:47:02  Copia nativa: C:\xopytest\misma\original.txt -> C:\xopytest\misma\original (1).txt
+2026-11-25 18:47:02  Fin: 3002 bytes en 0.0s, errores=0
+2026-11-25 18:47:16  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
+2026-11-25 18:47:18  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
+2026-11-25 18:47:18  Inicio: 4 elementos, destinos=C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\destinoA, verificar=False (Sha256), reanudar=False
+2026-11-25 18:47:18  Copia nativa: C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\origen\r2.bin -> C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\destinoA\r2.bin
+2026-11-25 18:47:18  Copia nativa: C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\origen\r3.bin -> C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\destinoA\r3.bin
+2026-11-25 18:47:18  Copia nativa: C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\origen\r1.bin -> C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\destinoA\r1.bin
+2026-11-25 18:47:18  Copia nativa: C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\origen\r4.bin -> C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\destinoA\r4.bin
+2026-11-25 18:47:18  Fin: 40960 bytes en 0.0s, errores=0
