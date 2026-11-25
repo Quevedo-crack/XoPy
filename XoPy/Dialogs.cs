@@ -244,7 +244,9 @@ internal sealed class OptionsDialog : Form
         _confirmDelete = Check("Pedir confirmación antes de eliminar", settings.ConfirmDelete);
         _minimizeToTray = Check("Minimizar en el área de notificación al cerrar la ventana", settings.MinimizeToTray);
         _startWithWindows = Check("Iniciar XoPy al encender el equipo", settings.StartWithWindows);
-        _startMinimized = Check("Arrancar minimizado en el área de notificación", settings.StartMinimized);
+        // Se aclara el alcance: abrir XoPy a mano SIEMPRE muestra la ventana. Esta casilla
+        // solo afecta al arranque automático con Windows.
+        _startMinimized = Check("Al iniciar con Windows, arrancar en el área de notificación", settings.StartMinimized);
 
         _multiThread = Check("Copiar varios archivos a la vez (multihilo)", settings.MultiThreadCopy);
         _showMenuBar = Check("Mostrar la barra de menús superior", settings.ShowMenuBar);

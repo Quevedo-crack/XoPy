@@ -2189,12 +2189,12 @@ public sealed partial class MainForm : Form
 
             // No llamar Show() aqui: el formulario ya esta siendo mostrado por el evento Shown;
             // llamarlo de nuevo causa reentrancy de Windows Forms y puede desbordar la pila (0xc00000fd).
-            // Con «arrancar minimizado» (o --tray, que usa el arranque con Windows) la
-            // ventana NO debe aparecer ni un instante: antes se mostraba y luego se ocultaba,
-            // y eso es lo que el usuario vivía como «se abre sola».
-            if (_settings.StartMinimized || _startupRequest.StartMinimized)
+            // Solo el arranque CON WINDOWS (--tray) empieza en la bandeja. Abrir XoPy a mano
+            // siempre muestra la ventana: hacer caso aquí a la casilla guardada dejaba al
+            // usuario haciendo doble clic en el icono sin que apareciera nada.
+            if (_startupRequest.StartMinimized)
             {
-                Program.Log("MF-OnShown arranque en bandeja");
+                Program.Log("MF-OnShown arranque en bandeja (--tray)");
                 _startHidden = true;
             }
             else
@@ -2503,15 +2503,27 @@ public sealed partial class MainForm : Form
             }
         }
 
-        // Solo se queda en la bandeja si el usuario no ha pedido una acción concreta. Con
-        // archivos o un pegado (--to/--paste) la ventana debe verse, aunque el arranque sea
-        // silencioso: si no, el usuario cree que XoPy no ha hecho nada.
+        // Ocultarse en la bandeja SOLO puede ocurrir en el arranque del proceso. Si esto se
+        // evalúa también al activar (segunda instancia, doble clic en el icono), XoPy se
+        // volvía a esconder justo después de mostrarse: el usuario abría la aplicación y no
+        // aparecía NADA. Una activación siempre termina con la ventana a la vista.
+        if (!isStartup)
+        {
+            EnsureWindowVisible();
+            return;
+        }
+
+        // Con archivos o un pegado (--to/--paste) la ventana debe verse aunque el arranque
+        // fuera silencioso: si no, el usuario cree que XoPy no ha hecho nada.
         var wantsWork = request.Paths.Count > 0 || request.PasteFromClipboard || request.Operation is not null;
-        if (!wantsWork && (request.StartMinimized || _startHidden
-            || (isStartup && _settings.StartMinimized && request.Operation is null && request.Paths.Count == 0)))
+        if (!wantsWork && request.StartMinimized)
         {
             _startHidden = true;
-            MinimizeToTray(silent: true);
+            MinimizeToTray();
+        }
+        else
+        {
+            EnsureWindowVisible();
         }
     }
 
