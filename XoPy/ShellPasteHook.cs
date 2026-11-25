@@ -168,8 +168,6 @@ public sealed class ShellPasteHook : IDisposable
                 _work.Add(() => ProcessPaste(_explorerWindow, snapshot));
 
             return (IntPtr)1;
-
-            return (IntPtr)1;
         }
         catch (Exception ex)
         {
@@ -259,11 +257,13 @@ public sealed class ShellPasteHook : IDisposable
 
             byte[]? raw = null;
             // Se prueban las dos formas de pedir el mismo formato: por nombre y por formato.
+            // GetData solo acepta un nombre de formato (string) o un Type: se pide primero
+            // sin conversión y después con ella, que es como lo entrega el Explorador.
             var format = DataFormats.GetFormat("Preferred DropEffect");
-            object? value = null;
-            try { value = data.GetData(format.Name, autoConvert: false); } catch { }
-            value ??= SafeGet(() => data.GetData("Preferred DropEffect"));
-            value ??= SafeGet(() => data.GetData(format));
+            var name = format?.Name ?? "Preferred DropEffect";
+            object? value = SafeGet(() => data.GetData(name, false));
+            value ??= SafeGet(() => data.GetData(name));
+            value ??= SafeGet(() => data.GetData("Preferred DropEffect", true));
 
             switch (value)
             {

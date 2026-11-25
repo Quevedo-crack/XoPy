@@ -2727,7 +2727,9 @@ public sealed partial class MainForm : Form
         options.Controls.SetChildIndex(newOption, 0);
         chosen = nueva;
 
-        foreach (var list in _lists.Reverse())
+        // Enumerable.Reverse: List<T>.Reverse() invierte la lista EN EL SITIO y devuelve void
+        // (reordenaría de verdad las listas del usuario).
+        foreach (var list in Enumerable.Reverse(_lists))
         {
             var same = string.Equals(list.Destination, detectedDestination, StringComparison.OrdinalIgnoreCase);
             AddOption(list, false,
