@@ -93,6 +93,12 @@ const
   CLSID_XoPy = '{3B1E92A7-7AD6-4E71-A218-75449CE13061}';
   MutexXoPy = 'Local\XoPy.SingleInstance.5C1A93';
 
+// MoveFileEx permite programar el borrado de un archivo bloqueado para el próximo arranque.
+// Es la vía canónica de Windows cuando un DLL sigue cargado (aquí, XoPyShell.dll mientras el
+// Explorador tenga mapeada la extensión). Sin ella, la desinstalación dejaba esa DLL.
+function MoveFileEx(lpExistingFileName, lpNewFileName: String; dwFlags: Cardinal): Boolean;
+  external 'MoveFileExW@kernel32.dll stdcall';
+
 procedure UnregisterShellExtension();
 var
   ResultCode: Integer;
@@ -199,6 +205,7 @@ var
   AppDir: String;
   ResultCode: Integer;
   DataDir: String;
+  DllPath: String;
 begin
   if CurUninstallStep = usUninstall then
   begin
@@ -208,14 +215,22 @@ begin
     // Windows relanza solo. Después se borra la carpeta entera.
     UnregisterShellExtension();
     AppDir := ExpandConstant('{app}');
-    if not DelTree(AppDir, True, True, True) then
+    DllPath := AppDir + '\XoPyShell.dll';
+    // La DLL solo se puede borrar si el Explorador ya la soltó. Se intenta en varios
+    // pasos y, si sigue en uso, se programa su borrado para el próximo arranque, que es
+    // lo que hace Windows: así no queda el aviso de «elementos que no se pudieron eliminar».
+    if FileExists(DllPath) and not DeleteFile(DllPath) then
     begin
       Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM explorer.exe /F', '', SW_HIDE,
            ewWaitUntilTerminated, ResultCode);
       Sleep(2500);
-      DelTree(AppDir, True, True, True);
-      Exec(ExpandConstant('{sys}\explorer.exe'), '', '', SW_SHOWNORMAL, ewNoWait, ResultCode);
+      if not DeleteFile(DllPath) then
+        MoveFileEx(DllPath, '', $4); // MOVEFILE_DELAY_UNTIL_REBOOT
     end;
+    DelTree(AppDir, True, True, True);
+    if DirExists(AppDir) then
+      // Último recurso: la carpeta se borra al arrancar si algún archivo seguía mapeado.
+      MoveFileEx(AppDir, '', $4);
   end;
   if CurUninstallStep = usPostUninstall then
   begin

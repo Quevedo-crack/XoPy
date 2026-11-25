@@ -380,7 +380,7 @@ jobs:
           $detail = $detail -replace '%','%25' -replace '\r','' -replace '\n','%0A'
           Write-Host "::notice title=Prueba de repeticion::$detail"
           if ($process.ExitCode -ne 0) {
-            Write-Host "::error::La prueba de repetición falló"
+            Write-Host "::error title=Prueba de repeticion::$detail"
             throw "La prueba de repetición falló: $detail"
           }
           Write-Host "Prueba de repetición superada"

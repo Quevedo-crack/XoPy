@@ -1588,18 +1588,22 @@ public sealed partial class MainForm : Form
             var dest1 = Path.Combine(folder, "destinoA");
             _settings.Destination = dest1;
             _destination.Text = dest1;
-            AddPathsAsync(new[] { source }, askDestination: false).GetAwaiter().GetResult();
+            // Archivos sueltos: es lo que hace el usuario al arrastrarlos, y evita depender
+            // de que el escaneo de una carpeta haya terminado en este contexto sin ventana.
+            var files = Directory.GetFiles(source, "*.bin");
+            AddPathsAsync(files, askDestination: false).GetAwaiter().GetResult();
 
-            StartTransferAsync(OperationType.Copy).GetAwaiter().GetResult();
+            StartTransfer(OperationType.Copy);
             WaitForEngineIdle(60000);
+            report.Add($"añadidos={_items.Count(item => item.Kind == ItemKind.File)},destino={_destination.Text},motor={_engine.IsRunning}");
             var firstCompleted = _items.Count(item => item.Kind == ItemKind.File && item.State == ItemState.Completed);
             var firstFailed = _items.Count(item => item.State == ItemState.Failed);
-            report.Add($"copia1_completados={firstCompleted},fallidos={firstFailed}");
+            report.Add($"copia1_completados={firstCompleted},fallidos={firstFailed},motor={_engine.IsRunning}");
             if (firstCompleted != 4 || firstFailed != 0) { report.Add("error=la primera copia no completo los 4 archivos"); ok = false; }
 
             // ── Segunda pulsación de Copiar con la MISMA lista: no debe marcar nada como Error ──
             // Sin tocar la lista: se vuelve a pulsar Copiar tal cual.
-            StartTransferAsync(OperationType.Copy).GetAwaiter().GetResult();
+            StartTransfer(OperationType.Copy);
             WaitForEngineIdle(60000);
             var secondFailed = _items.Count(item => item.State == ItemState.Failed);
             report.Add($"copia2_fallidos={secondFailed},estado={_statusLabel.Text}");
@@ -1609,14 +1613,14 @@ public sealed partial class MainForm : Form
             var dest2 = Path.Combine(folder, "destinoB");
             _settings.Destination = dest2;
             _destination.Text = dest2;
-            StartTransferAsync(OperationType.Move).GetAwaiter().GetResult();
+            StartTransfer(OperationType.Move);
             WaitForEngineIdle(60000);
             var movedFiles = Directory.Exists(dest2) ? Directory.GetFiles(dest2, "*.bin", SearchOption.AllDirectories).Length : 0;
             report.Add($"movidos={movedFiles}");
             if (movedFiles != 4) { report.Add("error=el movimiento no llevo los 4 archivos"); ok = false; }
 
             // La lista conserva ítems completados: un tercer intento no debe convertirlos en Error.
-            StartTransferAsync(OperationType.Copy).GetAwaiter().GetResult();
+            StartTransfer(OperationType.Copy);
             WaitForEngineIdle(60000);
             var thirdFailed = _items.Count(item => item.State == ItemState.Failed);
             var thirdCompleted = _items.Count(item => item.Kind == ItemKind.File && item.State == ItemState.Completed);
