@@ -39,6 +39,26 @@ public sealed class SettingsStore
             migrated = true;
         }
 
+        if (settings.SettingsVersion < 2)
+        {
+            // 2.5.6: la ventana se ocultaba sola al terminar cada copia y el usuario lo vivía
+            // como que «se cierra y se vuelve a abrir». Se deja visible por defecto; quien
+            // la quiera ocultar lo marca en Preferencias.
+            settings.CloseWhenDone = false;
+            settings.SettingsVersion = 2;
+            migrated = true;
+        }
+
+        if (settings.SettingsVersion < 3)
+        {
+            // 2.5.6: el historial de listas arranca a la vista y se puede ocultar con un botón;
+            // el usuario lo pedía «ocultable y mostrable» sin depender del menú.
+            settings.ShowJobs = true;
+            settings.CollapseJobs = false;
+            settings.SettingsVersion = 3;
+            migrated = true;
+        }
+
         settings.Favorites ??= new List<string>();
         settings.ExtraDestinations ??= new List<string>();
         settings.ExtraDestinations = settings.ExtraDestinations

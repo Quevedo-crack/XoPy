@@ -178,7 +178,30 @@ public sealed class CopyEngine
     public bool Start(IEnumerable<TransferItem> items, EngineOptions options)
     {
         if (Interlocked.CompareExchange(ref _running, 1, 0) != 0) return false;
-        var list = items.ToList();
+        // Una lista puede reintentarse cuando ya se transfirió entera (o después de mover: el
+        // origen ya no existe). Antes se volvía a procesar todo y cada archivo acababa en
+        // «Error» al 0 %. Se descartan los ya completados y los que no tienen origen.
+        var requested = items.ToList();
+        var list = new List<TransferItem>(requested.Count);
+        var stale = 0;
+        foreach (var item in requested)
+        {
+            if (item.State == ItemState.Completed) continue;
+            if (!HasSource(item))
+            {
+                item.State = ItemState.Failed;
+                item.Error = item.Kind == ItemKind.Folder
+                    ? "La carpeta de origen ya no existe (puede haberse movido antes)."
+                    : "El archivo de origen ya no existe (puede haberse movido antes).";
+                item.TransferredBytes = 0;
+                stale++;
+                continue;
+            }
+            list.Add(item);
+        }
+        if (stale > 0)
+            FileLog.Write($"Aviso: {stale} elemento(s) sin origen en disco; se marcan como Error sin reintentarlos.");
+
         if (list.Count == 0)
         {
             Volatile.Write(ref _running, 0);
@@ -319,6 +342,17 @@ public sealed class CopyEngine
             Interlocked.Increment(ref _errors);
             FileLog.Write($"ERROR {item.SourcePath}: {ex}");
         }
+    }
+
+    /// <summary>Indica si el origen del elemento sigue existiendo en disco.</summary>
+    private static bool HasSource(TransferItem item)
+    {
+        var path = item.SourcePath;
+        if (string.IsNullOrWhiteSpace(path)) return false;
+        if (item.Kind == ItemKind.File) return File.Exists(path);
+        // Carpeta o entrada de directorio: basta con que exista la carpeta. Si existe, sus
+        // hijos se comprueban uno a uno al copiarse.
+        return Directory.Exists(path);
     }
 
     /// <summary>Tras mover, borra las carpetas de origen que quedaron vacías (incluidas las raíz).</summary>

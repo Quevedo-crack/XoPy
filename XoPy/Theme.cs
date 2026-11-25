@@ -133,8 +133,9 @@ public static class Icons
     public static Icon PercentBadge(int percent, bool dark, bool paused = false, bool error = false)
     {
         var clamped = Math.Clamp(percent, 0, 100);
-        // 64 px en lugar de 32: en pantallas con escalado alto el número de la barra de tareas
-        // se veía diminuto. Se dibuja grande y Windows lo reduce con buena calidad.
+        // El icono de superposición de la barra de tareas se muestra a 16 px. Dibujarlo a 64
+        // y dejar que Windows lo reduzca hacía que el número fuese ilegible. Se dibuja grande
+        // pero con el trazo pensado para 16 px: número sin «%», que es lo que se lee.
         const int size = 64;
         using var bitmap = new Bitmap(size, size);
         using (var graphics = Graphics.FromImage(bitmap))
@@ -147,21 +148,17 @@ public static class Icons
                 : clamped >= 100 ? Color.FromArgb(38, 160, 96)
                 : Color.FromArgb(48, 140, 240);
             using var background = new SolidBrush(color);
-            using var path = RoundedRect(new Rectangle(0, 0, size, size), 14);
+            using var path = RoundedRect(new Rectangle(0, 0, size, size), 8);
             graphics.FillPath(background, path);
-            using var format = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
             using var text = new SolidBrush(Color.White);
-            var label = clamped >= 100 ? "100" : clamped.ToString();
-            // Números grandes y consistentes: el número ocupa casi todo el icono.
-            using var font = new Font("Segoe UI", label.Length >= 3 ? 26f : 34f, FontStyle.Bold, GraphicsUnit.Pixel);
-            graphics.DrawString(label, font, text, new RectangleF(0, 0, size, size), format);
-            if (clamped < 100)
-            {
-                using var small = new Font("Segoe UI", 18f, FontStyle.Bold, GraphicsUnit.Pixel);
-                graphics.DrawString("%", small, text, new RectangleF(28, 24, 34, 34), format);
-            }
+            using var format = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
+            var label = clamped.ToString();
+            // Solo el número, ocupando todo el icono y con margen mínimo: a 16 px es donde
+            // de verdad se distingue. El «%» se quita porque robaba la mitad del espacio.
+            var font = new Font("Segoe UI", label.Length >= 3 ? 34f : label.Length == 2 ? 42f : 46f,
+                FontStyle.Bold, GraphicsUnit.Pixel);
+            graphics.DrawString(label, font, text, new RectangleF(0, -2, size, size + 4), format);
         }
-
         var handle = bitmap.GetHicon();
         try
         {

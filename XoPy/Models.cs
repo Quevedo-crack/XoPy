@@ -182,6 +182,8 @@ public sealed class AppSettings
     public bool StartMinimized { get; set; }
     public bool PlaySoundWhenDone { get; set; }
     public bool OpenDestinationWhenDone { get; set; }
+    // Falso por defecto: la ventana no debe desaparecer sola al terminar una copia (el
+    // usuario la percibía como «se cierra y se vuelve a abrir»). Se activa en Preferencias.
     public bool CloseWhenDone { get; set; }
     public bool ShutdownWhenDone { get; set; }
     public bool ExplorerIntegration { get; set; }
@@ -200,6 +202,8 @@ public sealed class AppSettings
     public int WindowY { get; set; } = int.MinValue;
     public bool WindowMaximized { get; set; }
     public bool CollapseJobs { get; set; } = true;
+    /// <summary>Historial de listas de copia (columna de trabajos) visible.</summary>
+    public bool ShowJobs { get; set; }
     // Falso: la ventana abre con la lista de archivos visible, como TeraCopy. La vista
     // compacta queda como opción («Ocultar»), no como estado inicial.
     /// <summary>Modo de ventana al abrir: 0 = reducida, 1 = completa, 2 = automático.</summary>
@@ -262,6 +266,9 @@ public sealed class StartupRequest
 
     /// <summary>Prueba automática de la cola (--self-test-queue); no abre la ventana.</summary>
     public bool SelfTestQueue { get; set; }
+
+    /// <summary>Prueba de repetición: copiar, recopiar y mover dos veces (--self-test-repeat).</summary>
+    public bool SelfTestRepeat { get; set; }
     public ConflictPolicy? Conflict { get; set; }
     public VerifyAlgorithm? VerifyAlgorithm { get; set; }
     public bool VerifyAfterCopy { get; set; }
@@ -289,6 +296,11 @@ public sealed class StartupRequest
                 case "--no-shell-hook": request.NoShellHook = true; break;
                 case "--tray": request.StartMinimized = true; break;
                 case "--exit": request.ExitWhenDone = true; break;
+                case "--self-test-repeat":
+                    request.SelfTestRepeat = true;
+                    if (i + 1 < args.Length && !args[i + 1].StartsWith("-", StringComparison.Ordinal))
+                        request.ScreenshotPath = Normalize(args[++i]);
+                    break;
                 case "--self-test-queue":
                     request.SelfTestQueue = true;
                     if (i + 1 < args.Length && !args[i + 1].StartsWith("-", StringComparison.Ordinal))

@@ -156,6 +156,7 @@ internal sealed class OptionsDialog : Form
     private readonly CheckBox _startMinimized;
     private readonly CheckBox _multiThread;
     private readonly CheckBox _showMenuBar;
+    private readonly CheckBox _showJobs;
     private readonly NumericUpDown _parallel;
     private readonly NumericUpDown _buffer;
     private readonly NumericUpDown _speed;
@@ -247,6 +248,8 @@ internal sealed class OptionsDialog : Form
 
         _multiThread = Check("Copiar varios archivos a la vez (multihilo)", settings.MultiThreadCopy);
         _showMenuBar = Check("Mostrar la barra de menús superior", settings.ShowMenuBar);
+        _showJobs = Check("Mostrar el historial de listas de copia (se puede ocultar con el botón « de la lista)",
+            settings.ShowJobs);
         _parallel = Numeric(settings.Parallelism, 1, 16, 1);
         _buffer = Numeric(settings.BufferKiB, 64, 8192, 64);
         _speed = Numeric(settings.SpeedLimitMiB, 0, 100000, 10);
@@ -695,6 +698,10 @@ internal sealed class OptionsDialog : Form
             ("", _preserveTimestamps, 36),
             ("", _recycleBin, 36),
             ("", _copyLocked, 32),
+            // La casilla de la barra de menús existía pero no se añadía a ninguna página:
+            // no había forma de mostrarla ni ocultarla desde Preferencias.
+            ("", _showMenuBar, 32),
+            ("", _showJobs, 32),
             ("Motor de copia", _engine, 40),
             ("", _resumePartials, 32),
             ("", _writeChecksums, 32),
@@ -968,6 +975,7 @@ internal sealed class OptionsDialog : Form
         Result.StartMinimized = _startMinimized.Checked;
         Result.MultiThreadCopy = _multiThread.Checked;
         Result.ShowMenuBar = _showMenuBar.Checked;
+        Result.ShowJobs = _showJobs.Checked;
         Result.Parallelism = (int)_parallel.Value;
         Result.BufferKiB = (int)_buffer.Value;
         Result.SpeedLimitMiB = (int)_speed.Value;
@@ -1030,6 +1038,8 @@ internal sealed class OptionsDialog : Form
         target.Parallelism = Result.Parallelism;
         target.MultiThreadCopy = Result.MultiThreadCopy;
         target.ShowMenuBar = Result.ShowMenuBar;
+        target.ShowJobs = Result.ShowJobs;
+        target.CollapseJobs = !Result.ShowJobs;
         target.BufferKiB = Result.BufferKiB;
         target.SpeedLimitMiB = Result.SpeedLimitMiB;
         target.PreserveTimestamps = Result.PreserveTimestamps;
@@ -1076,6 +1086,7 @@ internal sealed class OptionsDialog : Form
         Parallelism = source.Parallelism,
         MultiThreadCopy = source.MultiThreadCopy,
         ShowMenuBar = source.ShowMenuBar,
+        ShowJobs = source.ShowJobs,
         BufferKiB = source.BufferKiB,
         SpeedLimitMiB = source.SpeedLimitMiB,
         PreserveTimestamps = source.PreserveTimestamps,

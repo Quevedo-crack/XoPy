@@ -118,6 +118,20 @@ XoPy.exe --multi --copy --to "D:\Copias" "C:\Datos\informe.pdf"
 - En la barra de copia se puede alternar entre modo secuencial y multihilo, también durante una transferencia; un archivo se puede pausar/reanudar individualmente desde el menú contextual de la lista. La lista admite reordenado por arrastre; las carpetas se muestran contraídas al añadirse y se pueden desplegar con la flecha o desde el menú. La columna de trabajos también empieza plegada y puede expandirse.
 - El instalador limpia las antiguas claves del menú contextual antes de iniciar la aplicación.
 
+## Novedades de la versión 2.5.6
+
+- **«Error» al 0 % en toda la lista** (el fallo de la captura): al volver a pulsar Copiar sobre una lista ya copiada, o después de mover, se volvía a procesar todo y cada archivo acababa en Error porque su origen ya no existía. Ahora lo completado no se reintenta, lo que ya no está en disco se explica con su motivo («El archivo de origen ya no existe…») y las carpetas de otras listas ya no se cuelan en la selección.
+- **Mover dentro de la lista**: las flechas ↑/↓ y quitar/vaciar ya no se deshabilitan con una transferencia en curso, así que reordenar funciona siempre (el motor trabaja con su propia copia y la ruta de destino no cambia).
+- **Ya no se reabre la ventana**: cerrar con la X cierra de verdad (solo se queda en la bandeja si se marca «Minimizar al cerrar»). «Cerrar al terminar» viene desactivado y, si se activa, deja la ventana visible.
+- **Arranque contraído**: la ventana abre en modo reducido y no se vuelve a agrandar al aplicar la posición guardada. Se conserva la posición, no el tamaño de la sesión anterior.
+- **Historial de listas ocultable y mostrable** con un botón « en la cabecera de trabajos, con la entrada del menú Ver y con la casilla de Preferencias. El estado se guarda.
+- **Multihilo inconfundible**: activado, el botón se pinta con el color de acento y el rayo en blanco; desactivado queda apagado.
+- **Porcentaje del icono de la barra de tareas**: se dibuja solo el número, ocupando todo el icono, en lugar de número y «%» diminutos que a 16 px no se leían.
+- **Desinstalación sin restos**: el desinstalador cierra XoPy, desregistra la extensión «Pegar», borra `%LOCALAPPDATA%\XoPy` (ajustes, historial, cola y registro) y las claves del registro. El CI comprueba que no queda exe, carpeta, CLSID, menú ni autoarranque.
+- **Diagnóstico de errores**: al seleccionar una fila en Error se muestra el motivo completo en la barra de estado (antes solo en el tooltip).
+- **Rutas largas**: soporte explícito de rutas de más de 260 caracteres (una de las causas de Error más comunes en TeraCopy).
+- **Preferencias**: la casilla «Mostrar la barra de menús superior» existía pero no se mostraba en ninguna página; ahora está, junto a la del historial.
+
 ## Novedades de la versión 2.5.5
 
 - **Instalador**: ya no aparece «DeleteFile falló; código 5». El instalador cierra XoPy, desregistra la extensión, libera la DLL del Explorador (reiniciándolo solo si sigue bloqueada, con reintentos) y, si aun así no puede, la sustituye al reiniciar en vez de abortar.

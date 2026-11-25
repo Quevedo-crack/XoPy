@@ -2,8 +2,8 @@
 
 [Setup]
 AppName=XoPy
-AppVersion=2.5.5
-AppVerName=XoPy 2.5.5
+AppVersion=2.5.6
+AppVerName=XoPy 2.5.6
 AppPublisher=Quevedo-crack
 AppPublisherURL=https://github.com/Quevedo-crack/XoPy
 AppSupportURL=https://github.com/Quevedo-crack/XoPy/issues
@@ -14,7 +14,7 @@ DisableProgramGroupPage=yes
 OutputDir=..\installer-output
 OutputBaseFilename=XoPy-Setup-win-x64
 UninstallDisplayIcon={app}\XoPy.exe
-UninstallDisplayName=XoPy 2.5.5
+UninstallDisplayName=XoPy 2.5.6
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
@@ -30,7 +30,7 @@ RestartApplications=no
 RestartIfNeededByRun=yes
 AppMutex=Local\\XoPy.SingleInstance.5C1A93
 AllowNoIcons=yes
-VersionInfoVersion=2.5.5.0
+VersionInfoVersion=2.5.6.0
 VersionInfoProductName=XoPy
 VersionInfoDescription=Gestor de copias XoPy
 VersionInfoCompany=Quevedo-crack
@@ -176,6 +176,44 @@ begin
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM XoPy.exe /F', '', SW_HIDE,
        ewWaitUntilTerminated, KillCode);
   Result := '';
+end;
+
+function InitializeUninstall(): Boolean;
+var
+  ResultCode: Integer;
+begin
+  // Sin esto la desinstalación avisaba «Algunos elementos no pudieron eliminarse»: XoPy
+  // seguía en la bandeja con XoPy.exe y XoPyShell.dll cargados, y el Explorador mantenía
+  // la DLL de la extensión «Pegar». Se desregistra, se cierran los procesos y se espera.
+  UnregisterShellExtension();
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM XoPy.exe /F', '', SW_HIDE,
+       ewWaitUntilTerminated, ResultCode);
+  Sleep(600);
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM XoPyShell.dll /F', '', SW_HIDE,
+       ewWaitUntilTerminated, ResultCode);
+  Result := True;
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  ResultCode: Integer;
+  DataDir: String;
+begin
+  if CurUninstallStep = usPostUninstall then
+  begin
+    // Datos del usuario: ajustes, historial, última cola y registro. Quedaban en
+    // %LOCALAPPDATA%\XoPy tras desinstalar y son «elementos que no se pudieron eliminar».
+    DataDir := ExpandConstant('{localappdata}\XoPy');
+    DelTree(DataDir, True, True, True);
+    // Restos de la integración con el Explorador que no dependen de {app}.
+    RegDeleteKeyIncludingSubkeys(HKCU, 'Software\Classes\Directory\shellex\ContextMenuHandlers\XoPyPaste');
+    RegDeleteKeyIncludingSubkeys(HKCU, 'Software\Classes\DesktopBackground\shellex\ContextMenuHandlers\XoPyPaste');
+    RegDeleteValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved', CLSID_XoPy);
+    RegDeleteValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'XoPy');
+    RegDeleteKeyIfEmpty(HKCU, 'Software\Microsoft\Windows\CurrentVersion\App Paths\XoPy.exe');
+    // Se relanza el Explorador para que suelte la DLL y refresque el menú contextual.
+    Exec(ExpandConstant('{sys}\explorer.exe'), '', '', SW_SHOWNORMAL, ewNoWait, ResultCode);
+  end;
 end;
 
 [UninstallDelete]

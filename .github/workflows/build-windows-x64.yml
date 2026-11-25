@@ -152,13 +152,35 @@ jobs:
             if (-not $after) { throw 'La aplicación borró la extensión Pegar al arrancar' }
             if (-not $inproc) { throw 'El instalador no registró la extensión Pegar' }
 
+            # Se crean datos de usuario para comprobar que la desinstalación NO deja restos
+            # (settings.json, history.json, ultima-cola.xopyq, transfer.log).
+            $dataDir = Join-Path $env:LOCALAPPDATA 'XoPy'
+            New-Item -ItemType Directory -Force $dataDir | Out-Null
+            '{"SettingsVersion":1}' | Set-Content (Join-Path $dataDir 'settings.json')
+            '[]' | Set-Content (Join-Path $dataDir 'history.json')
+            'datos' | Set-Content (Join-Path $dataDir 'transfer.log')
+            "datos_antes=$(Test-Path $dataDir)" | Add-Content $log
+
             $uninstaller = Join-Path $env:ProgramFiles 'XoPy\unins000.exe'
             "desinstalador=$(Test-Path $uninstaller)" | Add-Content $log
             if (Test-Path $uninstaller) {
               Start-Process -FilePath $uninstaller -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') -Wait
-              Start-Sleep -Seconds 3
+              Start-Sleep -Seconds 5
             }
             "sigue_instalado=$(Test-Path $exe)" | Add-Content $log
+            $restos = @()
+            if (Test-Path $exe) { $restos += 'exe' }
+            if (Test-Path (Join-Path $env:ProgramFiles 'XoPy')) { $restos += 'carpeta_app' }
+            if (Test-Path $dataDir) { $restos += 'datos_localappdata' }
+            $clsidAfterUninstall = [Microsoft.Win32.Registry]::GetValue('HKEY_CURRENT_USER\Software\Classes\CLSID\{3B1E92A7-7AD6-4E71-A218-75449CE13061}', 'x', $null)
+            if ($null -ne $clsidAfterUninstall) { $restos += 'clsid' }
+            $pasteAfter = [Microsoft.Win32.Registry]::GetValue('HKEY_CURRENT_USER\Software\Classes\Directory\Background\shellex\ContextMenuHandlers\XoPyPaste', '', $null)
+            if ($pasteAfter) { $restos += 'pegar' }
+            $runAfter = [Microsoft.Win32.Registry]::GetValue('HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run', 'XoPy', $null)
+            if ($runAfter) { $restos += 'autostart' }
+            "restos_desinstalacion=$($restos -join ',')" | Add-Content $log
+            Write-Host "restos_desinstalacion=$($restos -join ',')"
+            if ($restos.Count -gt 0) { throw "La desinstalación dejó restos: $($restos -join ', ')" }
             "OK" | Add-Content $log
           } catch {
             "ERROR: $_" | Add-Content $log
