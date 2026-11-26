@@ -221,9 +221,11 @@ public sealed partial class MainForm : Form
             SelectTab(0);
             ApplyDarkScrollbars();
             // Último repaso: cualquier control que se haya quedado con los colores de
-            // Windows (ese gris casi blanco de fábrica) se pinta con la paleta. Es lo que
-            // acaba con las «barras blancas» sueltas que veía el usuario.
+            // Windows (ese gris casi blanco de fábrica) se pinta con la paleta, y las
+            // barras de desplazamiento nativas se oscurecen. Es lo que acaba con las
+            // «barras blancas» sueltas que veía el usuario.
             Ui.PaintAll(this, _palette);
+            Ui.DarkScrollbars(this, _palette);
         };
     }
 
@@ -617,17 +619,19 @@ public sealed partial class MainForm : Form
     }
 
     /// <summary>Ancho fijo del botón de multihilo: su texto cambia y el botón no debe bailar.</summary>
-    private const int MultiThreadButtonWidth = 136;
+    private const int MultiThreadButtonWidth = 128;
 
     /// <summary>Ancho fijo del botón que oculta y muestra la lista.</summary>
-    private const int ListToggleButtonWidth = 132;
+    private const int ListToggleButtonWidth = 124;
 
     private ToolStripButton BarButton(string text, string glyph, EventHandler click, bool accent = false, bool iconOnly = false)
     {
         var foreground = accent ? Color.White : _palette.Text;
         var font = new Font("Segoe UI", 8.75f, FontStyle.Bold);
-        // Más holgura: con +44 el texto quedaba pegado al borde y «Verificar» se recortaba.
-        var width = iconOnly ? 40 : TextRenderer.MeasureText(text, font).Width + 58;
+        // Holgura justa: con +58 los tres botones de la transferencia no cabían junto a los
+        // de estado y «Detener» acababa escondido en el desplegable « ». Con +46 el texto
+        // sigue sin tocar el borde (los iconos miden 18 px y el relleno es de 8).
+        var width = iconOnly ? 38 : TextRenderer.MeasureText(text, font).Width + 46;
         var button = new ToolStripButton(text)
         {
             Image = Icons.Glyph(glyph, foreground, 18),
@@ -1259,7 +1263,7 @@ public sealed partial class MainForm : Form
             LabelEdit = true,
             GridLines = false
         };
-        _list.Columns.Add(_settings.ShowFullPath ? "Archivo (ruta completa)" : "Nombre", 380);
+        _list.Columns.Add(_settings.ShowFullPath ? "Archivo y ruta" : "Nombre", 380);
         // «Subcarpeta», no «Destino»: la carpeta de destino sale una sola vez, en la cabecera.
         _list.Columns.Add("Subcarpeta", 150);
         _list.Columns.Add("Tamaño", 92, HorizontalAlignment.Right);
@@ -1419,7 +1423,7 @@ public sealed partial class MainForm : Form
         if (_fullPathMenuItem is not null) _fullPathMenuItem.Checked = _settings.ShowFullPath;
         if (_list is not null)
         {
-            _list.Columns[0].Text = _settings.ShowFullPath ? "Archivo (ruta completa)" : "Nombre";
+            _list.Columns[0].Text = _settings.ShowFullPath ? "Archivo y ruta" : "Nombre";
             _list.Invalidate();
         }
         SetStatus(_settings.ShowFullPath
@@ -3145,6 +3149,14 @@ public sealed partial class MainForm : Form
             try { RestoreWindow(); } catch { }
         }
 
+        // Este cuadro se construye a mano (no hereda de los de Dialogs.cs): hay que pedirle
+        // a Windows la barra de título oscura y repasar los colores igual que en los demás.
+        dlg.HandleCreated += (_, _) => Ui.DarkFrame(dlg, _palette);
+        dlg.Shown += (_, _) =>
+        {
+            Ui.PaintAll(dlg, _palette);
+            Ui.DarkScrollbars(dlg, _palette);
+        };
         using (dlg)
         {
             if (dlg.ShowDialog(this) != DialogResult.OK) return null;

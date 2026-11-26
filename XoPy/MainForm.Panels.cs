@@ -1154,7 +1154,9 @@ public sealed partial class MainForm
         // 0 = Nombre · 1 = Subcarpeta · 2 = Tamaño · 3 = Estado · 4 = Progreso · 5/6 = hashes
         // La subcarpeta es corta (normalmente «—»): el espacio que antes se llevaba repetir
         // la ruta de destino se lo queda la columna del nombre, donde está el árbol.
-        SetWidth(_list.Columns[1], 150);
+        // Con la ruta completa a la vista, la subcarpeta de destino cede ancho: lo que
+        // importa es ver de dónde sale cada archivo.
+        SetWidth(_list.Columns[1], _settings.ShowFullPath ? 112 : 150);
         SetWidth(_list.Columns[2], show ? 84 : 92);
         SetWidth(_list.Columns[3], show ? 108 : 128);
         SetWidth(_list.Columns[4], show ? 126 : 190);
@@ -1340,6 +1342,7 @@ public sealed partial class MainForm
                 // de una carpeta no la repiten: su sitio en el árbol ya lo cuenta.
                 // Cuando no cabe entera, lo que se recorta es la RUTA (con «…» en medio), no
                 // el nombre: antes la ruta simplemente desaparecía si faltaban 60 px.
+                var cell = Math.Max(0, e.Bounds.Right - x - 8);
                 if (item.ParentId is null && _settings.ShowFullPath)
                 {
                     var folderPath = string.Empty;
@@ -1354,18 +1357,27 @@ public sealed partial class MainForm
                         if (!folderPath.EndsWith(Path.DirectorySeparatorChar)) folderPath += Path.DirectorySeparatorChar;
                         var folderWidth = TextRenderer.MeasureText(e.Graphics, folderPath, _list.Font, Size.Empty,
                             TextFormatFlags.NoPrefix).Width;
-                        var cell = Math.Max(0, e.Bounds.Right - x - 8);
                         var nameWidth = TextRenderer.MeasureText(e.Graphics, baseName, nameFont, Size.Empty,
                             TextFormatFlags.NoPrefix).Width;
-                        // Sitio que se le deja a la ruta: lo que sobre después del nombre.
-                        var room = Math.Min(folderWidth + 2, Math.Max(0, cell - nameWidth - 6));
-                        if (room >= 46)
+
+                        if (folderWidth + nameWidth + 6 <= cell)
                         {
+                            // Caben los dos: la carpeta en gris y el nombre en su color.
                             TextRenderer.DrawText(e.Graphics, folderPath, _list.Font,
-                                new Rectangle(x, top, room, height), _palette.Muted,
+                                new Rectangle(x, top, folderWidth + 2, height), _palette.Muted, flags);
+                            x += folderWidth + 2;
+                        }
+                        else
+                        {
+                            // NO caben: se pinta la ruta ENTERA en una sola pieza y Windows
+                            // recorta por el medio («C:\Users\…\foto.jpg»), que es como lo
+                            // hace FlashCopyPro. Así la ruta no desaparece por falta de sitio
+                            // y el nombre del archivo, que va al final, siempre se lee.
+                            TextRenderer.DrawText(e.Graphics, folderPath + baseName, nameFont,
+                                new Rectangle(x, top, cell, height), nameColor,
                                 TextFormatFlags.Left | TextFormatFlags.VerticalCenter
                                 | TextFormatFlags.PathEllipsis | TextFormatFlags.NoPrefix);
-                            x += room;
+                            break;
                         }
                     }
                 }
@@ -1516,7 +1528,7 @@ public sealed partial class MainForm
             if (available < 300)
             {
                 // En ventanas pequeñas se reduce el resto para que quepa el nombre.
-                SetWidth(_list.Columns[1], 110);
+                SetWidth(_list.Columns[1], _settings.ShowFullPath ? 92 : 110);
                 SetWidth(_list.Columns[2], 74);
                 SetWidth(_list.Columns[3], 112);
                 SetWidth(_list.Columns[4], 124);

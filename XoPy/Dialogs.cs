@@ -9,13 +9,27 @@ namespace XoPy;
 internal sealed class PromptDialog : Form
 {
     /// <summary>
-    /// Último repaso antes de que la ventana se vea: cualquier control que se haya quedado
-    /// con los colores de Windows se pinta con la paleta. Es lo que quita las barras blancas.
+    /// Último repaso antes de que la ventana se vea: la barra de título se pinta de oscuro
+    /// (Windows la hace blanca por su cuenta) y cualquier control que se haya quedado con
+    /// los colores del sistema recibe los de la paleta. Es lo que quita las barras blancas.
     /// </summary>
     protected override void OnHandleCreated(EventArgs e)
     {
         base.OnHandleCreated(e);
+        Ui.DarkFrame(this, _palette!);
         Ui.PaintAll(this, _palette!);
+    }
+
+    /// <summary>
+    /// Ya con la ventana en pantalla: a estas alturas TODOS los controles tienen su
+    /// identificador de Windows, así que es cuando se pueden oscurecer sus barras de
+    /// desplazamiento nativas (en Preferencias salían blancas).
+    /// </summary>
+    protected override void OnShown(EventArgs e)
+    {
+        base.OnShown(e);
+        Ui.PaintAll(this, _palette!);
+        Ui.DarkScrollbars(this, _palette!);
     }
 
     private readonly CheckBox? _checkBox;
@@ -154,13 +168,27 @@ internal sealed class PromptDialog : Form
 internal sealed class OptionsDialog : Form
 {
     /// <summary>
-    /// Último repaso antes de que la ventana se vea: cualquier control que se haya quedado
-    /// con los colores de Windows se pinta con la paleta. Es lo que quita las barras blancas.
+    /// Último repaso antes de que la ventana se vea: la barra de título se pinta de oscuro
+    /// (Windows la hace blanca por su cuenta) y cualquier control que se haya quedado con
+    /// los colores del sistema recibe los de la paleta. Es lo que quita las barras blancas.
     /// </summary>
     protected override void OnHandleCreated(EventArgs e)
     {
         base.OnHandleCreated(e);
+        Ui.DarkFrame(this, _palette!);
         Ui.PaintAll(this, _palette!);
+    }
+
+    /// <summary>
+    /// Ya con la ventana en pantalla: a estas alturas TODOS los controles tienen su
+    /// identificador de Windows, así que es cuando se pueden oscurecer sus barras de
+    /// desplazamiento nativas (en Preferencias salían blancas).
+    /// </summary>
+    protected override void OnShown(EventArgs e)
+    {
+        base.OnShown(e);
+        Ui.PaintAll(this, _palette!);
+        Ui.DarkScrollbars(this, _palette!);
     }
 
     private readonly Palette _palette;
@@ -1177,13 +1205,27 @@ internal sealed class OptionsDialog : Form
 internal sealed class HistoryDialog : Form
 {
     /// <summary>
-    /// Último repaso antes de que la ventana se vea: cualquier control que se haya quedado
-    /// con los colores de Windows se pinta con la paleta. Es lo que quita las barras blancas.
+    /// Último repaso antes de que la ventana se vea: la barra de título se pinta de oscuro
+    /// (Windows la hace blanca por su cuenta) y cualquier control que se haya quedado con
+    /// los colores del sistema recibe los de la paleta. Es lo que quita las barras blancas.
     /// </summary>
     protected override void OnHandleCreated(EventArgs e)
     {
         base.OnHandleCreated(e);
+        Ui.DarkFrame(this, _palette!);
         Ui.PaintAll(this, _palette!);
+    }
+
+    /// <summary>
+    /// Ya con la ventana en pantalla: a estas alturas TODOS los controles tienen su
+    /// identificador de Windows, así que es cuando se pueden oscurecer sus barras de
+    /// desplazamiento nativas (en Preferencias salían blancas).
+    /// </summary>
+    protected override void OnShown(EventArgs e)
+    {
+        base.OnShown(e);
+        Ui.PaintAll(this, _palette!);
+        Ui.DarkScrollbars(this, _palette!);
     }
 
     private readonly List<HistoryEntry> _entries;
@@ -1515,13 +1557,27 @@ internal sealed class HistoryDialog : Form
 internal sealed class ConflictDialog : Form
 {
     /// <summary>
-    /// Último repaso antes de que la ventana se vea: cualquier control que se haya quedado
-    /// con los colores de Windows se pinta con la paleta. Es lo que quita las barras blancas.
+    /// Último repaso antes de que la ventana se vea: la barra de título se pinta de oscuro
+    /// (Windows la hace blanca por su cuenta) y cualquier control que se haya quedado con
+    /// los colores del sistema recibe los de la paleta. Es lo que quita las barras blancas.
     /// </summary>
     protected override void OnHandleCreated(EventArgs e)
     {
         base.OnHandleCreated(e);
+        Ui.DarkFrame(this, _palette!);
         Ui.PaintAll(this, _palette!);
+    }
+
+    /// <summary>
+    /// Ya con la ventana en pantalla: a estas alturas TODOS los controles tienen su
+    /// identificador de Windows, así que es cuando se pueden oscurecer sus barras de
+    /// desplazamiento nativas (en Preferencias salían blancas).
+    /// </summary>
+    protected override void OnShown(EventArgs e)
+    {
+        base.OnShown(e);
+        Ui.PaintAll(this, _palette!);
+        Ui.DarkScrollbars(this, _palette!);
     }
 
     /// <summary>0 Sobrescribir · 1 Omitir · 2 Cambiar nombre · 3 Cancelar.</summary>

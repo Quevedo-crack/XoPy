@@ -549,6 +549,52 @@ public static class Ui
         foreach (Control child in control.Controls) Apply(child, palette, depth + 1);
     }
 
+    /// <summary>
+    /// Pinta de oscuro la BARRA DE TÍTULO de una ventana (la que dibuja Windows, no XoPy).
+    /// Sin esto, los cuadros de diálogo salían con la barra blanca de fábrica encima de una
+    /// ventana negra: era la «barra blanca» más llamativa de todas.
+    /// </summary>
+    public static void DarkFrame(Form form, Palette palette)
+    {
+        if (form is null || palette is null || !palette.Dark || !form.IsHandleCreated) return;
+        try
+        {
+            var enabled = 1;
+            // 20 = DWMWA_USE_IMMERSIVE_DARK_MODE en Windows 10 20H1 en adelante; 19 en las
+            // versiones anteriores. Se prueba el nuevo y, si falla, el antiguo.
+            if (NativeTheme.DwmSetWindowAttribute(form.Handle, 20, ref enabled, sizeof(int)) != 0)
+                NativeTheme.DwmSetWindowAttribute(form.Handle, 19, ref enabled, sizeof(int));
+        }
+        catch { }
+    }
+
+    /// <summary>
+    /// Oscurece las barras de desplazamiento NATIVAS de todos los controles de una ventana
+    /// (paneles con desplazamiento, listas, árboles y cuadros de texto). Windows las pinta
+    /// en blanco mientras no se le pida el tema oscuro para ese control concreto.
+    /// </summary>
+    public static void DarkScrollbars(Control root, Palette palette)
+    {
+        if (root is null || palette is null || !palette.Dark) return;
+        Walk(root, 0);
+
+        static void Walk(Control control, int depth)
+        {
+            if (depth > 40) return;
+            try
+            {
+                if (control.IsHandleCreated
+                    && (control is ScrollableControl { AutoScroll: true } or ListView or ListBox
+                        or TreeView or TextBoxBase or ComboBox or DataGridView))
+                {
+                    NativeTheme.SetWindowTheme(control.Handle, "DarkMode_Explorer", null);
+                }
+            }
+            catch { }
+            foreach (Control child in control.Controls) Walk(child, depth + 1);
+        }
+    }
+
     public static void StyleMenu(ToolStrip menu, Palette palette)
     {
         menu.RenderMode = ToolStripRenderMode.Professional;
@@ -567,6 +613,16 @@ public static class Ui
             if (e.Item is not null) e.Item.ForeColor = palette.Text;
         };
     }
+}
+
+/// <summary>Funciones de Windows que hacen falta para el tema oscuro de los marcos nativos.</summary>
+internal static class NativeTheme
+{
+    [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
+    internal static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
+
+    [System.Runtime.InteropServices.DllImport("uxtheme.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+    internal static extern int SetWindowTheme(IntPtr hwnd, string appName, string? idList);
 }
 
 internal sealed class MenuColors : ProfessionalColorTable
