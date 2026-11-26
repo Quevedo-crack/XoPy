@@ -2234,25 +2234,40 @@ public sealed partial class MainForm
     private void ReorderByDrop(List<Guid> draggedIds, Point point)
     {
         var sources = InVisualOrder(_items.Where(item => draggedIds.Contains(item.Id)));
-        var targetRow = _list.HitTest(point).Item;
-        var target = targetRow?.Tag as TransferItem;
-        if (sources.Count == 0 || target is null) return;
+        if (sources.Count == 0) return;
 
         var block = new HashSet<Guid>();
         foreach (var source in sources) block.UnionWith(BlockIds(source));
-        if (block.Contains(target.Id) && sources.Any(source => source.Id == target.Id)) return;
-        if (block.Contains(target.Id))
+
+        var targetRow = _list.HitTest(point).Item;
+        if (targetRow?.Tag is TransferItem target)
         {
-            SetStatus("Una carpeta no se puede meter dentro de sí misma.");
-            return;
+            if (sources.Any(source => source.Id == target.Id)) return;
+            if (block.Contains(target.Id))
+            {
+                SetStatus("Una carpeta no se puede meter dentro de sí misma.");
+                return;
+            }
         }
 
         // Se busca el ancla: la primera fila de archivo (o de carpeta plegada o vacía) que
         // hay a partir del punto donde se soltó. Las cabeceras de carpeta no valen como
         // ancla porque no ocupan sitio propio: se dibujan delante de sus archivos.
         var rows = _list.Items.Cast<ListViewItem>().Select(row => row.Tag).OfType<TransferItem>().ToList();
-        var dropIndex = targetRow!.Index;
-        if (point.Y >= targetRow.Bounds.Top + targetRow.Bounds.Height / 2) dropIndex++;
+        int dropIndex;
+        if (targetRow is not null)
+        {
+            dropIndex = targetRow.Index;
+            if (point.Y >= targetRow.Bounds.Top + targetRow.Bounds.Height / 2) dropIndex++;
+        }
+        else
+        {
+            // Soltado en el hueco: arriba del todo o, lo normal, debajo de la última fila
+            // para mandarlo al final. Antes no pasaba nada y parecía que el arrastre
+            // estuviera roto.
+            var last = _list.Items.Count > 0 ? _list.Items[^1] : null;
+            dropIndex = last is not null && point.Y > last.Bounds.Bottom ? rows.Count : 0;
+        }
 
         Guid? anchor = null;
         for (var index = dropIndex; index < rows.Count; index++)
