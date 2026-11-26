@@ -781,7 +781,9 @@ internal sealed class OptionsDialog : Form
         destinationRow.Controls.Add(_destination, 0, 0);
         destinationRow.Controls.Add(browseDestination, 1, 0);
 
-        _tabs.TabPages.Add(Page("Destino predeterminado", 3,
+        // Rótulo corto a propósito: con ocho pestañas repartiéndose el ancho, «Destino
+        // predeterminado» obligaba a dos renglones y dejaba medio renglón en blanco.
+        _tabs.TabPages.Add(Page("Destino", 3,
             ("", Intro("La carpeta que XoPy propone al copiar cuando todavía no se ha elegido ninguna. " +
                        "Si se deja vacía, XoPy pregunta a dónde copiar cada vez."), 0),
             ("Carpeta de destino predeterminada", destinationRow, 48),
@@ -850,7 +852,7 @@ internal sealed class OptionsDialog : Form
             ("Pasadas de borrado seguro (0 = normal)", _securePasses, 40),
             ("Script al finalizar", _completionScript, 40)));
 
-        _tabs.TabPages.Add(Page("Destinos", 3,
+        _tabs.TabPages.Add(Page("Copias extra", 3,
             ("Carpetas que reciben una copia de todo", extraPanel, 260),
             ("", new Label
             {
@@ -1069,11 +1071,13 @@ internal sealed class OptionsDialog : Form
         }
         var count = Math.Max(1, _tabs.TabPages.Count);
         var available = Math.Max(0, _tabs.ClientSize.Width - 4);
-        var width = Math.Max(84, widest + 34);
-        // Si todas caben en un solo renglón, se reparte entre ellas el ancho completo del
-        // cuadro: las pestañas llegan hasta el borde y no queda banda blanca al lado de la
-        // última. Si no caben, se usa el ancho del texto y Windows las pone en dos renglones.
-        if (available > 0 && width * count <= available) width = available / count;
+        var natural = Math.Max(84, widest + 34);
+        // SE REPARTE EL ANCHO ENTERO entre las pestañas siempre que quepan en un renglón con
+        // un tamaño decente. Así la fila llega hasta el borde y no queda esa banda blanca
+        // que pintaba Windows en el trozo sobrante. Solo si el reparto deja las pestañas
+        // demasiado estrechas se vuelve al ancho del texto (y Windows usa dos renglones).
+        var share = available / count;
+        var width = share >= Math.Min(natural, 104) ? share : natural;
         // Solo se toca si cambia: asignar ItemSize dispara otra vuelta de layout.
         if (_tabs.ItemSize.Width != width || _tabs.ItemSize.Height != 30)
             _tabs.ItemSize = new Size(width, 30);
@@ -1093,7 +1097,8 @@ internal sealed class OptionsDialog : Form
         }
         TextRenderer.DrawText(e.Graphics, _tabs.TabPages[e.Index].Text, _tabs.Font,
             Rectangle.Inflate(e.Bounds, -6, -2), selected ? _palette.Text : _palette.Muted,
-            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
+            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix
+            | TextFormatFlags.EndEllipsis);
     }
 
     private TextBox TextBox(string value) => new()
