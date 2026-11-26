@@ -525,7 +525,9 @@ public static class Ui
             case ProgressBar bar:
                 if (IsSystemBackground(bar.BackColor)) bar.BackColor = palette.Track;
                 break;
-            case Label or CheckBox or RadioButton or LinkLabel:
+            // «Label» a secas sería el método Ui.Label de esta misma clase (grupo de
+            // métodos, no un tipo): hay que nombrar el control con su espacio completo.
+            case System.Windows.Forms.Label or CheckBox or RadioButton:
                 // Las etiquetas van transparentes para heredar el fondo del contenedor: si se
                 // les pone un color fijo se recortan en rectángulos cuando el padre cambia.
                 if (IsSystemBackground(control.BackColor)) control.BackColor = Color.Transparent;
