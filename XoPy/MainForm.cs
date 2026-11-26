@@ -1402,7 +1402,7 @@ public sealed partial class MainForm : Form
     private void ApplyDarkScrollbars()
     {
         if (!_settings.DarkTheme) return;
-        foreach (var control in new Control?[] { _list, _logBox, _targetList, _jobsList, _optionsScroll })
+        foreach (var control in new Control?[] { _list, _logBox, _targetList, _jobsList, _optionsScroll, _statusScroll })
         {
             try
             {

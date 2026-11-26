@@ -20,6 +20,7 @@ public sealed partial class MainForm
 
     private Label _targetPathLabel = null!;
     private Panel _optionsScroll = null!;
+    private Panel _statusScroll = null!;
     private bool _syncingOptions;
     private List<HistoryEntry> _history = new();
 
@@ -593,22 +594,35 @@ public sealed partial class MainForm
 
     private Control BuildStatusPage()
     {
-        var page = new TableLayoutPanel
+        // Igual que la pestaña Opciones: el contenido tiene su alto natural y, si la ventana
+        // es pequeña, la pestaña se desplaza. Repartir el hueco a porcentajes dejaba las
+        // filas de la tabla en 14 px y los rótulos se montaban unos encima de otros.
+        _statusScroll = new Panel
         {
             Dock = DockStyle.Fill,
-            ColumnCount = 1,
-            RowCount = 6,
+            AutoScroll = true,
             BackColor = _palette.Surface,
             Padding = new Padding(16, 10, 16, 8)
         };
-        // Alturas fijas solo para lo que no puede encoger; la tabla de categorías ocupa lo
-        // que sobre. Así la pestaña cabe en cualquier tamaño de ventana sin recortarse.
+        var scroll = _statusScroll;
+
+        var page = new TableLayoutPanel
+        {
+            Dock = DockStyle.Top,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            ColumnCount = 1,
+            RowCount = 6,
+            BackColor = _palette.Surface,
+            Padding = new Padding(0)
+        };
+        page.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         page.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));
         page.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
         page.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
         page.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
-        page.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
+        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 109));
+        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
 
         var title = Ui.Label("Estado de la transferencia", _palette, 11f, true);
         title.Anchor = AnchorStyles.Left;
@@ -656,11 +670,9 @@ public sealed partial class MainForm
 
         var categories = BuildCategoryGrid();
 
-        var hint = Ui.Label("Los hashes de cada archivo están en la pestaña Lista de archivos. El registro completo se guarda en %LOCALAPPDATA%\\XoPy\\transfer.log.",
+        var hint = Ui.OneLine("Los hashes están en la pestaña Lista de archivos; el registro, en %LOCALAPPDATA%\\XoPy\\transfer.log.",
             _palette, 8.5f, false, _palette.Muted);
         hint.Dock = DockStyle.Fill;
-        hint.AutoSize = false;
-        hint.AutoEllipsis = true;
         hint.TextAlign = ContentAlignment.MiddleLeft;
         hint.Margin = new Padding(0, 4, 0, 0);
 
@@ -672,7 +684,8 @@ public sealed partial class MainForm
         page.Controls.Add(speedRow, 0, 3);
         page.Controls.Add(categories, 0, 4);
         page.Controls.Add(hint, 0, 5);
-        return page;
+        scroll.Controls.Add(page);
+        return scroll;
     }
 
     private Control BuildCategoryGrid()
@@ -698,8 +711,7 @@ public sealed partial class MainForm
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 22));
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 22));
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 16));
-        grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 20));
-        for (var row = 0; row < 4; row++) grid.RowStyles.Add(new RowStyle(SizeType.Percent, 25));
+        for (var row = 0; row < 5; row++) grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 21));
 
         var headers = new[] { "Categoría", "Archivos", "Bytes", "Tiempo" };
         for (var column = 0; column < 4; column++)
