@@ -3041,10 +3041,12 @@ public sealed partial class MainForm : Form
         _items = list.Items;
         ResetVisualOrder();
 
-        if (!string.IsNullOrWhiteSpace(list.Destination))
-        {
-            _destination.Text = list.Destination;
-        }
+        // La caja del destino enseña SIEMPRE el destino de esta lista, aunque esté vacío.
+        // Si no, al pasar a una lista sin destino se quedaba a la vista el de la lista
+        // anterior y la copia salía hacia esa otra carpeta sin preguntar nada.
+        var listDestination = list.Destination ?? string.Empty;
+        if (!string.Equals(_destination.Text, listDestination, StringComparison.Ordinal))
+            _destination.Text = listDestination;
         list.UpdatedAt = DateTime.Now;
         RefreshListSelector();
         UpdateTargetTab();
@@ -3115,6 +3117,11 @@ public sealed partial class MainForm : Form
         var sameDestination = active.Destination.Length > 0
             && string.Equals(active.Destination, detectedDestination, StringComparison.OrdinalIgnoreCase);
         if (sameDestination) return (active, false);
+
+        // SIN DESTINO CONOCIDO (archivos arrastrados a la ventana): van a la lista que se
+        // está mirando, que es donde el usuario los ha soltado. Antes se creaba una lista
+        // nueva en silencio y los archivos «desaparecían» de la vista.
+        if (string.IsNullOrWhiteSpace(detectedDestination)) return (active, false);
 
         var fresh = new TransferList
         {
@@ -3374,8 +3381,24 @@ public sealed partial class MainForm : Form
             UpdateTargetTab();
         }
 
-        // El destino ya lo eligió el Explorer/--to: no se vuelve a preguntar.
+        // El destino ya lo eligió el Explorer/--to: no se vuelve a preguntar. Pero si los
+        // archivos llegan ARRASTRADOS a la ventana no hay destino ninguno, y entonces sí hay
+        // que preguntar a dónde van antes de empezar a copiar (defecto: se copiaba a la
+        // carpeta de la lista anterior sin decir nada).
+        var needsFolder = !validDetected
+            && target is not null
+            && string.IsNullOrWhiteSpace(target.Destination)
+            && !_startupRequest.Screenshot;
         await AddPathsAsync(files, askDestination: false);
+        if (needsFolder && _activeList is { } pending && string.IsNullOrWhiteSpace(pending.Destination))
+        {
+            PromptDestinationForList(pending, sayNothingIfCancelled: true);
+            if (string.IsNullOrWhiteSpace(pending.Destination))
+            {
+                SetStatus("Archivos añadidos. Elige la carpeta de destino y pulsa Copiar.");
+                return;
+            }
+        }
 
         // En modo captura solo se rellena la lista para la imagen: no se abre el selector de
         // carpeta ni se arranca una copia (eso bloqueaba la captura y salía vacía).

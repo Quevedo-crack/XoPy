@@ -1576,8 +1576,38 @@ public sealed partial class MainForm
         }
 
         var running = _runningList?.DisplayName ?? "la copia en curso";
+        var mine = _activeList?.DisplayName ?? "esta lista";
+
+        // CASO EN PAUSA. Una copia parada no termina nunca, así que «esperar turno» sería
+        // esperar para siempre: se dice con todas las letras y la primera opción reanuda
+        // aquella copia antes de poner esta a la cola.
+        if (_engine.IsPaused)
+        {
+            var paused = PromptDialog.Ask(this, _palette, "La otra copia está en pausa",
+                $"«{running}» está EN PAUSA. Mientras siga parada no puede empezar ninguna otra copia.",
+                $"· Reanudar aquella y poner «{mine}» en espera: la de delante sigue donde la dejaste y esta arranca sola en cuanto termine.\n" +
+                "· Añadir a la de delante: los archivos se meten en la lista que está en pausa (seguirá parada hasta que pulses Reanudar).\n" +
+                "· Copiar esta ahora en otra ventana: se abre otro XoPy y copia a la vez, sin tocar la copia en pausa.",
+                new[] { "Reanudar aquella y esperar turno", "Añadir a la de delante", "Copiar esta ahora en otra ventana", "Cancelar" });
+
+            switch (paused)
+            {
+                case 0:
+                    QueueListForLater(operation);
+                    TogglePause();
+                    break;
+                case 1:
+                    MergeIntoRunningList(operation);
+                    break;
+                case 2:
+                    LaunchSeparateWindow(operation);
+                    break;
+            }
+            return;
+        }
+
         var choice = PromptDialog.Ask(this, _palette, "Ya hay una copia en marcha",
-            $"«{running}» está copiando ahora mismo. ¿Qué hago con «{_activeList?.DisplayName ?? "esta lista"}»?",
+            $"«{running}» está copiando ahora mismo. ¿Qué hago con «{mine}»?",
             "· Esperar turno: esta lista arranca sola en cuanto termine la de delante. Aparece en el panel de trabajos marcada como «Esperando turno».\n" +
             "· Añadir a la de delante: los archivos se meten en la copia que ya está corriendo.\n" +
             "· Copiar a la vez: se abre otra ventana de XoPy y las dos copias van en paralelo (más lento si es el mismo disco).",
@@ -1604,7 +1634,11 @@ public sealed partial class MainForm
         _activeList.Queued = true;
         _activeList.QueuedOperation = operation;
         UpdateJobs();
-        SetStatus($"«{_activeList.DisplayName}» esperará turno: arrancará al terminar la copia actual.");
+        // Si la de delante está parada, se avisa: si no, el usuario se queda mirando una
+        // lista «esperando turno» que no arranca nunca y parece que XoPy no hace nada.
+        SetStatus(_engine.IsPaused
+            ? $"«{_activeList.DisplayName}» esperará turno. Ojo: la copia de delante está EN PAUSA y no arrancará nada hasta que la reanudes."
+            : $"«{_activeList.DisplayName}» esperará turno: arrancará al terminar la copia actual.");
     }
 
     /// <summary>Mueve los archivos de la lista que se está viendo a la que se está copiando.</summary>

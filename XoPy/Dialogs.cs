@@ -1018,8 +1018,18 @@ internal sealed class OptionsDialog : Form
                 control.Anchor = AnchorStyles.Left | AnchorStyles.Right;
                 control.Margin = new Padding(0, 2, 8, 2);
             }
-            layout.Controls.Add(text, 0, row);
-            layout.Controls.Add(control, 1, row);
+            if (isDescription)
+            {
+                // Los textos explicativos ocupan las DOS columnas: empiezan en el margen
+                // izquierdo, como un párrafo, en vez de quedar colgados bajo los controles.
+                layout.Controls.Add(control, 0, row);
+                layout.SetColumnSpan(control, 2);
+            }
+            else
+            {
+                layout.Controls.Add(text, 0, row);
+                layout.Controls.Add(control, 1, row);
+            }
             row++;
         }
 
