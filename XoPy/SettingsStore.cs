@@ -70,6 +70,16 @@ public sealed class SettingsStore
             migrated = true;
         }
 
+        if (settings.SettingsVersion < 5)
+        {
+            // La copia se había vuelto mucho más lenta: el multihilo venía encendido y
+            // copiar cuatro archivos a la vez en el mismo disco (o en un disco duro
+            // normal) es más lento que copiarlos de uno en uno. Vuelve a apagarse.
+            settings.MultiThreadCopy = false;
+            settings.SettingsVersion = 5;
+            migrated = true;
+        }
+
         settings.Favorites ??= new List<string>();
         settings.ExtraDestinations ??= new List<string>();
         settings.ExtraDestinations = settings.ExtraDestinations

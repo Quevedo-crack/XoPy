@@ -2122,8 +2122,8 @@ public sealed partial class MainForm
         _settings.MultiThreadCopy ? $"Multihilo · {_settings.Parallelism}" : "Multihilo: no";
 
     private string MultiThreadTooltip() => _settings.MultiThreadCopy
-        ? $"Multihilo ACTIVADO: {_settings.Parallelism} archivos copiándose a la vez. Pulsa para copiar de uno en uno (el número de hilos se ajusta en Preferencias)."
-        : "Multihilo APAGADO: un archivo cada vez. Pulsa para activarlo (el número de hilos se ajusta en Preferencias).";
+        ? $"Multihilo ACTIVADO: hasta {_settings.Parallelism} archivos a la vez entre discos DISTINTOS. Dentro del mismo disco XoPy copia de uno en uno igualmente, porque en paralelo tarda más. Pulsa para apagarlo."
+        : "Multihilo APAGADO: un archivo cada vez (lo más rápido en un disco duro o una memoria USB). Pulsa para activarlo al copiar entre dos discos rápidos distintos.";
 
     /// <summary>
     /// Activa o desactiva el multihilo con un solo clic y refleja el cambio. Si hay una

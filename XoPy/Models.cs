@@ -165,7 +165,13 @@ public sealed class AppSettings
     public bool VerifyAfterCopy { get; set; }
     public int RetryCount { get; set; } = 3;
     public int Parallelism { get; set; } = 4;
-    public bool MultiThreadCopy { get; set; } = true;
+    /// <summary>
+    /// Copiar varios archivos a la vez. Apagado de fábrica: dentro de un mismo disco (y en
+    /// la mayoría de discos duros y memorias USB) ir en paralelo hace que el disco pase el
+    /// rato buscando en vez de copiando, y la copia tarda MÁS. Se puede encender en la
+    /// barra o en Opciones para copiar entre dos discos rápidos distintos.
+    /// </summary>
+    public bool MultiThreadCopy { get; set; }
     public int BufferKiB { get; set; } = 4096;
     public int SpeedLimitMiB { get; set; }
     public bool PreserveTimestamps { get; set; } = true;

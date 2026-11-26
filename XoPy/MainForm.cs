@@ -11,6 +11,12 @@ namespace XoPy;
 
 public sealed partial class MainForm : Form
 {
+    /// <summary>
+    /// La ventana principal, para que el enganche de fallos de <see cref="Program"/> pueda
+    /// avisar sin abrir un cuadro modal (un modal deja la copia esperando).
+    /// </summary>
+    public static MainForm? Current { get; private set; }
+
     private readonly AppSettings _settings;
     private readonly SettingsStore _store = new();
     private readonly Palette _palette;
@@ -160,6 +166,32 @@ public sealed partial class MainForm : Form
         _settings = _store.Load();
         _history = _store.LoadHistory();
         _palette = Palette.For(_settings.DarkTheme);
+        Current = this;
+    }
+
+    /// <summary>
+    /// Avisa de un fallo interno SIN abrir un cuadro modal: lo anota en el registro y lo
+    /// enseña en la barra de estado. Un modal aquí deja la ventana sin atender y la copia
+    /// en curso se queda parada esperando a que alguien pulse «Aceptar».
+    /// </summary>
+    public void ReportBackgroundError(Exception error)
+    {
+        try
+        {
+            if (IsDisposed || !IsHandleCreated) return;
+            void Show()
+            {
+                try
+                {
+                    SetStatus("Ha fallado algo dentro de XoPy (" + error.GetType().Name + "). " +
+                              "La copia sigue; el detalle está en el registro: Ayuda → Ver registro.");
+                }
+                catch { }
+            }
+            if (InvokeRequired) BeginInvoke(new Action(Show));
+            else Show();
+        }
+        catch { }
     }
 
     // ---------------------------------------------------------------- interfaz

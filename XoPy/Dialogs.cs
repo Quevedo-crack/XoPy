@@ -298,7 +298,7 @@ internal sealed class OptionsDialog : Form
         // solo afecta al arranque automático con Windows.
         _startMinimized = Check("Al iniciar con Windows, arrancar en el área de notificación", settings.StartMinimized);
 
-        _multiThread = Check("Copiar varios archivos a la vez (multihilo)", settings.MultiThreadCopy);
+        _multiThread = Check("Copiar varios archivos a la vez (solo ayuda entre discos distintos)", settings.MultiThreadCopy);
         _showMenuBar = Check("Mostrar la barra de menús superior", settings.ShowMenuBar);
         _showJobs = Check("Mostrar el historial de listas de copia (se puede ocultar con el botón « de la lista)",
             settings.ShowJobs);

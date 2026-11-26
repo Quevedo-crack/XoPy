@@ -82,6 +82,16 @@ public sealed class CopyEngine
     private readonly Stopwatch _clock = new();
     private ConflictChoice? _stickyConflict;
     private ErrorChoice? _stickyError;
+    // Un solo cuadro de pregunta a la vez. Con varios archivos en paralelo se abrían tantos
+    // cuadros como hilos y «Omitir todos» solo callaba al que estaba delante: los demás
+    // seguían preguntando. Ahora las preguntas se hacen en fila y, antes de enseñar la
+    // siguiente, se vuelve a mirar si el usuario ya dijo «todos».
+    private readonly object _promptGate = new();
+    // Velocidad reciente (media móvil). La media desde el principio hacía que un parón o
+    // una pausa dejasen el número clavado en «lento» durante minutos.
+    private long _speedSampleTicks;
+    private long _speedSampleBytes;
+    private double _recentSpeed;
 
     public event EventHandler? Finished;
     public Func<ConflictPrompt, ConflictChoice>? ConflictResolver { get; set; }
@@ -153,13 +163,34 @@ public sealed class CopyEngine
     /// <summary>Tiempo transcurrido desde que comenzó la transferencia, incluyendo el tiempo en pausa.</summary>
     public TimeSpan ElapsedIncludingPauses => _clock.Elapsed;
 
+    /// <summary>
+    /// Velocidad de AHORA MISMO, no la media desde que empezó. Se mide por tramos de medio
+    /// segundo y se suaviza: así, después de una pausa o de un archivo atascado, el número
+    /// vuelve a subir en cuanto la copia corre otra vez (antes arrastraba el parón durante
+    /// minutos y parecía que XoPy se hubiera vuelto lento para siempre).
+    /// </summary>
     public double SpeedBytesPerSecond
     {
         get
         {
             if (_paused) return 0;
-            var seconds = Elapsed.TotalSeconds;
-            return seconds > 0.4 ? Math.Max(0, DoneBytes) / seconds : 0;
+            var done = DoneBytes;
+            lock (_parallelismLock)
+            {
+                var now = _clock.Elapsed.Ticks;
+                var seconds = (now - _speedSampleTicks) / (double)TimeSpan.TicksPerSecond;
+                if (seconds >= 0.5)
+                {
+                    var bytes = Math.Max(0, done - _speedSampleBytes);
+                    var instant = bytes / seconds;
+                    _recentSpeed = _recentSpeed <= 0 ? instant : (_recentSpeed * 0.55) + (instant * 0.45);
+                    _speedSampleTicks = now;
+                    _speedSampleBytes = done;
+                }
+                if (_recentSpeed > 0) return _recentSpeed;
+            }
+            var elapsed = Elapsed.TotalSeconds;
+            return elapsed > 0.4 ? Math.Max(0, done) / elapsed : 0;
         }
     }
 
@@ -221,6 +252,9 @@ public sealed class CopyEngine
         {
             _activeOptions = options;
             Volatile.Write(ref _parallelism, options.Parallelism);
+            _speedSampleTicks = 0;
+            _speedSampleBytes = 0;
+            _recentSpeed = 0;
         }
         foreach (var pair in _itemPauseEvents.ToArray())
         {
@@ -229,6 +263,17 @@ public sealed class CopyEngine
         }
         options.BufferSize = Math.Clamp(options.BufferSize, 64 * 1024, 8 * 1024 * 1024);
         options.Destinations = DestinationList(options);
+        // COPIAR VARIOS ARCHIVOS A LA VEZ SOLO AYUDA ENTRE DISCOS DISTINTOS. Dentro del
+        // mismo disco, cada hilo manda el cabezal a otra parte y el disco pasa el rato
+        // buscando en vez de copiando: es la razón de que la copia se volviera mucho más
+        // lenta que antes. Si el origen y el destino están en la misma unidad, se copia de
+        // uno en uno aunque el multihilo esté encendido.
+        if (options.Parallelism > 1 && SameVolume(list, options.Destinations))
+        {
+            FileLog.Write($"Multihilo desactivado para esta copia ({options.Parallelism} -> 1): origen y destino están en la misma unidad.");
+            options.Parallelism = 1;
+        }
+        lock (_parallelismLock) Volatile.Write(ref _parallelism, options.Parallelism);
         if (options.CopyLockedFiles) Privileges.EnableBackupPrivileges();
 
         var destinations = Math.Max(1, options.Destinations.Count);
@@ -252,6 +297,21 @@ public sealed class CopyEngine
         {
             var started = Interlocked.Exchange(ref _pauseStarted, 0);
             if (started > 0) Interlocked.Add(ref _pausedTicks, _clock.Elapsed.Ticks - started);
+            // REANUDAR ES REANUDAR TODO. Si antes se había pausado algún archivo suelto
+            // («Pausar lo seleccionado»), su cerrojo seguía cerrado y el botón Reanudar no
+            // lo abría: la copia se quedaba parada para siempre aunque la ventana dijera
+            // «Transferencia en curso». El botón grande manda sobre las pausas sueltas.
+            foreach (var pair in _itemPauseEvents.ToArray())
+            {
+                try { pair.Value.Set(); }
+                catch (ObjectDisposedException) { }
+            }
+            lock (_parallelismLock)
+            {
+                _speedSampleTicks = _clock.Elapsed.Ticks;
+                _speedSampleBytes = DoneBytes;
+                _recentSpeed = 0;
+            }
         }
         _paused = paused;
     }
@@ -415,6 +475,44 @@ public sealed class CopyEngine
             {
                 FileLog.Write($"No se pudo limpiar la carpeta de origen {root}: {ex.Message}");
             }
+        }
+    }
+
+    /// <summary>
+    /// ¿Todo lo que se va a copiar sale y entra en la MISMA unidad? Se mira la letra de
+    /// unidad (o el servidor, en rutas de red) del origen y de cada destino.
+    /// </summary>
+    private static bool SameVolume(List<TransferItem> items, List<string>? destinations)
+    {
+        try
+        {
+            if (destinations is null || destinations.Count == 0) return false;
+            string? volume = null;
+            foreach (var path in destinations)
+            {
+                var root = Root(path);
+                if (root is null) return false;
+                if (volume is null) volume = root;
+                else if (!string.Equals(volume, root, StringComparison.OrdinalIgnoreCase)) return false;
+            }
+            foreach (var item in items)
+            {
+                var root = Root(item.SourcePath);
+                if (root is null) return false;
+                if (!string.Equals(volume, root, StringComparison.OrdinalIgnoreCase)) return false;
+            }
+            return volume is not null;
+        }
+        catch
+        {
+            return false;
+        }
+
+        static string? Root(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return null;
+            var root = Path.GetPathRoot(Path.GetFullPath(path));
+            return string.IsNullOrEmpty(root) ? null : root.TrimEnd('\\');
         }
     }
 
@@ -986,6 +1084,10 @@ public sealed class CopyEngine
             // reanudación avanzaba «superlento».
             var clock = Stopwatch.StartNew();
             var wasPaused = false;
+            // Punto de partida del límite de velocidad. Antes se ponía «transferred = 0» al
+            // reanudar y la siguiente vuelta sumaba OTRA VEZ todo lo ya copiado al total:
+            // el porcentaje y la velocidad se disparaban y el tiempo restante se volvía loco.
+            var limitBase = 0L;
             var routine = new NativeMethods.CopyProgressRoutine((_, totalTransferred, _, _, _, _, _, _, _) =>
             {
                 token.ThrowIfCancellationRequested();
@@ -994,7 +1096,7 @@ public sealed class CopyEngine
                 {
                     // Al reanudar se descarta el tiempo en pausa del cálculo del límite.
                     clock.Restart();
-                    transferred = 0;
+                    limitBase = transferred;
                 }
                 wasPaused = pausedNow;
                 WaitWhilePaused(item, token);
@@ -1014,7 +1116,7 @@ public sealed class CopyEngine
 
                 if (options.SpeedLimitBytesPerSecond > 0)
                 {
-                    var expected = transferred * 1000d / options.SpeedLimitBytesPerSecond;
+                    var expected = (transferred - limitBase) * 1000d / options.SpeedLimitBytesPerSecond;
                     var actual = clock.Elapsed.TotalMilliseconds;
                     if (expected > actual) Thread.Sleep((int)Math.Min(200, expected - actual));
                 }
@@ -1225,18 +1327,31 @@ public sealed class CopyEngine
             default:
                 var resolver = ConflictResolver;
                 if (resolver is null) return ConflictChoice.Rename;
-                var choice = resolver(new ConflictPrompt(source.FullName, target.FullName, source.Length, target.Length,
-                    source.LastWriteTime, target.LastWriteTime));
-                if (choice == ConflictChoice.OverwriteAll) { _stickyConflict = ConflictChoice.Overwrite; return ConflictChoice.Overwrite; }
-                if (choice == ConflictChoice.SkipAll) { _stickyConflict = ConflictChoice.Skip; return ConflictChoice.Skip; }
-                // «Quedarme con los dos» también se puede aplicar al resto de repetidos.
-                if (choice == ConflictChoice.RenameAll) { _stickyConflict = ConflictChoice.Rename; return ConflictChoice.Rename; }
-                return choice;
+                // Un cuadro cada vez (igual que con los errores): con varios archivos a la
+                // vez salían varios cuadros y «aplicar a todos» solo valía para uno.
+                lock (_promptGate)
+                {
+                    if (_stickyConflict.HasValue) return _stickyConflict.Value;
+                    var choice = resolver(new ConflictPrompt(source.FullName, target.FullName, source.Length, target.Length,
+                        source.LastWriteTime, target.LastWriteTime));
+                    if (choice == ConflictChoice.OverwriteAll) { _stickyConflict = ConflictChoice.Overwrite; return ConflictChoice.Overwrite; }
+                    if (choice == ConflictChoice.SkipAll) { _stickyConflict = ConflictChoice.Skip; return ConflictChoice.Skip; }
+                    // «Quedarme con los dos» también se puede aplicar al resto de repetidos.
+                    if (choice == ConflictChoice.RenameAll) { _stickyConflict = ConflictChoice.Rename; return ConflictChoice.Rename; }
+                    return choice;
+                }
         }
     }
 
     private ErrorChoice DecideError(string file, Exception ex, int attempt, EngineOptions options, bool forcePrompt = false)
     {
+        // «OMITIR TODOS» POR DELANTE DE TODO. Antes se miraba después de la política de
+        // errores: con «Reintentar automáticamente» puesto, cada archivo que fallaba volvía
+        // a intentarse cuatro veces con sus esperas ANTES de hacer caso al «omitir todos».
+        // Con doscientos archivos rotos eso son minutos de copia a paso de tortuga.
+        if (_stickyError == ErrorChoice.SkipAll) return ErrorChoice.Skip;
+        if (_stickyError == ErrorChoice.Abort) return ErrorChoice.Abort;
+
         if (!forcePrompt)
         {
             switch (options.OnError)
@@ -1247,12 +1362,18 @@ public sealed class CopyEngine
             }
         }
 
-        if (_stickyError == ErrorChoice.SkipAll) return ErrorChoice.Skip;
         var resolver = ErrorResolver;
         if (resolver is null) return ErrorChoice.Skip;
-        var choice = resolver(new ErrorPrompt(file, Describe(ex), attempt));
-        if (choice == ErrorChoice.SkipAll) { _stickyError = ErrorChoice.SkipAll; return ErrorChoice.Skip; }
-        return choice;
+        // De uno en uno: con varios archivos a la vez se abrían varios cuadros iguales y
+        // responder en uno no callaba a los demás.
+        lock (_promptGate)
+        {
+            if (_stickyError == ErrorChoice.SkipAll) return ErrorChoice.Skip;
+            var choice = resolver(new ErrorPrompt(file, Describe(ex), attempt));
+            if (choice == ErrorChoice.SkipAll) { _stickyError = ErrorChoice.SkipAll; return ErrorChoice.Skip; }
+            if (choice == ErrorChoice.Abort) _stickyError = ErrorChoice.Abort;
+            return choice;
+        }
     }
 
     private async Task ThrottleAsync(long copied, Stopwatch clock, EngineOptions options, CancellationToken token)

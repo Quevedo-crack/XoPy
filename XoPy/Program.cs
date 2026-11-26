@@ -46,7 +46,15 @@ internal static class Program
             {
                 Log("6. ThreadException: " + e.Exception.GetType().Name + " - " + e.Exception.Message);
                 try { File.AppendAllText(_logPath, e.Exception.ToString() + "\n"); } catch { }
-                try { MessageBox.Show("XoPy error: " + e.Exception.Message, "XoPy", MessageBoxButtons.OK, MessageBoxIcon.Error); } catch { }
+                try { FileLog.Write("FALLO en la ventana: " + e.Exception); } catch { }
+                // NADA DE CUADROS MODALES AQUÍ. Un cuadro de error se queda esperando una
+                // respuesta y, mientras tanto, la ventana no atiende a nadie: el motor de
+                // copia, que necesita la ventana para preguntar y para pintar el avance, se
+                // queda clavado y la copia parece «lentísima» o parada del todo (pasaba con
+                // dos cuadros apilados detrás de la ventana). El fallo se anota en el
+                // registro y se avisa en la barra de estado, sin detener la copia.
+                try { MainForm.Current?.ReportBackgroundError(e.Exception); }
+                catch { }
             };
 
             Log("5. UnhandledException handler");
