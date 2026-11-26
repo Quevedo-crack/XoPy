@@ -1267,9 +1267,13 @@ public sealed partial class MainForm
         using var line = new Pen(_palette.Border);
         e.Graphics.DrawLine(line, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Right, e.Bounds.Bottom - 1);
         var headerText = e.Header?.Text ?? string.Empty;
+        // Flechita en la columna por la que está ordenada la lista: así se ve de un vistazo
+        // qué manda el orden y hacia dónde, igual que en el Explorador de Windows.
+        var sorted = e.ColumnIndex == SortedColumn();
+        if (sorted) headerText += _lastSortInverted ? "  \u25BC" : "  \u25B2";
         var alignment = e.Header?.TextAlign == HorizontalAlignment.Right ? TextFormatFlags.Right : TextFormatFlags.Left;
         TextRenderer.DrawText(e.Graphics, headerText, _headerFont,
-            Rectangle.Inflate(e.Bounds, -10, 0), _palette.Muted,
+            Rectangle.Inflate(e.Bounds, -10, 0), sorted ? _palette.Text : _palette.Muted,
             alignment | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
     }
 
@@ -1441,10 +1445,26 @@ public sealed partial class MainForm
             case 4:
             {
                 var percent = RowPercent(item);
-                var bar = new Rectangle(e.Bounds.Left + 6, top + (height - 10) / 2, Math.Max(12, e.Bounds.Width - 68), 10);
-                Ui.DrawProgress(e.Graphics, bar, percent, _palette, StateColor(item));
-                TextRenderer.DrawText(e.Graphics, $"{percent:0} %", _percentFont,
-                    new Rectangle(bar.Right + 6, top, 54, height), _palette.Muted,
+                var text = $"{percent:0} %";
+                // EL NÚMERO MANDA: se mide el ancho que necesita «100 %» con la fuente real y
+                // ese hueco se le reserva entero. Con la caja fija de 54 px y la barra en
+                // Ancho-68, al estrechar la columna el porcentaje salía cortado («10…»).
+                var reserved = Math.Min(e.Bounds.Width - 18,
+                    TextRenderer.MeasureText(e.Graphics, "100 %", _percentFont,
+                        new Size(int.MaxValue, int.MaxValue), TextFormatFlags.NoPadding).Width + 8);
+                reserved = Math.Max(reserved, 0);
+                var barWidth = e.Bounds.Width - 12 - reserved - 6;
+                var textLeft = e.Bounds.Left + 6;
+                if (barWidth >= 12)
+                {
+                    var bar = new Rectangle(e.Bounds.Left + 6, top + (height - 10) / 2, barWidth, 10);
+                    Ui.DrawProgress(e.Graphics, bar, percent, _palette, StateColor(item));
+                    textLeft = bar.Right + 6;
+                }
+                // Si la columna es tan estrecha que no caben barra y número, se queda el
+                // número: es el dato, la barra es solo el adorno.
+                TextRenderer.DrawText(e.Graphics, text, _percentFont,
+                    new Rectangle(textLeft, top, Math.Max(0, e.Bounds.Right - textLeft - 6), height), _palette.Muted,
                     TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
                 break;
             }

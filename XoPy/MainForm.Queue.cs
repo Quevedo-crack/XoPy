@@ -1356,9 +1356,18 @@ public sealed partial class MainForm
             if (row.Tag is TransferItem item && set.Contains(item.Id)) row.Selected = true;
     }
 
+    /// <summary>¿Ha pedido el usuario renombrar? Sin esto, la lista abre la cajita sola.</summary>
+    private bool _renameRequested;
+
     /// <summary>Confirma el nombre editado en la lista (el archivo del disco no se toca).</summary>
     private void ListAfterLabelEdit(object? sender, LabelEditEventArgs e)
     {
+        // Se apaga la edición en cuanto acaba: solo F2 o el menú vuelven a encenderla.
+        _renameRequested = false;
+        try { BeginInvoke(new Action(() => { if (!IsDisposed && _list is not null) _list.LabelEdit = false; })); }
+        catch { }
+
+        // e.Label a nulo = edición cancelada (Esc o clic fuera). No es un renombrado.
         if (e.Label is null || e.Item < 0 || e.Item >= _list.Items.Count) return;
         var name = e.Label.Trim();
         if (name.Length == 0) { e.CancelEdit = true; return; }
@@ -1369,9 +1378,13 @@ public sealed partial class MainForm
             return;
         }
         if (_list.Items[e.Item].Tag is not TransferItem item) { e.CancelEdit = true; return; }
+        // MISMO NOMBRE = no ha pasado nada. Antes esto se apuntaba en el registro como un
+        // renombrado y el usuario veía «Elemento renombrado en la lista» sin haber escrito.
+        if (string.Equals(item.Name, name, StringComparison.Ordinal)) return;
+        var previous = item.Name;
         item.Name = name;
-        FileLog.Write($"Elemento renombrado en la lista: {item.SourcePath} -> {name}");
-        SetStatus("Nombre cambiado en la lista (el archivo del disco no se ha tocado).");
+        FileLog.Write($"Elemento renombrado en la lista: {item.SourcePath} ({previous}) -> {name}");
+        SetStatus($"«{previous}» se llamará «{name}» en el destino (el archivo del disco no se ha tocado).");
     }
 
     /// <summary>
@@ -1383,6 +1396,8 @@ public sealed partial class MainForm
         if (_list is null || _list.SelectedItems.Count == 0) return;
         // Editable también con la copia en marcha: el nombre visible de la lista no afecta
         // a la transferencia que ya está en curso (el motor trabaja sobre su instantánea).
+        _renameRequested = true;
+        _list.LabelEdit = true;
         _list.SelectedItems[0].BeginEdit();
     }
 
@@ -3672,6 +3687,10 @@ public sealed partial class MainForm
         _items.Clear();
         _items.AddRange(rebuilt);
         ResetVisualOrder();
+        // Se recuerda SIEMPRE, también cuando se ordena desde el menú: así la flechita de la
+        // cabecera dice por dónde está ordenada la lista y el siguiente clic invierte.
+        _lastSortField = field;
+        _lastSortInverted = invert;
         RebuildRows();
         UpdateFooter();
         var label = field switch
@@ -3723,7 +3742,19 @@ public sealed partial class MainForm
 
     private QueueSortField? _lastSortField;
     private bool _lastSortInverted;
-    private int _sizeColumnClicks;
+
+    /// <summary>
+    /// Columna que lleva la flechita de orden, o -1 si la lista está ordenada por algo que
+    /// no es una columna (el orden libre a mano, por ejemplo).
+    /// </summary>
+    private int SortedColumn() => _lastSortField switch
+    {
+        QueueSortField.Name => 0,
+        QueueSortField.Destination => 1,
+        QueueSortField.Size or QueueSortField.FolderSize or QueueSortField.AllSize => 2,
+        QueueSortField.State => 3,
+        _ => -1
+    };
 
     /// <summary>
     /// Clic en una cabecera: ordena por esa columna y alterna ascendente/descendente.
@@ -3747,19 +3778,11 @@ public sealed partial class MainForm
             return;
         }
 
+        // Un clic ordena, el siguiente invierte. Y PUNTO. Antes, al tercer clic en «Tamaño»
+        // la lista cambiaba sola a «todos los archivos mezclados sin carpetas» y parecía que
+        // se hubiera descolocado: ese modo ahora solo se pide a propósito, desde el menú
+        // Ordenar o con el botón derecho.
         var invert = _lastSortField == field && !_lastSortInverted;
-        _lastSortField = field;
-        _lastSortInverted = invert;
-
-        // En la columna Tamaño: primer clic ordena cada carpeta por dentro (asc), segundo
-        // invierte, y a partir del tercero ordena TODOS los archivos juntos.
-        if (e.Column == 2 && _sizeColumnClicks >= 2)
-        {
-            _sizeColumnClicks++;
-            SortAllFilesBySize(_sizeColumnClicks % 2 == 0);
-            return;
-        }
-        if (e.Column == 2) _sizeColumnClicks++;
         SortQueue(field, invert);
     }
 

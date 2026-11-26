@@ -897,10 +897,13 @@ public sealed partial class MainForm : Form
         };
 
         var closeListButton = Ui.IconButton(Icons.ClearList, _palette,
-            "Cerrar esta lista de copia (no borra ningún archivo del disco)");
+            "Cerrar esta lista de copia (no borra ningún archivo del disco).\n"
+            + "Con la tecla Mayús pulsada se cierra directamente, sin preguntar.");
         closeListButton.Size = new Size(22, 22);
         closeListButton.Margin = new Padding(2, 2, 0, 0);
-        closeListButton.Click += (_, _) => DeleteActiveList();
+        // Mayús = «ya sé lo que hago»: cierra la lista sin el cuadro de confirmación. Es
+        // para limpiar varias listas seguidas sin tener que contestar una y otra vez.
+        closeListButton.Click += (_, _) => DeleteList(_activeList, ask: ModifierKeys != Keys.Shift);
 
         _jobsToggleButton = Ui.IconButton("\u00AB", _palette, "Ocultar la columna de listas (F8)");
         _jobsToggleButton.Image = null;
@@ -931,6 +934,32 @@ public sealed partial class MainForm : Form
         // Un clic cambia a esa lista de copia; el doble clic abre el historial.
         _jobsList.Click += (_, _) => ActivateSelectedJob();
         _jobsList.DoubleClick += (_, _) => ShowHistory();
+        // Supr cierra la lista marcada (preguntando); Mayús+Supr la cierra sin preguntar.
+        _jobsList.KeyDown += (_, e) =>
+        {
+            if (e.KeyCode != Keys.Delete) return;
+            e.Handled = true;
+            DeleteList(SelectedJobList(), ask: !e.Shift);
+        };
+        // Menú del botón derecho sobre el panel: lo que se puede hacer con una lista, dicho
+        // con todas las letras y con el atajo al lado.
+        var jobsMenu = new ContextMenuStrip();
+        Ui.StyleMenu(jobsMenu, _palette);
+        jobsMenu.Items.Add(MenuItem("Abrir esta lista", (_, _) => ActivateSelectedJob()));
+        jobsMenu.Items.Add(new ToolStripSeparator());
+        jobsMenu.Items.Add(MenuItem("Nueva lista de copia", (_, _) => AddNewList(_destination.Text.Trim())));
+        jobsMenu.Items.Add(MenuItem("Cerrar esta lista…  (Supr)", (_, _) => DeleteList(SelectedJobList(), ask: true)));
+        jobsMenu.Items.Add(MenuItem("Cerrar sin preguntar  (Mayús+Supr)", (_, _) => DeleteList(SelectedJobList(), ask: false)));
+        jobsMenu.Opening += (_, e) =>
+        {
+            // El botón derecho no marca la línea en un ListBox: hay que marcarla a mano o el
+            // menú actuaría sobre otra lista distinta de la que se ha señalado.
+            var point = _jobsList.PointToClient(Cursor.Position);
+            var index = _jobsList.IndexFromPoint(point);
+            if (index >= 0 && index < _jobsList.Items.Count) _jobsList.SelectedIndex = index;
+            if (SelectedJobList() is null) e.Cancel = true;
+        };
+        _jobsList.ContextMenuStrip = jobsMenu;
 
         var buttons = new FlowLayoutPanel
         {
@@ -978,6 +1007,10 @@ public sealed partial class MainForm : Form
         TextRenderer.DrawText(e.Graphics, text, font, Rectangle.Inflate(e.Bounds, -4, 0), color,
             TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
     }
+
+    /// <summary>La lista de copia señalada en el panel de trabajos, si hay alguna.</summary>
+    private TransferList? SelectedJobList()
+        => _jobsList?.SelectedItem is JobLine line ? line.List : null;
 
     /// <summary>Al pulsar una línea del panel de trabajos se pasa a esa lista de copia.</summary>
     private void ActivateSelectedJob()
@@ -1332,7 +1365,12 @@ public sealed partial class MainForm : Form
             ShowItemToolTips = true,
             Font = new Font("Segoe UI", 8.5f),
             Margin = new Padding(0),
-            LabelEdit = true,
+            // RENOMBRAR SOLO CUANDO SE PIDE. Con esto en true, un segundo clic sobre una fila
+            // ya marcada abría la cajita de edición él solo: bastaba volver a pulsar un
+            // archivo (o empezar a arrastrarlo despacio) para que XoPy diera por renombrado
+            // algo que nadie había tocado. Ahora se enciende en F2 / «Renombrar» y se apaga
+            // en cuanto se termina.
+            LabelEdit = false,
             GridLines = false
         };
         _list.Columns.Add(_settings.ShowFullPath ? "Archivo y ruta" : "Nombre", 380);
@@ -1376,6 +1414,7 @@ public sealed partial class MainForm : Form
         _list.KeyDown += ListKeyDown;
         _list.DoubleClick += ListDoubleClick;
         _list.AfterLabelEdit += ListAfterLabelEdit;
+        _list.BeforeLabelEdit += (_, e) => { if (!_renameRequested) e.CancelEdit = true; };
         _list.MouseDown += ListMouseDown;
         _list.ItemDrag += ListItemDrag;
         _list.DragEnter += ListDragEnter;
@@ -2942,24 +2981,35 @@ public sealed partial class MainForm : Form
     /// Borra la lista de copia activa del listado. Nunca toca los archivos del disco:
     /// sólo quita la entrada de la lista y sus referencias en memoria.
     /// </summary>
-    private void DeleteActiveList()
+    /// <summary>
+    /// Cierra una lista de copia. Con <paramref name="ask"/> en falso no sale el cuadro de
+    /// confirmación: es lo que hace la tecla Mayús para limpiar varias listas seguidas.
+    /// Cerrar una lista NUNCA borra archivos del disco.
+    /// </summary>
+    private void DeleteList(TransferList? list, bool ask = true)
     {
-        if (_activeList is null) return;
+        if (list is null) return;
         // Solo se bloquea si la lista que se quiere cerrar es LA QUE SE ESTÁ COPIANDO: las
         // demás se pueden cerrar aunque el motor esté trabajando en otra.
-        if (_engine.IsRunning && _activeList == _runningList)
+        if (_engine.IsRunning && list == _runningList)
         {
             SetStatus("Esta lista se está copiando ahora mismo: detén la copia para cerrarla.");
             return;
         }
 
-        var answer = MessageBox.Show(this,
-            $"¿Borrar la lista «{_activeList.DisplayName}»?\n\n" +
-            "Esto sólo elimina la lista del listado de XoPy. No borra ningún archivo del disco.",
-            "XoPy", MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2);
-        if (answer != DialogResult.Yes) return;
+        if (ask)
+        {
+            var answer = MessageBox.Show(this,
+                $"¿Cerrar la lista «{list.DisplayName}»?\n\n" +
+                "Esto sólo la quita del panel de la izquierda. No borra ningún archivo del disco.\n\n" +
+                "Atajo: con la tecla Mayús pulsada se cierra sin preguntar.",
+                "XoPy", MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2);
+            if (answer != DialogResult.Yes) return;
+        }
 
-        _lists.Remove(_activeList);
+        var name = list.DisplayName;
+        var wasActive = list == _activeList;
+        _lists.Remove(list);
         if (_lists.Count == 0)
         {
             _activeList = null;
@@ -2968,12 +3018,13 @@ public sealed partial class MainForm : Form
             RebuildRows();
             UpdateFooter();
         }
-        else
+        else if (wasActive)
         {
             SwitchToList(_lists[0]);
         }
+        _jobsSignature = string.Empty;
         UpdateJobs();
-        SetStatus("Lista cerrada. No se ha borrado ningún archivo del disco.");
+        SetStatus($"Lista «{name}» cerrada. No se ha borrado ningún archivo del disco.");
     }
 
     /// <summary>
