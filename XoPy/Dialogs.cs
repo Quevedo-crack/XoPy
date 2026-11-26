@@ -301,7 +301,11 @@ internal sealed class OptionsDialog : Form
         _tabs = new TabControl
         {
             Dock = DockStyle.Fill,
-            SizeMode = TabSizeMode.Fixed,
+            // FRANJA BLANCA DE LAS PESTAÑAS. Con anchos fijos sobraba sitio a la derecha de
+            // cada renglón y ese hueco lo pintaba Windows de blanco (se veía una banda clara
+            // encima del cuadro oscuro). «FillToRight» estira las pestañas hasta llenar el
+            // renglón entero, así que no queda ni un pixel sin pintar por nosotros.
+            SizeMode = TabSizeMode.FillToRight,
             ItemSize = new Size(112, 30),
             Padding = new Point(12, 6),
             DrawMode = TabDrawMode.OwnerDrawFixed,
@@ -1060,7 +1064,9 @@ internal sealed class OptionsDialog : Form
                 new Size(int.MaxValue, int.MaxValue), TextFormatFlags.NoPrefix);
             widest = Math.Max(widest, measured.Width);
         }
-        var width = Math.Max(84, widest + 34);
+        // Ancho mínimo por pestaña; «FillToRight» reparte el sobrante entre las del renglón.
+        // Se limita para que en dos renglones quepan todas sin que Windows saque flechitas.
+        var width = Math.Max(84, Math.Min(widest + 34, Math.Max(84, (_tabs.ClientSize.Width - 8) / 4)));
         _tabs.ItemSize = new Size(width, 30);
     }
 
