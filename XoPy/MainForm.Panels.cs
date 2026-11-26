@@ -1177,7 +1177,7 @@ public sealed partial class MainForm
 
             var detail = running
                 ? $"{(_engine.TotalBytes > 0 ? _engine.DoneBytes * 100d / _engine.TotalBytes : 0):0} % · {Format.Speed(_engine.SpeedBytesPerSecond)}"
-                : files == 0 ? "vacía" : $"{done}/{files} archivo(s)";
+                : files == 0 ? "vacía" : $"{done} de {Format.Files(files)}";
 
             entries.Add(new JobLine(list,
                 $"{TransferList.StageGlyph(stage)}  {list.DisplayName}",

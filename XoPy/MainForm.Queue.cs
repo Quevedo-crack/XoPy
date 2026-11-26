@@ -124,8 +124,8 @@ public sealed partial class MainForm
                 UpdateButtons();
                 SelectTab(0);
                 SetStatus(scans.Count > 0
-                    ? $"Analizando {scans.Count} carpeta(s)…"
-                    : $"{files.Count} archivo(s) añadidos a la lista.");
+                    ? $"Analizando {Format.Plural(scans.Count, "carpeta")}…"
+                    : $"{Format.Files(files.Count)} {(files.Count == 1 ? "añadido" : "añadidos")} a la lista.");
             }
 
             if (scans.Count > 0)
@@ -136,7 +136,7 @@ public sealed partial class MainForm
                 UpdateButtons();
                 SetStatus(_items.Count == 0
                     ? "Listo para transferir."
-                    : $"Lista preparada: {_items.Count(item => item.Kind == ItemKind.File)} archivo(s) listos para transferir.");
+                    : $"Lista preparada: {Format.Files(_items.Count(item => item.Kind == ItemKind.File))} listos para transferir.");
             }
 
             // Al añadir archivos se pregunta SIEMPRE la carpeta de destino, aunque la lista
@@ -1639,7 +1639,7 @@ public sealed partial class MainForm
                 var dropped = leaves.Except(kept).ToList();
                 foreach (var leaf in dropped) leaf.State = ItemState.Skipped;
                 leaves = kept;
-                SetStatus($"No caben {dropped.Count} archivo(s): se copian solo los que entran.");
+                SetStatus($"No caben {Format.Files(dropped.Count)}: se copian solo los que entran.");
             }
         }
         _freeSpaceMode = FreeSpaceMode.Ignore;
@@ -1692,13 +1692,13 @@ public sealed partial class MainForm
         if (leaves.Count == 0)
         {
             SetStatus(skippedAlreadyThere > 0
-                ? $"{skippedAlreadyThere} archivo(s) ya están en el destino. Bórralos del destino para volver a copiarlos."
+                ? $"{Format.Files(skippedAlreadyThere)} ya están en el destino. Bórralos del destino para volver a copiarlos."
                 : "No hay archivos que se puedan copiar: su origen ya no existe. Añádelos de nuevo.");
             SyncRows();
             return;
         }
         if (skippedAlreadyThere > 0)
-            SetStatus($"{skippedAlreadyThere} archivo(s) ya estaban en el destino; se copian los demás.");
+            SetStatus($"{Format.Files(skippedAlreadyThere)} ya estaban en el destino; se copian los demás.");
 
         foreach (var leaf in leaves)
         {
@@ -1776,7 +1776,7 @@ public sealed partial class MainForm
             _runningList = null;
             var missing = targets.Count(item => item.State == ItemState.Failed && item.Error?.Contains("ya no existe") == true);
             SetStatus(missing > 0
-                ? $"No se pudo transferir: {missing} archivo(s) de origen ya no existen (se movieron antes). Añádelos de nuevo."
+                ? $"No se pudo transferir: {Format.Files(missing)} de origen ya no existen (se movieron antes). Añádelos de nuevo."
                 : "No hay archivos pendientes que transferir.");
             UpdateButtons();
             return;
@@ -1898,7 +1898,7 @@ public sealed partial class MainForm
             if (pause) _engine.PauseItem(item);
             else _engine.ResumeItem(item);
         }
-        SetStatus(pause ? $"Pausando {files.Count} archivo(s) seleccionado(s)…" : $"Reanudando {files.Count} archivo(s)…");
+        SetStatus(pause ? $"Pausando {Format.Files(files.Count)}…" : $"Reanudando {Format.Files(files.Count)}…");
         SyncRows();
         UpdateFooter();
     }
@@ -1913,8 +1913,8 @@ public sealed partial class MainForm
         var canPause = _engine.IsRunning && files.Any(item => item.State is not (ItemState.Completed or ItemState.Failed or ItemState.Skipped or ItemState.Cancelled));
         pauseItem.Enabled = canPause;
         pauseItem.Text = files.Count > 0 && files.All(_engine.IsItemPaused)
-            ? "Reanudar archivo(s) seleccionado(s)"
-            : "Pausar archivo(s) seleccionado(s)";
+            ? "Reanudar lo seleccionado"
+            : "Pausar lo seleccionado";
     }
 
     private void ListItemDrag(object? sender, ItemDragEventArgs e)
@@ -2266,7 +2266,7 @@ public sealed partial class MainForm
         _history = _store.LoadHistory();
 
         SetStatus(failed > 0
-            ? $"Terminado con {failed} error(es). Revisa la lista y el registro."
+            ? $"Terminado con {Format.Plural(failed, "error", "errores")}. Revisa la lista y el registro."
             : cancelled > 0
                 ? "Transferencia cancelada."
                 : skipped > 0
@@ -2275,7 +2275,7 @@ public sealed partial class MainForm
 
         var icon = Icons.ProgressIcon(100, _settings.DarkTheme, false, failed > 0, failed == 0);
         ReplaceTrayIcon(icon);
-        _tray.Text = failed > 0 ? $"XoPy — {failed} error(es)" : "XoPy — terminado (100 %)";
+        _tray.Text = failed > 0 ? $"XoPy — {Format.Plural(failed, "error", "errores")}" : "XoPy — terminado (100 %)";
         _trayPercent = -1;
         _completedAt = DateTime.Now;
         Text = failed > 0 ? "XoPy — completado con errores" : "XoPy — completado";
@@ -2740,12 +2740,16 @@ public sealed partial class MainForm
             var pendingBytes = leaves.Where(item => !IsFinished(item) && item.State != ItemState.Failed)
                 .Sum(item => Math.Max(0, item.SizeBytes - Math.Max(0, item.TransferredBytes)));
             _currentLabel.Text = _engine.IsPaused
-                ? $"En pausa · quedan {pending} archivo(s) · {Format.Bytes(pendingBytes)}"
-                : $"Quedan {pending} archivo(s) · {Format.Bytes(pendingBytes)}";
+                ? $"En pausa · quedan {Format.Files(pending)} · {Format.Bytes(pendingBytes)}"
+                : $"Quedan {Format.Files(pending)} · {Format.Bytes(pendingBytes)}";
         }
         else if (_items.Count > 0)
         {
-            _currentLabel.Text = "Listo para transferir. Elige Copiar, Mover, Test o Eliminar.";
+            // Parado y con lista: esta línea se queda EN BLANCO. La barra de estado de abajo
+            // ya dice «Lista preparada: N archivos listos para transferir», y antes aquí
+            // ponía «Listo para transferir. Elige Copiar, Mover, Test o Eliminar.» (lo mismo,
+            // y encima con nombres de botones que ya no existen).
+            _currentLabel.Text = string.Empty;
         }
         else
         {
@@ -3501,7 +3505,7 @@ public sealed partial class MainForm
             .AppendLine("th{color:#9aa3b2;font-weight:600}.ok{color:#57d38c}.bad{color:#ff7a7a}.muted{color:#9aa3b2}")
             .AppendLine("</style></head><body>")
             .AppendLine($"<h1>Informe de transferencia</h1><div class=\"muted\">{DateTime.Now:yyyy-MM-dd HH:mm} · {_lastOperation} → {_lastDestination}</div>")
-            .AppendLine($"<p>{_items.Count(item => item.State == ItemState.Completed && item.Kind == ItemKind.File)} archivo(s) copiados · {Format.Bytes(_sessionBytes)} · {Format.Duration(_sessionElapsed)} · {failed} error(es)</p>")
+            .AppendLine($"<p>{Format.Files(_items.Count(item => item.State == ItemState.Completed && item.Kind == ItemKind.File))} copiados · {Format.Bytes(_sessionBytes)} · {Format.Duration(_sessionElapsed)} · {Format.Plural(failed, "error", "errores")}</p>")
             .AppendLine("<table><tr><th>Nombre</th><th>Tamaño</th><th>Estado</th><th>Origen</th><th>Destino</th></tr>");
         foreach (var item in _items.Where(item => item.Kind != ItemKind.Folder))
         {

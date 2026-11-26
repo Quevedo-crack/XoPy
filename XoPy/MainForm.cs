@@ -2810,10 +2810,10 @@ public sealed partial class MainForm : Form
         var running = _engine.IsRunning && list == _runningList;
         var files = list.Items.Count(item => item.Kind != ItemKind.Folder);
         SetStatus(running
-            ? $"Lista «{list.DisplayName}» · copiando ahora ({files} archivo(s))"
+            ? $"Lista «{list.DisplayName}» · copiando ahora ({Format.Files(files)})"
             : _engine.IsRunning
                 ? $"Lista «{list.DisplayName}» · la copia en marcha es otra lista"
-                : $"Lista «{list.DisplayName}» · {files} archivo(s)");
+                : $"Lista «{list.DisplayName}» · {Format.Files(files)}");
     }
 
     private bool _refreshingSelector;

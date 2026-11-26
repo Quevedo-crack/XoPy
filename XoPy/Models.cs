@@ -147,10 +147,10 @@ public sealed class HistoryEntry
     };
 
     [JsonIgnore]
-    public string ResultText => Errors == 0 ? "Correcto" : $"{Errors} error(es)";
+    public string ResultText => Errors == 0 ? "Correcto" : Format.Plural(Errors, "error", "errores");
 
     [JsonIgnore]
-    public string Summary => $"{FinishedAt:yyyy-MM-dd HH:mm}  ·  {OperationText}  ·  {FileCount} archivos  ·  {Format.Bytes(Bytes)}  ·  {Format.Speed(BytesPerSecond)}  ·  {ResultText}";
+    public string Summary => $"{FinishedAt:yyyy-MM-dd HH:mm}  ·  {OperationText}  ·  {Format.Files(FileCount)}  ·  {Format.Bytes(Bytes)}  ·  {Format.Speed(BytesPerSecond)}  ·  {ResultText}";
 }
 
 public sealed class AppSettings
@@ -414,6 +414,13 @@ public sealed class StartupRequest
 
 public static class Format
 {
+    /// <summary>«1 archivo» / «4 archivos». Se acabaron los «archivo(s)» de la interfaz.</summary>
+    public static string Files(int count) => count == 1 ? "1 archivo" : $"{count} archivos";
+
+    /// <summary>Concuerda cualquier palabra: Plural(1, "copiado") → «1 copiado».</summary>
+    public static string Plural(int count, string singular, string? plural = null)
+        => count == 1 ? $"{count} {singular}" : $"{count} {plural ?? singular + "s"}";
+
     public static string Bytes(long value)
     {
         string[] units = { "B", "KB", "MB", "GB", "TB" };
@@ -527,9 +534,9 @@ public sealed class TransferList
             var running = Items.Count(item => item.State == ItemState.Running || item.State == ItemState.Paused);
             var done = Items.Count(item => item.State == ItemState.Completed);
             var failed = Items.Count(item => item.State == ItemState.Failed);
-            return $"{done}/{Items.Count}" + (failed > 0 ? $" · {failed} error(es)" : string.Empty)
+            return $"{done}/{Items.Count}" + (failed > 0 ? $" · {Format.Plural(failed, "error", "errores")}" : string.Empty)
                 + (running > 0 ? $" · {running} en curso" : string.Empty)
-                + (pending > 0 ? $" · {pending} pendiente(s)" : string.Empty);
+                + (pending > 0 ? $" · {Format.Plural(pending, "pendiente")}" : string.Empty);
         }
     }
 }
