@@ -59,10 +59,17 @@ XoPy.exe --multi --copy --to "D:\Copias" "C:\Datos\informe.pdf"
   sistema, con pausa, saltar archivo y límite de velocidad, y sin dobles lecturas. Si algo falla,
   XoPy reintenta con la copia administrada y con permisos de copia de seguridad.
 - **Cola jerárquica**: al añadir una carpeta se ve la carpeta y dentro cada archivo, con sus
-  subcarpetas. Puedes expandirla o contraerla, **reordenar** (botones ↑/↓ o Alt+↑/Alt+↓) sin separar
-  un archivo de su carpeta, **ordenar** por nombre, tamaño, **fecha de modificación**, carpeta de
-  destino o ruta de origen (menú Cola, menú del botón derecho o el botón ⇅) y **quitar** elementos
-  de la cola antes de transferir.
+  subcarpetas. Puedes expandirla o contraerla, **ordenar** por nombre, tamaño, **fecha de
+  modificación**, carpeta de destino o ruta de origen (menú Cola, menú del botón derecho o el
+  botón ⇅) y **quitar** elementos de la cola antes de transferir.
+- **Orden libre, sin ataduras**: cualquier archivo se puede llevar a cualquier sitio de la lista
+  —arrastrándolo, con ↑/↓, con Alt+↑/Alt+↓ o con «Llevar al principio / al final» (Alt+Inicio y
+  Alt+Fin)—, aunque salga de otra carpeta. Si un archivo de «Carpeta 2» se cuela entre los de
+  «Carpeta 1», la lista enseña *Carpeta 1 → sus archivos → Carpeta 2 → ese archivo → Carpeta 1 →
+  lo que quedaba → Carpeta 2 → el resto*, repitiendo la cabecera (marcada «(sigue)») y las
+  subcarpetas que hagan falta. **Reordenar solo cambia el orden en que se copia**: ni la carpeta
+  de origen ni la de destino de un archivo cambian nunca. Y lo que se ve es lo que se copia: el
+  motor sigue ese mismo orden.
 - **Ruta completa a la vista**: cada elemento de la lista enseña de qué carpeta del disco sale. Si
   no cabe, se recorta por el medio (`C:\Users\…\foto.jpg`) y el nombre del archivo siempre se lee.
   Se puede apagar en Preferencias o con el menú del botón derecho de la lista.

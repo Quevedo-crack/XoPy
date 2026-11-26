@@ -477,87 +477,147 @@ public sealed partial class MainForm
         => _childCount.TryGetValue(item.Id, out var count) ? count : 0;
 
     /// <summary>
-    /// Orden visual JERÁRQUICO: carpeta → subcarpeta → archivo. Las raíces van en su orden y
-    /// debajo de cada carpeta sus hijos, y los hijos de estos, con la profundidad calculada.
-    /// El orden de cada nivel sale de <see cref="_visualOrder"/>, así que reordenar mueve el
-    /// elemento SOLO entre sus hermanos: ni la carpeta raíz ni la ruta de destino cambian.
+    /// Junta en el orden visual un elemento con todo lo que cuelga de él, respetando el
+    /// orden que ya tenían entre ellos. Se usa con las carpetas PLEGADAS (que se ven como
+    /// una sola fila: si sus archivos estuvieran repartidos por la lista, los trozos que
+    /// quedan fuera no se verían) y al mover una carpeta entera.
+    /// </summary>
+    private bool GatherBlock(TransferItem item)
+    {
+        var block = BlockIds(item);
+        if (block.Count < 2) return false;
+
+        var positions = new List<int>();
+        for (var index = 0; index < _visualOrder.Count; index++)
+            if (block.Contains(_visualOrder[index])) positions.Add(index);
+        if (positions.Count < 2) return false;
+
+        // Ya está junto: nada que hacer (el caso normal, y hay que salir barato porque
+        // esto se comprueba en cada repintado).
+        if (positions[^1] - positions[0] == positions.Count - 1) return false;
+
+        var ordered = positions.Select(index => _visualOrder[index]).ToList();
+        ordered.Remove(item.Id);
+        ordered.Insert(0, item.Id);
+
+        var at = positions[0];
+        _visualOrder.RemoveAll(block.Contains);
+        _visualOrder.InsertRange(Math.Min(at, _visualOrder.Count), ordered);
+        return true;
+    }
+
+    /// <summary>Un elemento y todo su contenido.</summary>
+    private HashSet<Guid> BlockIds(TransferItem item)
+    {
+        var ids = new HashSet<Guid> { item.Id };
+        foreach (var child in Descendants(item)) ids.Add(child.Id);
+        return ids;
+    }
+
+    /// <summary>
+    /// Las carpetas de un elemento, de la raíz hacia dentro. No depende del orden: es la
+    /// jerarquía real, la que decide la ruta de destino.
+    /// </summary>
+    private static List<TransferItem> ChainOf(TransferItem item, Dictionary<Guid, TransferItem> byId)
+    {
+        var chain = new List<TransferItem>();
+        var current = item.ParentId;
+        var guard = 0;
+        while (current is { } id && guard++ < 64 && byId.TryGetValue(id, out var parent))
+        {
+            chain.Add(parent);
+            current = parent.ParentId;
+        }
+        chain.Reverse();
+        return chain;
+    }
+
+    /// <summary>
+    /// Filas de la lista, en el orden en que se ven.
+    ///
+    /// El orden lo manda <see cref="_visualOrder"/>, que es una sola secuencia PLANA de
+    /// archivos: cualquier archivo puede ir a cualquier sitio, aunque salga de otra
+    /// carpeta. Las filas de carpeta no se colocan por su cuenta: son cabeceras que se
+    /// dibujan delante de cada tramo seguido de archivos suyos. Por eso, si un archivo de
+    /// «carpeta 2» se sube al medio de «carpeta 1», la lista enseña carpeta 1 con sus
+    /// archivos, luego carpeta 2 con ese archivo, luego carpeta 1 otra vez con lo que
+    /// quedaba y luego carpeta 2 con el resto — con las subcarpetas que hagan falta, para
+    /// que nunca se pierda de vista de dónde sale cada archivo ni a dónde va.
+    ///
+    /// Aquí también se decide qué se ve: la vista («En cola» o «Finalizados») filtra los
+    /// archivos, y las cabeceras aparecen solas cuando algún archivo suyo queda debajo.
     /// </summary>
     private List<TransferItem> OrderedTree()
     {
         var flat = VisualItems();
-        var rank = new Dictionary<Guid, int>(flat.Count);
-        for (var index = 0; index < flat.Count; index++) rank[flat[index].Id] = index;
-
-        var children = new Dictionary<Guid, List<TransferItem>>();
-        var roots = new List<TransferItem>();
-        foreach (var item in flat)
-        {
-            if (item.ParentId is null) { roots.Add(item); continue; }
-            if (!children.TryGetValue(item.ParentId.Value, out var bucket))
-                children[item.ParentId.Value] = bucket = new List<TransferItem>();
-            bucket.Add(item);
-        }
-        foreach (var bucket in children.Values) bucket.Sort((a, b) => rank[a.Id].CompareTo(rank[b.Id]));
+        var byId = new Dictionary<Guid, TransferItem>(flat.Count);
+        foreach (var item in flat) byId[item.Id] = item;
 
         _childCount.Clear();
-        foreach (var pair in children) _childCount[pair.Key] = pair.Value.Count;
+        foreach (var item in flat)
+        {
+            if (item.ParentId is not { } parentId) continue;
+            _childCount[parentId] = (_childCount.TryGetValue(parentId, out var count) ? count : 0) + 1;
+        }
+
+        var chains = new Dictionary<Guid, List<TransferItem>>(flat.Count);
+        foreach (var item in flat)
+        {
+            var chain = ChainOf(item, byId);
+            chains[item.Id] = chain;
+            item.Depth = chain.Count;
+        }
+
+        // Una carpeta PLEGADA se enseña como UNA fila, así que su contenido tiene que estar
+        // junto: si sus archivos quedaran repartidos, los tramos de fuera no se verían por
+        // ninguna parte. Se busca en una sola pasada (esto corre en cada repintado) y solo
+        // se recoloca lo que de verdad esté partido.
+        var scattered = new List<TransferItem>();
+        var seenUnit = new HashSet<Guid>();
+        TransferItem? unit = null;
+        foreach (var leaf in flat)
+        {
+            if (ChildCount(leaf) > 0) continue;
+            TransferItem? owner = null;
+            foreach (var folder in chains[leaf.Id])
+                if (!folder.IsExpanded) { owner = folder; break; }
+
+            if (owner is null) { unit = null; continue; }
+            if (ReferenceEquals(owner, unit)) continue;
+            unit = owner;
+            if (!seenUnit.Add(owner.Id)) scattered.Add(owner);
+        }
+        if (scattered.Count > 0)
+        {
+            foreach (var folder in scattered.DistinctBy(item => item.Id)) GatherBlock(folder);
+            flat = VisualItems();
+        }
 
         var result = new List<TransferItem>(flat.Count);
-        var guard = 0;
-        void Walk(TransferItem node, int depth)
+        var previous = new List<TransferItem>();
+        foreach (var leaf in flat)
         {
-            if (guard++ > 1_000_000) return;
-            node.Depth = depth;
-            result.Add(node);
-            if (!children.TryGetValue(node.Id, out var kids)) return;
-            foreach (var kid in kids) Walk(kid, depth + 1);
-        }
-        foreach (var root in roots) Walk(root, 0);
+            // Las carpetas con contenido no ocupan sitio por sí mismas: salen como cabecera
+            // de sus archivos. Las vacías sí son una fila (hay que crearlas en el destino).
+            if (ChildCount(leaf) > 0) continue;
+            if (IsFinished(leaf) != _showFinished) continue;
 
-        // Red de seguridad: si algún elemento quedó huérfano (padre borrado), se añade al final
-        // en vez de desaparecer de la lista.
-        if (result.Count != flat.Count)
-        {
-            var seen = result.Select(item => item.Id).ToHashSet();
-            foreach (var item in flat) if (!seen.Contains(item.Id)) result.Add(item);
-        }
-        return result;
-    }
+            var chain = chains[leaf.Id];
 
-    /// <summary>
-    /// Decide de una pasada qué filas se ven: las que pertenecen a la vista actual («En cola»
-    /// o «Finalizados») Y cuyas carpetas padre están desplegadas. Se hace con dos recorridos
-    /// lineales en vez de preguntar carpeta por carpeta, que con miles de archivos tardaba
-    /// una eternidad en cada repintado.
-    /// </summary>
-    private HashSet<Guid> VisibleRows(List<TransferItem> ordered)
-    {
-        // Paso 1 (de abajo arriba): una carpeta se ve si alguno de sus hijos se ve.
-        var matches = new Dictionary<Guid, bool>(ordered.Count);
-        for (var index = ordered.Count - 1; index >= 0; index--)
-        {
-            var item = ordered[index];
-            bool visible;
-            if (item.Kind == ItemKind.Folder && ChildCount(item) > 0)
-                visible = matches.TryGetValue(item.Id, out var any) && any;
-            else
-                visible = IsFinished(item) == _showFinished;
+            // ¿Alguna carpeta de la cadena está plegada? Entonces la última fila que se ve
+            // es esa carpeta, y el archivo no se dibuja.
+            var depth = chain.Count;
+            var collapsed = false;
+            for (var level = 0; level < chain.Count; level++)
+                if (!chain[level].IsExpanded) { depth = level + 1; collapsed = true; break; }
 
-            matches[item.Id] = visible;
-            if (visible && item.ParentId is not null) matches[item.ParentId.Value] = true;
-        }
+            var common = 0;
+            while (common < depth && common < previous.Count && previous[common].Id == chain[common].Id) common++;
+            for (var level = common; level < depth; level++) result.Add(chain[level]);
 
-        // Paso 2 (de arriba abajo): además, la carpeta que la contiene tiene que estar abierta.
-        var expanded = new Dictionary<Guid, bool>(ordered.Count);
-        var result = new HashSet<Guid>();
-        foreach (var item in ordered)
-        {
-            var parentOpen = true;
-            if (item.ParentId is not null)
-                parentOpen = expanded.TryGetValue(item.ParentId.Value, out var open) && open;
-
-            expanded[item.Id] = parentOpen && item.IsExpanded;
-            if (parentOpen && matches.TryGetValue(item.Id, out var ok) && ok) result.Add(item.Id);
+            previous = chain.GetRange(0, depth);
+            if (collapsed) continue;
+            result.Add(leaf);
         }
         return result;
     }
@@ -598,8 +658,13 @@ public sealed partial class MainForm
         }
     }
 
+    /// <summary>
+    /// Lo seleccionado, SIN repetir: una carpeta puede ocupar varias filas (una por tramo)
+    /// y al seleccionarla se marcan todas, pero es un solo elemento.
+    /// </summary>
     private List<TransferItem> SelectedItems()
-        => _list.SelectedItems.Cast<ListViewItem>().Select(row => row.Tag).OfType<TransferItem>().ToList();
+        => _list.SelectedItems.Cast<ListViewItem>().Select(row => row.Tag).OfType<TransferItem>()
+            .DistinctBy(item => item.Id).ToList();
 
     private List<TransferItem> BasisItems()
     {
@@ -632,19 +697,27 @@ public sealed partial class MainForm
             _list.Items.Clear();
             _rows.Clear();
             // Árbol: CARPETA → SUBCARPETA → ARCHIVO. Cada fila se dibuja con la sangría de su
-            // profundidad, las carpetas se pueden plegar y el reordenado se hace entre
-            // hermanos, sin cambiar nunca la raíz ni la ruta de destino.
+            // profundidad y las carpetas se pueden plegar. El orden es libre: la cabecera de
+            // la carpeta se repite en cada tramo, así que mover un archivo a cualquier sitio
+            // no cambia nunca su raíz ni su ruta de destino.
             var ordered = OrderedTree();
-            var visible = VisibleRows(ordered);
+            var seenFolders = new HashSet<Guid>();
             foreach (var item in ordered)
             {
-                if (!visible.Contains(item.Id)) continue;
-                var row = new ListViewItem(new[] { item.Name, RelativeTargetText(item), item.SizeText, item.StateText, string.Empty, string.Empty, string.Empty })
+                // Una carpeta partida sale una vez por tramo. Para que nadie crea que la
+                // lista se ha duplicado, los tramos siguientes lo dicen.
+                var repeated = item.Kind == ItemKind.Folder && ChildCount(item) > 0 && !seenFolders.Add(item.Id);
+                var label = repeated ? item.Name + "   (sigue)" : item.Name;
+                var row = new ListViewItem(new[] { label, RelativeTargetText(item), item.SizeText, item.StateText, string.Empty, string.Empty, string.Empty })
                 {
                     Tag = item,
-                    ToolTipText = BuildTooltip(item)
+                    ToolTipText = repeated
+                        ? "Mismo grupo de más arriba: aquí siguen más archivos de esta carpeta.\n" + BuildTooltip(item)
+                        : BuildTooltip(item)
                 };
-                _rows[item.Id] = row;
+                // Una carpeta puede salir varias veces (una por tramo). Para desplazarse
+                // hasta ella o seleccionarla vale la PRIMERA de sus filas.
+                if (!_rows.ContainsKey(item.Id)) _rows[item.Id] = row;
                 _list.Items.Add(row);
                 if (selectedIds.Contains(item.Id)) row.Selected = true;
             }
@@ -743,6 +816,19 @@ public sealed partial class MainForm
             {
                 if (row.Tag is TransferItem item) _rows.Remove(item.Id);
                 _list.Items.Remove(row);
+            }
+
+            // Al retirar los archivos ya copiados puede quedarse una cabecera de carpeta sin
+            // nada debajo (su tramo se ha vaciado). Se quita de abajo arriba, que así caen
+            // también las carpetas que solo contenían a esa.
+            for (var index = _list.Items.Count - 1; index >= 0; index--)
+            {
+                if (_list.Items[index].Tag is not TransferItem folder) continue;
+                if (folder.Kind != ItemKind.Folder || ChildCount(folder) == 0) continue;
+                var next = index + 1 < _list.Items.Count
+                    ? _list.Items[index + 1].Tag as TransferItem
+                    : null;
+                if (next is null || next.Depth <= folder.Depth) _list.Items.RemoveAt(index);
             }
         }
         finally { _list.EndUpdate(); }
@@ -1014,7 +1100,7 @@ public sealed partial class MainForm
         foreach (var item in ordered)
             if (MoveBlock(item, delta)) moved++;
 
-        if (moved == 0) { SetStatus("El elemento ya está en el extremo de su carpeta."); return; }
+        if (moved == 0) { SetStatus("No se puede mover más: ya está en el extremo de la lista."); return; }
 
         // Se pasa el elemento movido para que la lista NO salte a otra parte: se queda donde
         // estaba y solo se desplaza si la fila se ha salido de la pantalla.
@@ -1025,35 +1111,173 @@ public sealed partial class MainForm
     }
 
     /// <summary>
-    /// Reordena un elemento una posición arriba o abajo DENTRO DE SU CARPETA. Un archivo se
-    /// mueve entre los archivos de su misma carpeta y una carpeta entre las carpetas de su
-    /// mismo nivel, arrastrando consigo todo su contenido. No se toca ParentId, RelativePath
-    /// ni la raíz: la ruta de destino al copiar es exactamente la misma antes y después.
+    /// Lleva lo seleccionado al principio o al final de la lista de un golpe. Con listas
+    /// largas, pulsar ↑ cuarenta veces no es forma de trabajar.
+    /// </summary>
+    private void MoveSelectedToEdge(bool top)
+    {
+        var selected = SelectedItems();
+        if (selected.Count == 0) { SetStatus("Selecciona un elemento para cambiar su orden."); return; }
+
+        OrderedTree();
+        var leaves = LeafOrder();
+        var block = new HashSet<Guid>();
+        foreach (var item in selected) block.UnionWith(BlockIds(item));
+
+        // Al principio: el primer archivo que NO se mueve marca el sitio. Al final no hay
+        // nada detrás, así que no hay ancla.
+        Guid? anchor = top ? leaves.FirstOrDefault(leaf => !block.Contains(leaf.Id))?.Id : null;
+
+        // En el orden en que se ven: cada uno se mete delante del ancla (o al final), así
+        // que el grupo llega entero y conservando su orden.
+        var order = InVisualOrder(selected);
+
+        var moved = 0;
+        foreach (var item in order)
+            if (MoveBlockBefore(item, anchor)) moved++;
+
+        if (moved == 0) { SetStatus(top ? "Ya está al principio de la lista." : "Ya está al final de la lista."); return; }
+        RebuildRows(order[0].Id);
+        UpdateFooter();
+        UpdateButtons();
+        SetStatus(top ? "Llevado al principio de la lista." : "Llevado al final de la lista.");
+    }
+
+    /// <summary>
+    /// Sube o baja un elemento UNA FILA de las que se ven, vaya donde vaya. Un archivo
+    /// puede cruzar por encima o por debajo de cualquier otro, aunque pertenezca a otra
+    /// carpeta; una carpeta se mueve con todo su contenido, que se junta al moverla.
+    ///
+    /// Lo que NO cambia nunca es la jerarquía: ni ParentId, ni RelativePath, ni la raíz.
+    /// Por eso un archivo que se cuela en medio de otra carpeta sigue copiándose a su
+    /// destino de siempre, y la lista lo enseña con su propia cabecera de carpeta.
     /// </summary>
     private bool MoveBlock(TransferItem item, int delta)
     {
-        // Hermanos = mismo padre. Se usa el orden del árbol para que «arriba» y «abajo»
-        // coincidan con lo que se ve en pantalla.
-        var siblings = OrderedTree()
-            .Where(candidate => candidate.ParentId == item.ParentId)
-            .ToList();
-        // Dentro de un nivel, carpetas y archivos se reordenan entre ellos: es lo natural al
-        // ver el árbol, y así se puede subir una subcarpeta por encima de un archivo suelto.
-        return SwapInVisualOrder(siblings, item, delta);
+        if (delta == 0) return false;
+
+        // OrderedTree() deja al día el recuento de hijos y junta las carpetas plegadas.
+        OrderedTree();
+        var leaves = LeafOrder();
+        var block = BlockIds(item);
+        var others = leaves.Where(leaf => !block.Contains(leaf.Id)).ToList();
+        if (others.Count == 0) return false;
+
+        var rank = new Dictionary<Guid, int>(leaves.Count);
+        for (var index = 0; index < leaves.Count; index++) rank[leaves[index].Id] = index;
+
+        var first = leaves.FindIndex(leaf => block.Contains(leaf.Id));
+        if (first < 0) return false;
+
+        // Posición actual expresada como «delante de la hoja nº anchor de las demás».
+        var anchor = 0;
+        while (anchor < others.Count && rank[others[anchor].Id] < first) anchor++;
+
+        var byId = new Dictionary<Guid, TransferItem>(_items.Count);
+        foreach (var entry in _items) byId[entry.Id] = entry;
+        var target = delta < 0 ? StepBack(others, anchor, byId) : StepForward(others, anchor, byId);
+        if (target < 0 || target == anchor) return false;
+        return MoveBlockBefore(item, target < others.Count ? others[target].Id : null);
     }
 
-    private bool SwapInVisualOrder(List<TransferItem> sequence, TransferItem item, int delta)
+    /// <summary>
+    /// Primera fila VISIBLE antes de <paramref name="anchor"/>. Lo que la vista no enseña
+    /// (archivos ya copiados en «En cola», por ejemplo) se salta sin gastar el paso, y una
+    /// carpeta plegada cuenta como UNA sola fila: se salta entera.
+    /// </summary>
+    private int StepBack(List<TransferItem> others, int anchor, Dictionary<Guid, TransferItem> byId)
     {
-        var index = sequence.IndexOf(item);
-        if (index < 0) return false;
-        var target = index + delta;
-        if (target < 0 || target >= sequence.Count) return false;
+        var index = anchor - 1;
+        while (index >= 0 && IsFinished(others[index]) != _showFinished) index--;
+        if (index < 0) return -1;
 
-        var first = _visualOrder.IndexOf(sequence[index].Id);
-        var second = _visualOrder.IndexOf(sequence[target].Id);
-        if (first < 0 || second < 0) return false;
-        (_visualOrder[first], _visualOrder[second]) = (_visualOrder[second], _visualOrder[first]);
+        var folder = CollapsedOwner(others[index], byId);
+        if (folder is null) return index;
+        while (index > 0 && CollapsedOwner(others[index - 1], byId)?.Id == folder.Id) index--;
+        return index;
+    }
+
+    /// <summary>Primera posición DESPUÉS de la siguiente fila visible.</summary>
+    private int StepForward(List<TransferItem> others, int anchor, Dictionary<Guid, TransferItem> byId)
+    {
+        var index = anchor;
+        while (index < others.Count && IsFinished(others[index]) != _showFinished) index++;
+        if (index >= others.Count) return -1;
+
+        var folder = CollapsedOwner(others[index], byId);
+        if (folder is null) return index + 1;
+        while (index < others.Count && CollapsedOwner(others[index], byId)?.Id == folder.Id) index++;
+        return index;
+    }
+
+    /// <summary>
+    /// Carpeta plegada más externa que contiene a este archivo (o null si se ve suelto).
+    /// Es la fila que el usuario ve en su lugar, y por tanto la unidad que se mueve.
+    /// </summary>
+    private static TransferItem? CollapsedOwner(TransferItem leaf, Dictionary<Guid, TransferItem> byId)
+    {
+        foreach (var folder in ChainOf(leaf, byId))
+            if (!folder.IsExpanded) return folder;
+        return null;
+    }
+
+    /// <summary>Archivos (y carpetas vacías) en el orden visual, sin filtrar por vista.</summary>
+    private List<TransferItem> LeafOrder()
+        => VisualItems().Where(item => ChildCount(item) == 0).ToList();
+
+    /// <summary>
+    /// Pone una colección en el orden de la lista. Es lo que hace que el motor copie en el
+    /// orden que el usuario ha dejado, y no en el que se añadieron los archivos.
+    /// </summary>
+    private List<TransferItem> InVisualOrder(IEnumerable<TransferItem> items)
+    {
+        var rank = new Dictionary<Guid, int>(_visualOrder.Count);
+        for (var index = 0; index < _visualOrder.Count; index++) rank[_visualOrder[index]] = index;
+        return items
+            .OrderBy(item => rank.TryGetValue(item.Id, out var position) ? position : int.MaxValue)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Coloca un elemento —con todo su contenido— justo delante de <paramref name="anchorId"/>,
+    /// o al final si no se indica ninguno. Es el ÚNICO sitio que mueve filas de verdad:
+    /// toca <see cref="_visualOrder"/> y nada más.
+    /// </summary>
+    private bool MoveBlockBefore(TransferItem item, Guid? anchorId)
+    {
+        VisualItems();
+        var block = BlockIds(item);
+        if (anchorId is { } anchor && block.Contains(anchor)) return false;
+
+        var moving = _visualOrder.Where(block.Contains).ToList();
+        if (moving.Count == 0) return false;
+        moving.Remove(item.Id);
+        moving.Insert(0, item.Id);
+
+        var rest = _visualOrder.Where(id => !block.Contains(id)).ToList();
+        var at = rest.Count;
+        if (anchorId is { } target)
+        {
+            var found = rest.IndexOf(target);
+            if (found >= 0) at = found;
+        }
+        if (SameOrder(rest, moving, at)) return false;
+
+        rest.InsertRange(at, moving);
+        _visualOrder.Clear();
+        _visualOrder.AddRange(rest);
         return true;
+    }
+
+    /// <summary>¿El bloque ya estaba exactamente ahí? Entonces no se ha movido nada.</summary>
+    private bool SameOrder(List<Guid> rest, List<Guid> moving, int at)
+    {
+        var before = _visualOrder.IndexOf(moving[0]);
+        if (before < 0) return false;
+        var expected = at < rest.Count ? rest[at] : (Guid?)null;
+        var after = before + moving.Count;
+        var actual = after < _visualOrder.Count ? _visualOrder[after] : (Guid?)null;
+        return expected == actual && _visualOrder.Skip(before).Take(moving.Count).SequenceEqual(moving);
     }
 
     private void RemoveSelected() => RemoveItems(SelectedItems());
@@ -1203,6 +1427,16 @@ public sealed partial class MainForm
         else if (e.KeyCode == Keys.Down && e.Alt)
         {
             MoveSelected(1);
+            e.Handled = true;
+        }
+        else if (e.KeyCode == Keys.Home && e.Alt)
+        {
+            MoveSelectedToEdge(top: true);
+            e.Handled = true;
+        }
+        else if (e.KeyCode == Keys.End && e.Alt)
+        {
+            MoveSelectedToEdge(top: false);
             e.Handled = true;
         }
         else if (e.KeyCode == Keys.Right)
@@ -1512,6 +1746,11 @@ public sealed partial class MainForm
                 .Distinct()
                 .ToList();
 
+            // Se copia EN EL ORDEN DE LA LISTA. Antes se usaba el orden en que se añadieron
+            // los archivos, así que reordenar cambiaba lo que se veía pero no lo que hacía
+            // el motor; ahora subir un archivo lo adelanta de verdad.
+            leaves = InVisualOrder(leaves);
+
             if (leaves.Count == 0)
             {
                 SetStatus("La carpeta está vacía o no se pudo leer. Revisa los permisos.");
@@ -1744,7 +1983,7 @@ public sealed partial class MainForm
             target.Error = null;
         }
 
-        var targets = operation == OperationType.Delete ? deleteTargets : leaves;
+        var targets = operation == OperationType.Delete ? InVisualOrder(deleteTargets) : leaves;
         if (targets.Count == 0) { SetStatus("No hay elementos que transferir."); return; }
 
         var options = new EngineOptions
@@ -1944,8 +2183,14 @@ public sealed partial class MainForm
     private void ListItemDrag(object? sender, ItemDragEventArgs e)
     {
         if (e.Item is not ListViewItem row || row.Tag is not TransferItem item) return;
+
+        // Si se arrastra una fila que forma parte de la selección, se mueven TODAS: antes
+        // se seleccionaban cinco archivos, se arrastraban y solo viajaba uno.
+        var dragging = SelectedItems();
+        if (!dragging.Any(selected => selected.Id == item.Id)) dragging = new List<TransferItem> { item };
+
         var payload = new DataObject();
-        payload.SetData("XoPy.QueueItem", item.Id.ToString("D"));
+        payload.SetData("XoPy.QueueItem", string.Join(";", InVisualOrder(dragging).Select(entry => entry.Id.ToString("D"))));
         _list.DoDragDrop(payload, DragDropEffects.Move);
     }
 
@@ -1963,135 +2208,99 @@ public sealed partial class MainForm
     {
         if (e.Data?.GetDataPresent("XoPy.QueueItem") == true)
         {
-            if (e.Data.GetData("XoPy.QueueItem") is string idText && Guid.TryParse(idText, out var id))
+            if (e.Data.GetData("XoPy.QueueItem") is string idText)
             {
-                var point = _list.PointToClient(new Point(e.X, e.Y));
-                ReorderByDrop(id, point);
+                var ids = idText.Split(';', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(part => Guid.TryParse(part, out var parsed) ? parsed : Guid.Empty)
+                    .Where(parsed => parsed != Guid.Empty)
+                    .ToList();
+                if (ids.Count > 0) ReorderByDrop(ids, _list.PointToClient(new Point(e.X, e.Y)));
             }
             return;
         }
         if (e.Data?.GetDataPresent(DataFormats.FileDrop) == true) DropPaths(e);
     }
 
-    private void ReorderByDrop(Guid draggedId, Point point)
+    /// <summary>
+    /// Suelta el elemento arrastrado DELANTE de la fila donde se soltó (o detrás, si se
+    /// soltó en su mitad de abajo). No hay límites: un archivo puede cruzarse con los de
+    /// cualquier otra carpeta.
+    ///
+    /// Lo único que cambia es el ORDEN. La carpeta de origen, la ruta relativa y la carpeta
+    /// de destino se quedan como estaban: arrastrar una fila nunca cambia dónde se copia un
+    /// archivo, solo cuándo. La lista lo enseña con la cabecera de su propia carpeta, así
+    /// que siempre se ve de dónde sale y a dónde va.
+    /// </summary>
+    private void ReorderByDrop(List<Guid> draggedIds, Point point)
     {
-        var source = _items.FirstOrDefault(item => item.Id == draggedId);
+        var sources = InVisualOrder(_items.Where(item => draggedIds.Contains(item.Id)));
         var targetRow = _list.HitTest(point).Item;
         var target = targetRow?.Tag as TransferItem;
-        if (source is null || target is null || ReferenceEquals(source, target))
-            return;
+        if (sources.Count == 0 || target is null) return;
 
-        // Arrastrar a OTRA carpeta de la lista mueve el elemento a ese grupo: cambia
-        // ParentId y Depth de todo el bloque (archivo o carpeta con su contenido). Es
-        // un reordenamiento de la cola, no un cambio de carpeta de destino en el disco.
-        if (source.ParentId != target.ParentId)
+        var block = new HashSet<Guid>();
+        foreach (var source in sources) block.UnionWith(BlockIds(source));
+        if (block.Contains(target.Id) && sources.Any(source => source.Id == target.Id)) return;
+        if (block.Contains(target.Id))
         {
-            // Si se suelta sobre un archivo, el bloque va al mismo grupo que ese archivo.
-            var newParent = target.Kind == ItemKind.Folder
-                ? target
-                : target.ParentId is { } parentId ? _items.FirstOrDefault(item => item.Id == parentId) : null;
-            if (newParent is not null && (ReferenceEquals(newParent, source) || IsAncestor(source, newParent)))
+            SetStatus("Una carpeta no se puede meter dentro de sí misma.");
+            return;
+        }
+
+        // Se busca el ancla: la primera fila de archivo (o de carpeta plegada o vacía) que
+        // hay a partir del punto donde se soltó. Las cabeceras de carpeta no valen como
+        // ancla porque no ocupan sitio propio: se dibujan delante de sus archivos.
+        var rows = _list.Items.Cast<ListViewItem>().Select(row => row.Tag).OfType<TransferItem>().ToList();
+        var dropIndex = targetRow!.Index;
+        if (point.Y >= targetRow.Bounds.Top + targetRow.Bounds.Height / 2) dropIndex++;
+
+        Guid? anchor = null;
+        for (var index = dropIndex; index < rows.Count; index++)
+        {
+            var candidate = rows[index];
+            if (block.Contains(candidate.Id)) continue;
+            if (ChildCount(candidate) > 0)
             {
-                SetStatus("No se puede mover una carpeta dentro de sí misma.");
-                return;
+                // Carpeta abierta: es solo una cabecera, se mira la fila siguiente. Plegada:
+                // es una fila de verdad, y su primer archivo marca el sitio.
+                if (candidate.IsExpanded) continue;
+                var inside = LeafOrder().FirstOrDefault(leaf => BlockIds(candidate).Contains(leaf.Id));
+                if (inside is null) continue;
+                anchor = inside.Id;
+                break;
             }
-            Reparent(source, target);
+            anchor = candidate.Id;
+            break;
+        }
+
+        var moved = 0;
+        foreach (var source in sources)
+            if (MoveBlockBefore(source, anchor)) moved++;
+
+        if (moved == 0)
+        {
+            SetStatus("La fila ya estaba en ese sitio.");
             return;
         }
 
-        var parent = source.ParentId is null ? null : _items.FirstOrDefault(item => item.Id == source.ParentId.Value);
-        var siblings = parent is null ? RootItems() : Children(parent);
-        var oldIndex = siblings.IndexOf(source);
-        var targetIndex = siblings.IndexOf(target);
-        if (oldIndex < 0 || targetIndex < 0) return;
-        var after = point.Y >= targetRow!.Bounds.Top + targetRow.Bounds.Height / 2;
-        var desired = targetIndex + (after ? 1 : 0);
-        if (oldIndex < desired) desired--;
-        while (oldIndex != desired)
-        {
-            var delta = desired < oldIndex ? -1 : 1;
-            if (!MoveBlock(source, delta)) break;
-            siblings = parent is null ? RootItems() : Children(parent);
-            oldIndex = siblings.IndexOf(source);
-        }
-        RebuildRows();
-        if (_rows.TryGetValue(source.Id, out var row)) row.Selected = true;
-        SetStatus(source.Kind == ItemKind.Folder
-            ? "Carpeta reordenada junto con todo su contenido."
-            : "Archivo reordenado dentro de su carpeta.");
-    }
-
-    /// <summary>¿<paramref name="candidate"/> está dentro de <paramref name="ancestor"/>?</summary>
-    private bool IsAncestor(TransferItem candidate, TransferItem node)
-    {
-        var current = node.ParentId;
-        var guard = 0;
-        while (current is not null && guard++ < 512)
-        {
-            if (current.Value == candidate.Id) return true;
-            current = _items.FirstOrDefault(item => item.Id == current.Value)?.ParentId;
-        }
-        return false;
-    }
-
-    /// <summary>
-    /// Pasa <paramref name="source"/> (con todo su contenido) al grupo de <paramref name="target"/>
-    /// y lo coloca justo donde se soltó. Sirve para pasar de la raíz a una subcarpeta y al revés.
-    /// </summary>
-    private void Reparent(TransferItem source, TransferItem target)
-    {
-        var newParent = target.Kind == ItemKind.Folder
-            ? target
-            : target.ParentId is { } parentId ? _items.FirstOrDefault(item => item.Id == parentId) : null;
-        var depthDelta = (newParent?.Depth + 1 ?? 0) - source.Depth;
-
-        // Se recogen los descendientes ANTES de tocar los parentescos.
-        var block = new List<TransferItem> { source };
-        block.AddRange(Descendants(source));
-
-        source.ParentId = newParent?.Id;
-        foreach (var node in block)
-            node.Depth = Math.Max(0, node.Depth + depthDelta);
-
-        // La ruta relativa manda en la ruta de destino: se recalcula con los nombres reales
-        // para que el bloque se copie dentro de la carpeta nueva y no en la de antes.
-        var origin = _destination?.Text.Trim() ?? string.Empty;
-        void Repath(TransferItem node)
-        {
-            var parent = node.ParentId is { } pid ? _items.FirstOrDefault(item => item.Id == pid) : null;
-            var name = node.Name;
-            if (string.IsNullOrEmpty(name)) return;
-            node.RelativePath = parent is null || string.IsNullOrWhiteSpace(parent.RelativePath)
-                ? name
-                : Path.Combine(parent.RelativePath, name);
-            if (node.Kind == ItemKind.File && origin.Length > 0)
-                node.DestinationPath = Path.Combine(origin, node.RelativePath);
-            foreach (var child in Children(node)) Repath(child);
-        }
-        Repath(source);
-
-        // Se recoloca el bloque completo junto al destino, en el orden de _items.
-        var blockIds = block.Select(item => item.Id).ToHashSet();
-        var remaining = _items.Where(item => !blockIds.Contains(item.Id)).ToList();
-        var targetIndex = remaining.IndexOf(target);
-        if (targetIndex < 0) targetIndex = remaining.Count;
-        remaining.InsertRange(targetIndex, block);
-
-        _items.Clear();
-        _items.AddRange(remaining);
-        ResetVisualOrder();
-        RebuildRows();
-
-        if (newParent is not null && !newParent.IsExpanded)
-        {
-            newParent.IsExpanded = true;
-            RebuildRows();
-        }
-        if (_rows.TryGetValue(source.Id, out var row)) row.Selected = true;
-        SetStatus(newParent is null
-            ? $"«{source.Name}» movido a la raíz de la lista."
-            : $"«{source.Name}» movido dentro de «{newParent.Name}».");
+        RebuildRows(sources[0].Id);
+        foreach (var source in sources)
+            if (_rows.TryGetValue(source.Id, out var row)) row.Selected = true;
         UpdateFooter();
+        var first = sources[0];
+        SetStatus(sources.Count > 1
+            ? $"{Format.Files(sources.Count)} movidos en la lista. Cada uno sigue copiándose a donde iba."
+            : first.Kind == ItemKind.Folder
+                ? $"«{first.Name}» movida con todo su contenido. Se copia al mismo sitio de antes."
+                : $"«{first.Name}» movido en la lista. Se sigue copiando a {FolderOf(first)}.");
+    }
+
+    /// <summary>Carpeta de destino de un archivo, en corto, para contarlo en el pie.</summary>
+    private string FolderOf(TransferItem item)
+    {
+        var relative = item.RelativePath ?? string.Empty;
+        var folder = Path.GetDirectoryName(relative);
+        return string.IsNullOrWhiteSpace(folder) ? "la carpeta de destino" : $"«{folder}»";
     }
 
     private void TogglePause()
@@ -3084,7 +3293,7 @@ public sealed partial class MainForm
         _items.AddRange(new[] { folder, child1, child2, otherFolder, otherChild, a, b });
         RebuildRows();
 
-        // Arrastrar sólo reordena dentro del mismo padre: nunca cambia un archivo de carpeta.
+        // Reordenar NUNCA cambia la jerarquía: solo el orden en que se copia.
         if (!MoveBlock(a, -1) || RootItems().IndexOf(a) != RootItems().IndexOf(b) - 1)
             report.AppendLine("FALLO: no se pudo reordenar un archivo dentro de su mismo nivel.");
         if (!Children(folder).SequenceEqual(new[] { child1, child2 }) || a.ParentId is not null || a.RelativePath != "a.txt" ||
@@ -3153,12 +3362,51 @@ public sealed partial class MainForm
         if (hermanos.Count != 2)
             report.AppendLine("FALLO: reordenar sacó un archivo de su carpeta.");
 
-        // Un archivo no puede saltar de carpeta al moverlo: solo se mueve entre hermanos.
+        // Mover un archivo suelto no lo mete dentro de ninguna carpeta.
         var antesPadreA = a.ParentId;
         MoveBlock(a, 1);
         MoveBlock(a, -1);
         if (a.ParentId != antesPadreA)
             report.AppendLine("FALLO: mover un archivo suelto lo metió dentro de una carpeta.");
+
+        // ---- Orden LIBRE entre carpetas distintas --------------------------------------
+        // Lo que pidió el usuario: un archivo de «Otra» se cuela entre los dos de
+        // «Carpeta». La lista tiene que partir el tramo y repetir la cabecera, para que se
+        // siga viendo de qué carpeta sale cada archivo:
+        //   Carpeta · foto1 · Otra · documento · Carpeta · foto2
+        SortQueue(QueueSortField.Name);
+        var rutaOtro = otherChild.RelativePath;
+        var padreOtro = otherChild.ParentId;
+        if (!MoveBlockBefore(otherChild, child2.Id))
+            report.AppendLine("FALLO: no se pudo cruzar un archivo con los de otra carpeta.");
+        RebuildRows();
+        var cruzado = _list.Items.Cast<ListViewItem>()
+            .Select(row => (row.Tag as TransferItem)?.Name ?? "?").ToList();
+        if (otherChild.ParentId != padreOtro || otherChild.RelativePath != rutaOtro)
+            report.AppendLine("FALLO: cruzar un archivo con otra carpeta le cambió la raíz o el destino.");
+        if (!cruzado.SequenceEqual(new[]
+            { "a.txt", "b.txt", "Carpeta", "foto1.jpg", "Otra", "documento.txt", "Carpeta", "foto2.jpg" }))
+            report.AppendLine("FALLO: la carpeta partida no repite su cabecera en cada tramo: "
+                + string.Join(" · ", cruzado));
+
+        // Y el motor tiene que copiar EN ESE ORDEN, no en el de llegada.
+        var copiaria = InVisualOrder(_items.Where(item => item.Kind == ItemKind.File))
+            .Select(item => item.Name).ToList();
+        if (!copiaria.SequenceEqual(new[] { "a.txt", "b.txt", "foto1.jpg", "documento.txt", "foto2.jpg" }))
+            report.AppendLine("FALLO: el motor no copiaría en el orden de la lista: "
+                + string.Join(" · ", copiaria));
+
+        // Plegar la carpeta partida la vuelve a juntar: si no, los trozos de fuera del
+        // primer tramo no se verían por ninguna parte.
+        folder.IsExpanded = false;
+        RebuildRows();
+        var plegada = _list.Items.Cast<ListViewItem>()
+            .Select(row => (row.Tag as TransferItem)?.Name ?? "?").ToList();
+        if (plegada.Count(name => name == "Carpeta") != 1 || plegada.Contains("foto2.jpg"))
+            report.AppendLine("FALLO: la carpeta plegada no se enseña como una sola fila: "
+                + string.Join(" · ", plegada));
+        folder.IsExpanded = true;
+        RebuildRows();
 
         var before = _items.Count;
         RemoveItems(new[] { child1 });
@@ -3442,8 +3690,8 @@ public sealed partial class MainForm
 
         RebuildRows();
         UpdateFooter();
-        SetStatus($"Archivos ordenados por tamaño {(invert ? "(mayor → menor)" : "(menor → mayor)")} dentro de cada carpeta. " +
-                  "Ni la carpeta de origen ni la de destino cambian.");
+        SetStatus($"Todos los archivos ordenados por tamaño {(invert ? "(mayor → menor)" : "(menor → mayor)")}, " +
+                  "mezclando carpetas. Cada uno conserva su origen y su carpeta de destino.");
     }
 
     private QueueSortField? _lastSortField;

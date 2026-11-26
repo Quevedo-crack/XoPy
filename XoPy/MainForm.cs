@@ -447,6 +447,8 @@ public sealed partial class MainForm : Form
         var queue = new ToolStripMenuItem("Cola");
         queue.DropDownItems.Add(MenuItem("Subir el elemento  (Alt+↑)", (_, _) => MoveSelected(-1)));
         queue.DropDownItems.Add(MenuItem("Bajar el elemento  (Alt+↓)", (_, _) => MoveSelected(1)));
+        queue.DropDownItems.Add(MenuItem("Llevar al principio  (Alt+Inicio)", (_, _) => MoveSelectedToEdge(top: true)));
+        queue.DropDownItems.Add(MenuItem("Llevar al final  (Alt+Fin)", (_, _) => MoveSelectedToEdge(top: false)));
         queue.DropDownItems.Add(new ToolStripSeparator());
         // Un solo submenú «Ordenar» en vez de ocho líneas sueltas: así el menú Cola queda
         // corto y ordenado, como el menú contextual de TeraCopy.
@@ -1384,6 +1386,8 @@ public sealed partial class MainForm : Form
         _listMenu.Items.Add("Expandir / contraer", null, (_, _) => ToggleSelectedFolders());
         _listMenu.Items.Add("Subir", null, (_, _) => MoveSelected(-1));
         _listMenu.Items.Add("Bajar", null, (_, _) => MoveSelected(1));
+        _listMenu.Items.Add("Llevar al principio de la lista", null, (_, _) => MoveSelectedToEdge(top: true));
+        _listMenu.Items.Add("Llevar al final de la lista", null, (_, _) => MoveSelectedToEdge(top: false));
 
         // «Enviar a»: cambio de carpeta de destino de lo seleccionado, igual que en TeraCopy.
         var sendTo = new ToolStripMenuItem("Enviar a");
@@ -1787,6 +1791,12 @@ public sealed partial class MainForm : Form
             var after = _items.Count(item => item.Kind == ItemKind.File);
             report.Add($"quitados={before - after}");
             if (before - after != before) { report.Add("error=no se quitaron todos"); ok = false; }
+
+            // Prueba del ÁRBOL: carpetas con archivos dentro, orden libre entre carpetas,
+            // cabeceras repetidas y plegado. No toca el disco (son rutas inventadas).
+            var arbol = QueueSelfTest();
+            report.Add("arbol=" + arbol.Replace("\r", string.Empty).Replace("\n", " | "));
+            if (!arbol.StartsWith("OK", StringComparison.Ordinal)) ok = false;
         }
         catch (Exception ex)
         {
