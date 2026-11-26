@@ -3,6 +3,7 @@ using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Media;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Windows.Forms;
@@ -2491,8 +2492,10 @@ public sealed partial class MainForm
 
         // Ventana propia: compara los dos archivos lado a lado (tamaño y fecha, con el más
         // nuevo y el más grande señalados) en vez del muro de texto con dos rutas largas.
+        BringUpForPrompt($"conflicto con {Path.GetFileName(prompt.TargetPath)}");
         using var dialog = new ConflictDialog(_palette, prompt);
         var result = dialog.ShowDialog(this);
+        FileLog.Write("La copia continúa: el usuario ya ha contestado al conflicto.");
         var choice = result == DialogResult.OK ? dialog.Choice : 3;
         var applyAll = dialog.ApplyToAll;
 
@@ -2518,8 +2521,32 @@ public sealed partial class MainForm
         }
     }
 
+    /// <summary>
+    /// Saca la ventana al frente ANTES de preguntar. La copia se queda esperando la
+    /// respuesta, así que un cuadro escondido detrás de otras ventanas (o en la bandeja)
+    /// parecía una copia colgada: minutos sin avanzar y sin saber por qué. También queda
+    /// anotado en el registro, para que luego se vea dónde se estuvo esperando.
+    /// </summary>
+    private void BringUpForPrompt(string reason)
+    {
+        FileLog.Write($"La copia se detiene a preguntar ({reason}); esperando respuesta del usuario.");
+        try
+        {
+            SetStatus($"Esperando tu respuesta: {reason}. La copia sigue parada hasta que contestes.");
+            if (!Visible || WindowState == FormWindowState.Minimized) RestoreWindow();
+            Activate();
+            // Un parpadeo en la barra de tareas por si la ventana está detrás de otra cosa.
+            try { FlashWindow(Handle, true); } catch { }
+        }
+        catch { }
+    }
+
+    [DllImport("user32.dll")]
+    private static extern bool FlashWindow(IntPtr hwnd, bool invert);
+
     private ErrorChoice AskError(ErrorPrompt prompt)
     {
+        BringUpForPrompt($"error con {Path.GetFileName(prompt.FilePath)}");
         var choice = PromptDialog.Ask(this, _palette, "Error de transferencia",
             "No se pudo transferir \"" + Path.GetFileName(prompt.FilePath) + "\".",
             prompt.Message + $"\n\nIntento {prompt.Attempt}. Archivo: {prompt.FilePath}",
@@ -3532,10 +3559,21 @@ public sealed partial class MainForm
             "Acerca de XoPy", MessageBoxButtons.OK, MessageBoxIcon.Information);
     }
 
+    /// <summary>
+    /// Enseña un error. CON UNA COPIA EN MARCHA NO SE ABRE NINGÚN CUADRO: se escribe en la
+    /// barra de estado y en el registro. Abrir cuadros mientras se copia es lo que llenaba
+    /// la pantalla de avisos apilados sobre una transferencia en curso y dejaba la ventana
+    /// sin responder hasta cerrarlos uno a uno.
+    /// </summary>
     private void ShowError(string message)
     {
         FileLog.Write("Error mostrado al usuario: " + message);
         SetStatus(message);
+        if (_engine.IsRunning)
+        {
+            FileLog.Write("Aviso mostrado solo en la barra de estado: hay una copia en marcha.");
+            return;
+        }
         try { MessageBox.Show(this, message, "XoPy", MessageBoxButtons.OK, MessageBoxIcon.Error); }
         catch { }
     }

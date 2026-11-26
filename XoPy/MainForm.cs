@@ -2882,7 +2882,10 @@ public sealed partial class MainForm : Form
             await HandleExternalFiles(request.Paths, request.Destination, request.Operation == OperationType.Move);
         else if (!string.IsNullOrWhiteSpace(request.Destination))
         {
-            _destination.Text = request.Destination!;
+            // Mismo cuidado que arriba: con la ventana a medio construir esto era un
+            // «Object reference not set» y la pantalla se llenaba de cuadros de error
+            // encima de una copia que ya estaba corriendo.
+            if (_destination is not null) _destination.Text = request.Destination!;
             UpdateTargetTab();
         }
         if (request.PasteFromClipboard) await PasteFromClipboardAsync(request.Destination);
@@ -2917,7 +2920,7 @@ public sealed partial class MainForm : Form
             {
                 StartTransfer(op.Value);
             }
-            else if (request.AskDestination || string.IsNullOrWhiteSpace(_destination.Text.Trim()))
+            else if (request.AskDestination || string.IsNullOrWhiteSpace(_destination?.Text?.Trim()))
             {
                 PromptDestinationAndStart(op.Value);
             }
