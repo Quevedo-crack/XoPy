@@ -60,8 +60,20 @@ XoPy.exe --multi --copy --to "D:\Copias" "C:\Datos\informe.pdf"
   XoPy reintenta con la copia administrada y con permisos de copia de seguridad.
 - **Cola jerárquica**: al añadir una carpeta se ve la carpeta y dentro cada archivo, con sus
   subcarpetas. Puedes expandirla o contraerla, **reordenar** (botones ↑/↓ o Alt+↑/Alt+↓) sin separar
-  un archivo de su carpeta, **ordenar** por nombre, tamaño, tipo o carpeta de destino (menú Cola o el
-  botón ⇅) y **quitar** elementos de la cola antes de transferir.
+  un archivo de su carpeta, **ordenar** por nombre, tamaño, **fecha de modificación**, carpeta de
+  destino o ruta de origen (menú Cola, menú del botón derecho o el botón ⇅) y **quitar** elementos
+  de la cola antes de transferir.
+- **Ruta completa a la vista**: cada elemento de la lista enseña de qué carpeta del disco sale. Si
+  no cabe, se recorta por el medio (`C:\Users\…\foto.jpg`) y el nombre del archivo siempre se lee.
+  Se puede apagar en Preferencias o con el menú del botón derecho de la lista.
+- **La lista se puede ocultar**: el botón «Ocultar lista» de la barra (o F9) deja solo los botones,
+  el progreso y el pie. El mismo botón, encendido en azul y con el texto «Mostrar lista», es el
+  camino de vuelta: ocultar algo nunca deja la ventana sin forma de recuperarlo.
+- **Multihilo con un clic**: el botón «Multihilo · N» de la barra se enciende en azul cuando está
+  activado y el cambio se aplica al instante, incluso con una copia en marcha.
+- **Pegar empieza solo**: `Ctrl+V` y la opción «Pegar» del menú del Explorador arrancan la copia
+  directamente con lo que haya en el portapapeles, sin cuadros por el medio. Si ya hay una lista
+  empezada con otro destino, se abre una lista nueva para no mezclarlos.
 - **La estructura se conserva**: copiar `C:\Fotos` crea `Destino\Fotos\sub\archivo.jpg`, nunca
   archivos sueltos en la raíz del destino. Las carpetas vacías también se crean.
 - **Varios destinos por tarea**: cada archivo se copia a la vez en el destino principal y en los
@@ -98,6 +110,20 @@ XoPy.exe --multi --copy --to "D:\Copias" "C:\Datos\informe.pdf"
 - **Acciones al terminar**: apagar el equipo, cerrar XoPy o abrir la carpeta de destino.
 - Icono de progreso en el **área de notificación** y modo minimizado.
 - Temas **oscuro** y **claro**.
+
+## Fusión con FlashCopyPro
+
+XoPy incorpora el aspecto y las opciones de [FlashCopyPro](https://github.com/Quevedo-crack/FlashCopyPro),
+el otro gestor de copias de este mismo autor, y resuelve de paso lo que allí faltaba:
+
+| De FlashCopyPro | Cómo queda en XoPy |
+| --- | --- |
+| Paleta oscura de grises neutros, acento azul de Windows 11 e iconos Segoe Fluent | Tema oscuro de toda la aplicación, también en la barra de título y en las barras de desplazamiento de los cuadros |
+| Lista con la ruta completa y recorte por el medio | Columna «Archivo y ruta», con el árbol de carpetas de XoPy encima |
+| No se podía ocultar la lista de copia | Botón «Ocultar lista» / «Mostrar lista» y F9 |
+| No había interruptor de multihilo | Botón «Multihilo · N» que se enciende en azul y se aplica en caliente |
+| «Pegar» del menú abría otro menú en vez de copiar | Pegar arranca directamente con lo que hay en el portapapeles |
+| Ordenar solo por nombre y tamaño | También por fecha de modificación, carpeta de destino y ruta de origen |
 
 ## Novedades de la versión 2.4.6
 
