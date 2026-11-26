@@ -1528,11 +1528,14 @@ public sealed partial class MainForm
             var available = _list.ClientSize.Width - used - 4 - scrollbar;
             if (available < 300)
             {
-                // En ventanas pequeñas se reduce el resto para que quepa el nombre.
-                SetWidth(_list.Columns[1], _settings.ShowFullPath ? 92 : 110);
+                // En ventanas pequeñas se reduce el resto para que quepa el nombre. Con la
+                // ruta completa encendida, la columna «Subcarpeta» se retira del todo: su
+                // dato (la subcarpeta DENTRO del destino) sigue en el globo de ayuda de la
+                // fila, y ese ancho es lo que permite leer la ruta de origen entera.
+                SetWidth(_list.Columns[1], _settings.ShowFullPath ? 0 : 110);
                 SetWidth(_list.Columns[2], 74);
-                SetWidth(_list.Columns[3], 112);
-                SetWidth(_list.Columns[4], 124);
+                SetWidth(_list.Columns[3], _settings.ShowFullPath ? 104 : 112);
+                SetWidth(_list.Columns[4], _settings.ShowFullPath ? 116 : 124);
                 used = _list.Columns[1].Width + _list.Columns[2].Width + _list.Columns[3].Width
                        + _list.Columns[4].Width + _list.Columns[5].Width + _list.Columns[6].Width;
                 available = _list.ClientSize.Width - used - 4 - scrollbar;
