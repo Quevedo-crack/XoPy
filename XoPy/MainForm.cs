@@ -3083,10 +3083,14 @@ public sealed partial class MainForm : Form
             BackColor = _palette.Canvas,
             ForeColor = _palette.Text,
             StartPosition = FormStartPosition.CenterParent,
-            FormBorderStyle = FormBorderStyle.FixedDialog,
+            // Redimensionable: las rutas largas se leen enteras ensanchando el cuadro, que es
+            // mejor que una barra de desplazamiento horizontal (la que salía blanca abajo).
+            FormBorderStyle = FormBorderStyle.Sizable,
             MinimizeBox = false,
             MaximizeBox = false,
-            ClientSize = new Size(600, 380),
+            ShowInTaskbar = false,
+            MinimumSize = new Size(640, 360),
+            ClientSize = new Size(760, 400),
         };
 
         var verb = move ? "mover" : "copiar";
@@ -3095,7 +3099,7 @@ public sealed partial class MainForm : Form
             : detectedDestination;
         var message = new Label
         {
-            Text = $"{files.Count} elemento(s) listos para {verb}.\nDestino detectado: {destinoTexto}",
+            Text = $"{Format.Files(files.Count)} {Format.Plural(files.Count, "listo", "listos")} para {verb}.\nDestino detectado: {destinoTexto}",
             AutoSize = false,
             Dock = DockStyle.Fill,
             Padding = new Padding(16, 14, 16, 0),
@@ -3104,15 +3108,21 @@ public sealed partial class MainForm : Form
             Font = new Font("Segoe UI", 9.5f),
         };
 
-        var options = new FlowLayoutPanel
+        // Una columna que ocupa TODO el ancho y crece hacia abajo. Antes era un
+        // FlowLayoutPanel con desplazamiento en las dos direcciones: las líneas largas
+        // sacaban una barra horizontal que el tema oscuro pintaba de blanco (la franja
+        // blanca del fondo del cuadro) y además cortaban el texto por la derecha.
+        var options = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            FlowDirection = FlowDirection.TopDown,
+            ColumnCount = 1,
             AutoScroll = true,
             Padding = new Padding(12, 8, 12, 8),
             BackColor = _palette.Canvas,
             AutoSize = false,
         };
+        options.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        var optionTips = new ToolTip { AutoPopDelay = 20000, InitialDelay = 400 };
 
         var defaultDestination = detectedDestination;
         var sameDestination = _activeList is not null
@@ -3122,44 +3132,47 @@ public sealed partial class MainForm : Form
         TransferList? chosen = null;
         Action? RefreshAddButton = null;
 
-        void AddOption(TransferList list, bool changeToDetected, string text)
+        // Las casillas se crean SIN marcar y se añaden al cuadro; la marca se pone al final,
+        // en una sola de ellas. Marcarlas al construirlas (antes de tener padre) saltaba el
+        // «solo una a la vez» de Windows y salían DOS opciones marcadas a la vez.
+        var choices = new List<RadioButton>();
+
+        RadioButton AddOption(TransferList? list, string text, bool bold = false)
         {
             var rb = new RadioButton
             {
                 Text = text,
-                AutoSize = true,
-                Margin = new Padding(4, 6, 4, 2),
+                AutoSize = false,
+                Dock = DockStyle.Fill,
+                Height = 30,
+                Margin = new Padding(4, 3, 4, 3),
                 ForeColor = _palette.Text,
                 BackColor = _palette.Canvas,
-                Font = new Font("Segoe UI", 9f),
-                Checked = list == _activeList && sameDestination && !changeToDetected,
+                Font = new Font("Segoe UI", 9f, bold ? FontStyle.Bold : FontStyle.Regular),
+                // El texto que no quepa se corta con puntos suspensivos y se lee entero en
+                // el globo de ayuda: así el cuadro nunca saca barra de desplazamiento lateral.
+                AutoEllipsis = true,
+                UseMnemonic = false
             };
+            optionTips.SetToolTip(rb, text);
             rb.CheckedChanged += (_, _) =>
             {
                 if (!rb.Checked) return;
                 chosen = list;
                 RefreshAddButton?.Invoke();
             };
-            options.Controls.Add(rb);
+            options.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
+            options.Controls.Add(rb, 0, choices.Count);
+            choices.Add(rb);
+            return rb;
         }
 
         // LISTA NUEVA primero y marcada por defecto: es lo que menos sorprende y lo que el
         // usuario pide cuando arrastra algo mientras ya hay una copia en marcha.
         var nueva = new TransferList { Name = $"Lista de copia {_lists.Count + 1}", Destination = detectedDestination };
-        var newOption = new RadioButton
-        {
-            Text = $"Abrir en una lista NUEVA (destino: {destinoTexto})",
-            AutoSize = true,
-            Margin = new Padding(4, 6, 4, 10),
-            ForeColor = _palette.Text,
-            BackColor = _palette.Canvas,
-            Font = new Font("Segoe UI", 9f, FontStyle.Bold),
-            Checked = true,
-        };
-        newOption.CheckedChanged += (_, _) => { if (newOption.Checked) { chosen = nueva; RefreshAddButton?.Invoke(); } };
-        options.Controls.Add(newOption);
-        options.Controls.SetChildIndex(newOption, 0);
+        var newOption = AddOption(nueva, $"Abrir en una lista NUEVA (destino: {destinoTexto})", bold: true);
         chosen = nueva;
+        RadioButton? preferred = null;
 
         // Enumerable.Reverse: List<T>.Reverse() invierte la lista EN EL SITIO y devuelve void
         // (reordenaría de verdad las listas del usuario).
@@ -3171,15 +3184,20 @@ public sealed partial class MainForm : Form
             // archivos, que es justo lo que pedía el usuario.
             var running = _engine.IsRunning && list == _runningList;
             var estado = TransferList.StageText(list.Stage(running, running && _engine.IsPaused));
-            AddOption(list, false,
+            var option = AddOption(list,
                 $"Añadir a «{list.DisplayName}»  [{estado}]  ·  destino: {list.Destination}"
                 + (same ? "  · mismo destino" : string.Empty));
+            if (list == _activeList && sameDestination) preferred = option;
             if (!same)
             {
-                AddOption(list, true,
+                AddOption(list,
                     $"Añadir a «{list.DisplayName}» cambiando su destino a: {detectedDestination}");
             }
         }
+
+        // UNA SOLA MARCA, y siempre después de que todas tengan padre.
+        foreach (var rb in choices) rb.Checked = false;
+        (preferred ?? newOption).Checked = true;
 
         var buttons = new FlowLayoutPanel
         {
@@ -3191,17 +3209,11 @@ public sealed partial class MainForm : Form
             AutoSizeMode = AutoSizeMode.GrowAndShrink,
         };
 
-        var cancel = new Button { Text = "Cancelar", Width = 96, Height = 32, DialogResult = DialogResult.Cancel };
-        var add = new Button
-        {
-            Text = $"Añadir a «{(chosen?.DisplayName ?? "la lista")}»",
-            Width = 220, Height = 32,
-            BackColor = _palette.Accent,
-            ForeColor = Color.White,
-            FlatStyle = FlatStyle.Flat,
-            Font = new Font("Segoe UI", 9f, FontStyle.Bold),
-        };
-        add.FlatAppearance.BorderSize = 0;
+        var cancel = Ui.DialogButton("Cancelar", _palette);
+        cancel.Width = 110;
+        cancel.DialogResult = DialogResult.Cancel;
+        var add = Ui.DialogButton($"Añadir a «{(chosen?.DisplayName ?? "la lista")}»", _palette, primary: true);
+        add.Width = 230;
         // El botón dice exactamente lo que va a pasar, para no dejar dudas entre «lista
         // actual» y «lista nueva».
         void SyncAddButton()
@@ -3243,6 +3255,7 @@ public sealed partial class MainForm : Form
             Ui.DarkScrollbars(dlg, _palette);
         };
         using (dlg)
+        using (optionTips)
         {
             if (dlg.ShowDialog(this) != DialogResult.OK) return null;
         }

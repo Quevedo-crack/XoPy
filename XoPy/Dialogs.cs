@@ -85,20 +85,33 @@ internal sealed class PromptDialog : Form
             Margin = new Padding(0, 0, 0, 8)
         };
 
+        var detailText = (detail ?? string.Empty).Replace("\r\n", "\n").Replace("\n", "\r\n");
+        var detailFont = new Font("Segoe UI", 8.25f);
+        // El alto se MIDE con el texto real. Antes eran 76 px fijos: el mensaje salía
+        // recortado y, encima, con la barra de desplazamiento bajada, así que se leía por la
+        // mitad («…bloqueado, activa Copiar archivos bloqueados en Opciones»).
+        var detailHeight = 76;
+        try
+        {
+            var measured = TextRenderer.MeasureText(detailText, detailFont, new Size(548, 0),
+                TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix);
+            detailHeight = Math.Clamp(measured.Height + 16, 48, 260);
+        }
+        catch { }
         var detailBox = new TextBox
         {
-            Text = (detail ?? string.Empty).Replace("\r\n", "\n").Replace("\n", "\r\n"),
+            Text = detailText,
             Multiline = true,
             ReadOnly = true,
             WordWrap = true,
             ScrollBars = ScrollBars.Vertical,
             Dock = DockStyle.None,
-            Size = new Size(560, 76),
+            Size = new Size(560, detailHeight),
             TabStop = false,
             BorderStyle = BorderStyle.FixedSingle,
             BackColor = palette.SurfaceAlt,
             ForeColor = palette.Muted,
-            Font = new Font("Segoe UI", 8.25f),
+            Font = detailFont,
             Margin = new Padding(0, 0, 0, 10)
         };
         if (string.IsNullOrEmpty(detail)) detailBox.Visible = false;
@@ -147,7 +160,18 @@ internal sealed class PromptDialog : Form
         layout.Controls.Add(buttonRow, 0, 4);
         Controls.Add(layout);
 
-        Shown += (_, _) => { detailBox.Select(0, 0); ActiveControl = null; };
+        // Siempre empezando por la PRIMERA línea del detalle.
+        Shown += (_, _) =>
+        {
+            try
+            {
+                detailBox.SelectionStart = 0;
+                detailBox.SelectionLength = 0;
+                NativeTheme.ScrollToTop(detailBox);
+            }
+            catch { }
+            ActiveControl = null;
+        };
         AcceptButton = buttonRow.Controls.Count > 0 ? buttonRow.Controls[buttonRow.Controls.Count - 1] as Button : null;
         CancelButton = buttonRow.Controls.Count > 0 ? buttonRow.Controls[0] as Button : null;
     }
@@ -281,6 +305,10 @@ internal sealed class OptionsDialog : Form
             ItemSize = new Size(112, 30),
             Padding = new Point(12, 6),
             DrawMode = TabDrawMode.OwnerDrawFixed,
+            // EN VARIAS FILAS. Con ocho pestañas en una sola fila no cabían y Windows ponía
+            // dos flechitas para ir pasándolas de una en una: no se veía dónde estaba cada
+            // cosa. Ahora se ven TODAS a la vez, repartidas en dos renglones.
+            Multiline = true,
             Font = new Font("Segoe UI", 9f)
         };
         _tabs.DrawItem += DrawTab;
@@ -631,6 +659,18 @@ internal sealed class OptionsDialog : Form
         Margin = new Padding(0, 2, 0, 6)
     };
 
+    /// <summary>Texto de presentación de una pestaña: dice para qué sirve lo que hay debajo.</summary>
+    private Label Intro(string text) => new()
+    {
+        Text = text,
+        AutoSize = true,
+        MaximumSize = new Size(560, 0),
+        ForeColor = _palette.Muted,
+        Font = new Font("Segoe UI", 8.75f),
+        BackColor = Color.Transparent,
+        Margin = new Padding(0, 0, 0, 10)
+    };
+
     private Label Hint(string text) => new()
     {
         Text = text,
@@ -707,8 +747,37 @@ internal sealed class OptionsDialog : Form
         // principal (tema, sonido al terminar y abrir el destino) no se pueden repetir aquí
         // porque al añadirlos otra vez desaparecen de una de las dos pantallas. Es lo que
         // dejaba «Tema de la interfaz» como un rótulo suelto sin su desplegable.
+        // La caja del destino con su botón «Examinar…»: escribir una ruta a mano era la
+        // única forma de rellenarla y la pestaña se veía medio vacía.
+        var destinationRow = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            RowCount = 1,
+            BackColor = _palette.Canvas,
+            Margin = new Padding(0)
+        };
+        destinationRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        destinationRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 124));
+        _destination.Dock = DockStyle.Fill;
+        _destination.Margin = new Padding(0, 2, 8, 2);
+        var browseDestination = Ui.DialogButton("Examinar…", _palette);
+        browseDestination.Dock = DockStyle.Fill;
+        browseDestination.Margin = new Padding(0, 2, 0, 2);
+        browseDestination.Click += (_, _) =>
+        {
+            using var dialog = new FolderBrowserDialog { Description = "Carpeta de destino predeterminada" };
+            if (!string.IsNullOrWhiteSpace(_destination.Text) && Directory.Exists(_destination.Text.Trim()))
+                dialog.SelectedPath = _destination.Text.Trim();
+            if (dialog.ShowDialog(this) == DialogResult.OK) _destination.Text = dialog.SelectedPath;
+        };
+        destinationRow.Controls.Add(_destination, 0, 0);
+        destinationRow.Controls.Add(browseDestination, 1, 0);
+
         _tabs.TabPages.Add(Page("Destino predeterminado", 3,
-            ("Carpeta de destino predeterminada", _destination, 48),
+            ("", Intro("La carpeta que XoPy propone al copiar cuando todavía no se ha elegido ninguna. " +
+                       "Si se deja vacía, XoPy pregunta a dónde copiar cada vez."), 0),
+            ("Carpeta de destino predeterminada", destinationRow, 48),
             ("", _confirmDelete, 40),
             ("", _startMinimized, 40)));
 
@@ -755,6 +824,8 @@ internal sealed class OptionsDialog : Form
         extraPanel.Controls.Add(extraButtons, 0, 1);
 
         _tabs.TabPages.Add(Page("Transferencia", 11,
+            ("", Intro("Cómo copia XoPy: cuántos archivos a la vez, qué motor usa y qué hace con las fechas, " +
+                       "la papelera y los archivos en uso. Lo de fábrica va bien para casi todo."), 0),
             ("", _multiThread, 32),
             ("Hilos en paralelo (solo con multihilo)", _parallel, 44),
             ("Búfer por archivo (KiB)", _buffer, 44),
@@ -800,6 +871,8 @@ internal sealed class OptionsDialog : Form
         _tabs.TabPages.Add(verifyPage);
 
         _tabs.TabPages.Add(Page("Conflictos", 3,
+            ("", Intro("Qué hacer cuando el archivo ya está en el destino o cuando algo falla. " +
+                       "Con «Preguntar», XoPy enseña los dos archivos y decides tú."), 0),
             ("Si el archivo ya existe", _conflict, 48),
             ("Si aparece un error", _onError, 48),
             ("Reintentos por archivo", _retries, 48)));
@@ -824,6 +897,7 @@ internal sealed class OptionsDialog : Form
         // principal de Preferencias (sección «Al finalizar»): repetirlos aquí los borraba
         // de allí y dejaba esta página con filas vacías.
         _tabs.TabPages.Add(Page("Al terminar", 3,
+            ("", Intro("Qué pasa cuando la copia acaba y qué hacer si se pide otra copia mientras hay una en marcha."), 0),
             ("", _closeWhenDone, 42),
             ("", _shutdown, 42),
             ("", _askWhenBusy, 42)));
@@ -1603,8 +1677,9 @@ internal sealed class ConflictDialog : Form
         MinimizeBox = false;
         MaximizeBox = false;
         ShowInTaskbar = false;
-        // Ancho suficiente para las cuatro respuestas en una sola fila.
-        ClientSize = new Size(680, 356);
+        // Ancho suficiente para las cuatro respuestas en una sola fila, ya con la coletilla
+        // «(recomendado)» en la que no se pierde nada.
+        ClientSize = new Size(792, 356);
         KeyPreview = true;
 
         var newer = prompt.SourceModified > prompt.TargetModified ? 1
@@ -1666,9 +1741,9 @@ internal sealed class ConflictDialog : Form
         };
         compare.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
         compare.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-        compare.Controls.Add(Card(palette, "El que vas a copiar", prompt.SourcePath,
+        compare.Controls.Add(Card(palette, _tips, "El que vas a copiar", prompt.SourcePath,
             prompt.SourceSize, prompt.SourceModified, newer == 1, bigger == 1), 0, 0);
-        compare.Controls.Add(Card(palette, "El que ya está en el destino", prompt.TargetPath,
+        compare.Controls.Add(Card(palette, _tips, "El que ya está en el destino", prompt.TargetPath,
             prompt.TargetSize, prompt.TargetModified, newer == 2, bigger == 2), 1, 0);
 
         _applyAll = new CheckBox
@@ -1690,9 +1765,16 @@ internal sealed class ConflictDialog : Form
             Margin = new Padding(0, 4, 0, 0)
         };
 
-        Button Make(string text, string tip, int choice, bool accent = false)
+        // CADA RESPUESTA CON SU COLOR. Antes los cuatro botones eran iguales y había que
+        // leerlos uno a uno: ahora el color dice de un vistazo qué hace cada uno —azul el
+        // recomendado (no se pierde nada), rojo el que BORRA el archivo del destino, gris
+        // el que no toca nada y apagado el que detiene la copia entera.
+        Button Make(string text, string tip, int choice, Color back, Color fore)
         {
-            var button = Ui.DialogButton(text, palette, accent);
+            var button = Ui.DialogButton(text, palette);
+            button.BackColor = back;
+            button.ForeColor = fore;
+            button.FlatAppearance.MouseOverBackColor = Ui.Lighten(back, 22);
             // El ancho se MIDE con la fuente del botón: con 128 fijos, «Quedarme con los
             // dos» se quedaba en «Quedarme con los».
             button.Width = Math.Max(118, TextRenderer.MeasureText(text, button.Font).Width + 26);
@@ -1704,10 +1786,14 @@ internal sealed class ConflictDialog : Form
 
         // Orden de izquierda a derecha en pantalla: Cancelar · Omitir · Copiar las dos ·
         // Reemplazar. El botón resaltado es el que menos daño hace.
-        var replace = Make("Reemplazar", "Borra el archivo del destino y pone el nuevo en su sitio.", 0);
-        var skip = Make("No copiar este", "Deja el destino como está y pasa al siguiente archivo.", 1);
-        var both = Make("Quedarme con los dos", "Copia el nuevo con un nombre distinto; no se pierde ninguno.", 2, accent: true);
-        var cancel = Make("Cancelar la copia", "Detiene la transferencia completa.", 3);
+        var replace = Make("Reemplazar", "BORRA el archivo del destino y pone el nuevo en su sitio. Lo que había se pierde.",
+            0, palette.Danger, Color.White);
+        var skip = Make("No copiar este", "Deja el destino como está y pasa al siguiente archivo.",
+            1, palette.Raised, palette.Text);
+        var both = Make("Quedarme con los dos  (recomendado)", "Copia el nuevo con un nombre distinto; no se pierde ninguno.",
+            2, palette.Accent, Color.White);
+        var cancel = Make("Cancelar la copia", "Detiene la transferencia completa.",
+            3, palette.SurfaceAlt, palette.Muted);
 
         buttons.Controls.Add(replace);
         buttons.Controls.Add(skip);
@@ -1740,7 +1826,7 @@ internal sealed class ConflictDialog : Form
     }
 
     /// <summary>Tarjeta con los datos de uno de los dos archivos.</summary>
-    private static Control Card(Palette palette, string title, string path, long size, DateTime modified,
+    private static Control Card(Palette palette, ToolTip tips, string title, string path, long size, DateTime modified,
         bool isNewer, bool isBigger)
     {
         var card = new TableLayoutPanel
@@ -1785,7 +1871,9 @@ internal sealed class ConflictDialog : Form
 
         var folderLabel = Line(folder, 8.25f, palette.Muted);
         folderLabel.TextAlign = ContentAlignment.TopLeft;
-        new ToolTip().SetToolTip(folderLabel, path);
+        // El globo con la ruta se cuelga del cuadro (antes se creaba un ToolTip suelto que
+        // nadie liberaba y se quedaba flotando en medio de la ventana).
+        tips.SetToolTip(folderLabel, path);
         card.Controls.Add(folderLabel, 0, 4);
         return card;
     }

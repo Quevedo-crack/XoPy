@@ -650,6 +650,23 @@ internal static class NativeTheme
 
     [System.Runtime.InteropServices.DllImport("uxtheme.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
     internal static extern int SetWindowTheme(IntPtr hwnd, string appName, string? idList);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Auto)]
+    private static extern IntPtr SendMessage(IntPtr hwnd, int message, IntPtr wParam, IntPtr lParam);
+
+    private const int WM_VSCROLL = 0x0115;
+    private const int SB_TOP = 6;
+
+    /// <summary>
+    /// Sube del todo un cuadro de texto de varias líneas. Poner el cursor en la posición 0
+    /// no basta si el control no tiene el foco: el texto se quedaba enseñando el final.
+    /// </summary>
+    internal static void ScrollToTop(Control control)
+    {
+        if (control is null || !control.IsHandleCreated) return;
+        try { SendMessage(control.Handle, WM_VSCROLL, new IntPtr(SB_TOP), IntPtr.Zero); }
+        catch { }
+    }
 }
 
 internal sealed class MenuColors : ProfessionalColorTable
