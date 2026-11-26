@@ -1162,6 +1162,22 @@ public sealed partial class MainForm
         _list.SelectedItems[0].BeginEdit();
     }
 
+    /// <summary>
+    /// Atajos de toda la ventana. F9 oculta y muestra la lista de archivos: existe aparte
+    /// del menú porque la barra de menús viene escondida de fábrica y los atajos de un
+    /// MenuStrip invisible no siempre llegan. Es la tercera puerta de salida (botón, menú
+    /// y teclado) para que ocultar la lista nunca deje al usuario encerrado.
+    /// </summary>
+    protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+    {
+        if (keyData == Keys.F9)
+        {
+            ToggleCompactView();
+            return true;
+        }
+        return base.ProcessCmdKey(ref msg, keyData);
+    }
+
     private void ListKeyDown(object? sender, KeyEventArgs e)
     {
         if (e.KeyCode == Keys.A && e.Control)
@@ -1782,13 +1798,10 @@ public sealed partial class MainForm
             return;
         }
 
-        // Al empezar una copia la ventana pasa sola a su versión reducida (como TeraCopy):
-        // antes había que pulsar «Ocultar» a mano y el usuario veía la ventana completa.
-        // Solo si el usuario no la había dejado ya reducida, para no pelearse con su elección.
-        if (!_compactView && !IsDisposed && IsHandleCreated)
-        {
-            try { ApplyCompactView(true, persist: false); } catch { }
-        }
+        // La ventana se queda COMO LA HAYA DEJADO EL USUARIO. Antes se reducía sola al
+        // empezar a copiar; ahora que la vista reducida esconde de verdad la lista de
+        // archivos, hacerlo solo equivaldría a quitarle la lista de delante justo cuando
+        // más la mira. Ocultarla es una decisión suya (botón «Ocultar lista» o F9).
         // Si el arranque fue en la bandeja y el usuario acaba de lanzar una copia desde el
         // Explorador, la ventana debe aparecer para que vea el progreso.
         if (!Visible)
@@ -1852,32 +1865,43 @@ public sealed partial class MainForm
     private void UpdateMultiThreadButton()
     {
         if (_multiThreadButton is null) return;
+        var on = _settings.MultiThreadCopy;
         _multiThreadButton.Text = MultiThreadLabel();
         _multiThreadButton.ToolTipText = MultiThreadTooltip();
-        // Activado: fondo de acento y rayo blanco; desactivado: apagado. Además del color, el
-        // TEXTO cambia («Multihilo · N» / «Un archivo a la vez»), que se ve sin depender del tema.
-        _multiThreadButton.BackColor = _settings.MultiThreadCopy ? _palette.Accent : _palette.Surface;
-        _multiThreadButton.ForeColor = _settings.MultiThreadCopy ? Color.White : _palette.Muted;
-        _multiThreadButton.Image = Icons.Glyph(Icons.Lightning,
-            _settings.MultiThreadCopy ? Color.White : _palette.Muted, 18);
+        _multiThreadButton.AccessibleName = MultiThreadTooltip();
+        // El estado se nota de TRES formas a la vez, que es lo que pedía el usuario:
+        //   · el texto           «Multihilo · 4»  frente a  «Multihilo: no»
+        //   · el fondo           azul de acento   frente a  apagado
+        //   · el rayo            blanco encendido frente a  gris
+        _multiThreadButton.BackColor = on ? _palette.Accent : _palette.Surface;
+        _multiThreadButton.ForeColor = on ? Color.White : _palette.Muted;
+        _multiThreadButton.Image = Icons.Glyph(Icons.Lightning, on ? Color.White : _palette.Muted, 18);
+        _multiThreadButton.Font = on ? _barFontBold : _barFont;
     }
 
     private string MultiThreadLabel() =>
-        _settings.MultiThreadCopy ? $"Multihilo · {_settings.Parallelism}" : "Un archivo a la vez";
+        _settings.MultiThreadCopy ? $"Multihilo · {_settings.Parallelism}" : "Multihilo: no";
 
     private string MultiThreadTooltip() => _settings.MultiThreadCopy
-        ? $"Multihilo activado: {_settings.Parallelism} archivos copiándose a la vez. Pulsa para copiar de uno en uno (el número de hilos se ajusta en Preferencias)."
-        : "Un archivo a la vez. Pulsa para activar el multihilo (el número de hilos se ajusta en Preferencias).";
+        ? $"Multihilo ACTIVADO: {_settings.Parallelism} archivos copiándose a la vez. Pulsa para copiar de uno en uno (el número de hilos se ajusta en Preferencias)."
+        : "Multihilo APAGADO: un archivo cada vez. Pulsa para activarlo (el número de hilos se ajusta en Preferencias).";
 
-    /// <summary>Activa o desactiva el multihilo con un solo clic y refleja el cambio.</summary>
+    /// <summary>
+    /// Activa o desactiva el multihilo con un solo clic y refleja el cambio. Si hay una
+    /// copia en marcha el cambio se aplica EN CALIENTE: el motor sube o baja el número de
+    /// archivos simultáneos sin parar la transferencia.
+    /// </summary>
     private void ToggleMultiThread()
     {
         _settings.MultiThreadCopy = !_settings.MultiThreadCopy;
         _store.Save(_settings);
         UpdateMultiThreadButton();
+        var threads = _settings.MultiThreadCopy ? Math.Clamp(_settings.Parallelism, 1, 16) : 1;
+        try { _engine.SetParallelism(threads); }
+        catch { }
         SetStatus(_settings.MultiThreadCopy
-            ? $"Multihilo activado ({_settings.Parallelism} archivos a la vez)."
-            : "Modo secuencial: un archivo a la vez.");
+            ? $"Multihilo activado: {threads} archivos a la vez."
+            : "Multihilo apagado: un archivo cada vez.");
     }
 
 
@@ -2945,6 +2969,14 @@ public sealed partial class MainForm
         ApplyCopierReplacement();
         SetJobsVisible(_settings.ShowJobs, persist: false);
         UpdateHashColumns();
+        UpdateMultiThreadButton();
+        // La ruta completa puede haber cambiado en Preferencias: cabecera y filas al día.
+        if (_list is not null)
+        {
+            _list.Columns[0].Text = _settings.ShowFullPath ? "Archivo (ruta completa)" : "Nombre";
+            _list.Invalidate();
+        }
+        if (_fullPathMenuItem is not null) _fullPathMenuItem.Checked = _settings.ShowFullPath;
         UpdateButtons();
         UpdateFooter();
         UpdateTargetTab();
@@ -3272,7 +3304,30 @@ public sealed partial class MainForm
         LoadQueueSnapshot(_store.LastQueueFile, startAfterLoad: true);
     }
 
-    private enum QueueSortField { Name, Size, FolderSize, Type, Destination, Source, State, AllSize }
+    private enum QueueSortField { Name, Size, FolderSize, Type, Destination, Source, State, AllSize, Modified }
+
+    /// <summary>
+    /// Fecha de modificación del origen, en caché. Se lee del disco una vez por elemento:
+    /// preguntarle al sistema de archivos en cada comparación convertía una ordenación de
+    /// 3.000 filas en miles de accesos a disco.
+    /// </summary>
+    private readonly Dictionary<string, DateTime> _modifiedCache = new(StringComparer.OrdinalIgnoreCase);
+
+    private DateTime ModifiedOf(TransferItem item)
+    {
+        var path = item.SourcePath;
+        if (string.IsNullOrEmpty(path)) return DateTime.MinValue;
+        if (_modifiedCache.TryGetValue(path, out var cached)) return cached;
+        var stamp = DateTime.MinValue;
+        try
+        {
+            if (File.Exists(path)) stamp = File.GetLastWriteTimeUtc(path);
+            else if (Directory.Exists(path)) stamp = Directory.GetLastWriteTimeUtc(path);
+        }
+        catch { }
+        _modifiedCache[path] = stamp;
+        return stamp;
+    }
 
     private void SortQueue(QueueSortField field, bool invert = false)
     {
@@ -3301,6 +3356,7 @@ public sealed partial class MainForm
             QueueSortField.Destination => (left, right) => string.Compare(DestinationKey(left), DestinationKey(right), StringComparison.OrdinalIgnoreCase),
             QueueSortField.Source => (left, right) => string.Compare(SourceKey(left), SourceKey(right), StringComparison.OrdinalIgnoreCase),
             QueueSortField.State => (left, right) => left.State.CompareTo(right.State),
+            QueueSortField.Modified => (left, right) => ModifiedOf(left).CompareTo(ModifiedOf(right)),
             _ => (left, right) => StringComparer.OrdinalIgnoreCase.Compare(left.Name, right.Name)
         };
         int Order(TransferItem left, TransferItem right) => invert ? comparison(right, left) : comparison(left, right);
@@ -3340,6 +3396,7 @@ public sealed partial class MainForm
             QueueSortField.Destination => "carpeta de destino",
             QueueSortField.Source => "carpeta de origen",
             QueueSortField.State => "estado",
+            QueueSortField.Modified => "fecha de modificación",
             _ => "nombre"
         };
         SetStatus($"Cola ordenada por {label}{(invert ? " (descendente)" : string.Empty)}. Las carpetas conservan sus archivos.");
@@ -3795,6 +3852,8 @@ public sealed partial class MainForm
             _pasteHook?.Dispose();
             _pasteHook = null;
             _destination?.Dispose();
+            _barFont.Dispose();
+            _barFontBold.Dispose();
         }
         base.Dispose(disposing);
     }

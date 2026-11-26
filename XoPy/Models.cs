@@ -216,6 +216,23 @@ public sealed class AppSettings
     public bool CompactView { get; set; }
     public bool ReplaceWindowsCopier { get; set; } = true;
     public bool AskWhenBusy { get; set; } = true;
+
+    /// <summary>
+    /// Falso (lo normal): al pegar con Ctrl+V o con «Pegar» del menú del Explorador, XoPy
+    /// arranca DIRECTAMENTE con lo que haya en el portapapeles. Verdadero: antes de empezar
+    /// pregunta en qué lista van los archivos. El usuario pidió que pegar sea inmediato.
+    /// </summary>
+    public bool AskWhenPasting { get; set; }
+
+    /// <summary>
+    /// La lista enseña la ruta completa de cada origen («C:\Users\...\foto.jpg») además del
+    /// nombre. Viene de FlashCopyPro, donde cada fila muestra la ruta entera.
+    /// </summary>
+    public bool ShowFullPath { get; set; } = true;
+
+    /// <summary>Lista de archivos a la vista. Se oculta con el botón «Ocultar lista».</summary>
+    public bool ShowList { get; set; } = true;
+
     public List<string> Favorites { get; set; } = new();
 
     // Opciones con equivalente en TeraCopy (todas se aplican de forma conservadora).

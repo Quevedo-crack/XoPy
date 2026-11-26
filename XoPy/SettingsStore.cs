@@ -59,6 +59,17 @@ public sealed class SettingsStore
             migrated = true;
         }
 
+        if (settings.SettingsVersion < 4)
+        {
+            // Fusión con FlashCopyPro: pegar empieza SOLO, sin cuadro intermedio, y la lista
+            // arranca visible enseñando la ruta completa de cada archivo.
+            settings.AskWhenPasting = false;
+            settings.ShowFullPath = true;
+            settings.ShowList = true;
+            settings.SettingsVersion = 4;
+            migrated = true;
+        }
+
         settings.Favorites ??= new List<string>();
         settings.ExtraDestinations ??= new List<string>();
         settings.ExtraDestinations = settings.ExtraDestinations

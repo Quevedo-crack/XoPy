@@ -12,9 +12,13 @@ namespace XoPy;
 public sealed partial class MainForm
 {
     private readonly Font _headerFont = new("Segoe UI", 8.5f, FontStyle.Bold);
-    private readonly Font _glyphFont = new("Segoe MDL2 Assets", 11f, FontStyle.Regular, GraphicsUnit.Pixel);
-    private readonly Font _chevronFont = new("Segoe MDL2 Assets", 9f, FontStyle.Regular, GraphicsUnit.Pixel);
+    private readonly Font _glyphFont = new(Icons.IconFamily, 11f, FontStyle.Regular, GraphicsUnit.Pixel);
+    private readonly Font _chevronFont = new(Icons.IconFamily, 9f, FontStyle.Regular, GraphicsUnit.Pixel);
     private readonly Font _percentFont = new("Segoe UI", 8f, FontStyle.Bold);
+    // Las dos fuentes del botón de multihilo, creadas UNA vez: generarlas en cada cambio de
+    // estado era una fuga de recursos GDI (el mismo fallo que ya costó dos rondas).
+    private readonly Font _barFont = new("Segoe UI", 8.75f, FontStyle.Regular);
+    private readonly Font _barFontBold = new("Segoe UI", 8.75f, FontStyle.Bold);
     private readonly Font _smallFont = new("Segoe UI", 8.25f);
     private readonly Font _monoFont = new("Consolas", 8.25f);
 
@@ -1331,10 +1335,12 @@ public sealed partial class MainForm
                 var nameFont = item.Kind == ItemKind.Folder ? _headerFont : _list.Font;
                 var baseName = item.Kind == ItemKind.DirectoryEntry ? e.Item.Text + "  (carpeta vacía)" : e.Item.Text;
 
-                // Solo los elementos de PRIMER NIVEL enseñan de qué carpeta del disco salen:
-                // los de dentro ya lo dicen por su posición en el árbol. Antes todas las filas
-                // repetían la ruta entera, que era ilegible y redundante.
-                if (item.ParentId is null)
+                // RUTA COMPLETA de cada elemento de primer nivel, como en FlashCopyPro: la
+                // fila dice «C:\Users\...\Fotos\» delante del nombre. Los elementos de dentro
+                // de una carpeta no la repiten: su sitio en el árbol ya lo cuenta.
+                // Cuando no cabe entera, lo que se recorta es la RUTA (con «…» en medio), no
+                // el nombre: antes la ruta simplemente desaparecía si faltaban 60 px.
+                if (item.ParentId is null && _settings.ShowFullPath)
                 {
                     var folderPath = string.Empty;
                     try
@@ -1348,12 +1354,18 @@ public sealed partial class MainForm
                         if (!folderPath.EndsWith(Path.DirectorySeparatorChar)) folderPath += Path.DirectorySeparatorChar;
                         var folderWidth = TextRenderer.MeasureText(e.Graphics, folderPath, _list.Font, Size.Empty,
                             TextFormatFlags.NoPrefix).Width;
-                        var roomForName = Math.Max(0, e.Bounds.Right - x - 8);
-                        if (folderWidth + 60 < roomForName)
+                        var cell = Math.Max(0, e.Bounds.Right - x - 8);
+                        var nameWidth = TextRenderer.MeasureText(e.Graphics, baseName, nameFont, Size.Empty,
+                            TextFormatFlags.NoPrefix).Width;
+                        // Sitio que se le deja a la ruta: lo que sobre después del nombre.
+                        var room = Math.Min(folderWidth + 2, Math.Max(0, cell - nameWidth - 6));
+                        if (room >= 46)
                         {
                             TextRenderer.DrawText(e.Graphics, folderPath, _list.Font,
-                                new Rectangle(x, top, folderWidth + 2, height), _palette.Muted, flags);
-                            x += folderWidth + 2;
+                                new Rectangle(x, top, room, height), _palette.Muted,
+                                TextFormatFlags.Left | TextFormatFlags.VerticalCenter
+                                | TextFormatFlags.PathEllipsis | TextFormatFlags.NoPrefix);
+                            x += room;
                         }
                     }
                 }

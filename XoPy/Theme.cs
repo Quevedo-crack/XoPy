@@ -28,24 +28,29 @@ public sealed class Palette
 
     public static Palette For(bool dark) => dark ? DarkTheme : LightTheme;
 
+    /// <summary>
+    /// Paleta tomada de FlashCopyPro: grises neutros (sin el tinte azulado que tenía XoPy),
+    /// acento #0078D4 de Windows 11 y verde/ámbar/rojo más vivos. Es la capa visual que el
+    /// usuario quería traerse del otro programa.
+    /// </summary>
     public static readonly Palette DarkTheme = new()
     {
         Dark = true,
-        Canvas = Color.FromArgb(24, 27, 32),
-        Surface = Color.FromArgb(32, 36, 42),
-        SurfaceAlt = Color.FromArgb(37, 41, 48),
-        Raised = Color.FromArgb(45, 50, 58),
-        Hover = Color.FromArgb(58, 64, 75),
-        Border = Color.FromArgb(58, 64, 74),
-        Text = Color.FromArgb(233, 237, 243),
-        Muted = Color.FromArgb(150, 159, 172),
-        Accent = Color.FromArgb(48, 128, 235),
-        AccentSoft = Color.FromArgb(32, 74, 130),
-        Success = Color.FromArgb(60, 186, 121),
-        Warning = Color.FromArgb(226, 166, 58),
-        Danger = Color.FromArgb(232, 94, 92),
-        Selection = Color.FromArgb(38, 78, 128),
-        Track = Color.FromArgb(55, 61, 71)
+        Canvas = Color.FromArgb(0x20, 0x20, 0x20),
+        Surface = Color.FromArgb(0x2D, 0x2D, 0x2D),
+        SurfaceAlt = Color.FromArgb(0x29, 0x29, 0x29),
+        Raised = Color.FromArgb(0x3A, 0x3A, 0x3A),
+        Hover = Color.FromArgb(0x45, 0x45, 0x45),
+        Border = Color.FromArgb(0x3A, 0x3A, 0x3A),
+        Text = Color.FromArgb(0xE6, 0xE6, 0xE6),
+        Muted = Color.FromArgb(0x9A, 0x9A, 0x9A),
+        Accent = Color.FromArgb(0x00, 0x78, 0xD4),
+        AccentSoft = Color.FromArgb(0x1F, 0x3D, 0x5C),
+        Success = Color.FromArgb(0x6C, 0xCB, 0x5F),
+        Warning = Color.FromArgb(0xF4, 0xC5, 0x42),
+        Danger = Color.FromArgb(0xFF, 0x6B, 0x6B),
+        Selection = Color.FromArgb(0x11, 0x4A, 0x78),
+        Track = Color.FromArgb(0x3A, 0x3A, 0x3A)
     };
 
     public static readonly Palette LightTheme = new()
@@ -106,13 +111,33 @@ public static class Icons
     public const string Expand = "\uE710";
     public const string SortAsc = "\uE8CB";   // flechas arriba/abajo: ordenar
 
+    /// <summary>
+    /// Fuente de iconos: en Windows 11 se usa «Segoe Fluent Icons» (los mismos dibujos, pero
+    /// con el trazo nuevo) y en Windows 10 se cae a «Segoe MDL2 Assets». Se resuelve UNA vez:
+    /// recorrer las fuentes instaladas en cada pintado era carísimo. Viene de FlashCopyPro.
+    /// </summary>
+    public static readonly string IconFamily = ResolveIconFamily();
+
+    private static string ResolveIconFamily()
+    {
+        try
+        {
+            using var installed = new InstalledFontCollection();
+            foreach (var family in installed.Families)
+                if (string.Equals(family.Name, "Segoe Fluent Icons", StringComparison.OrdinalIgnoreCase))
+                    return family.Name;
+        }
+        catch { }
+        return "Segoe MDL2 Assets";
+    }
+
     public static Image Glyph(string glyph, Color color, int size = 20)
     {
         var bitmap = new Bitmap(size, size);
         using var graphics = Graphics.FromImage(bitmap);
         graphics.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
         graphics.Clear(Color.Transparent);
-        using var font = new Font("Segoe MDL2 Assets", size * 0.86f, FontStyle.Regular, GraphicsUnit.Pixel);
+        using var font = new Font(IconFamily, size * 0.86f, FontStyle.Regular, GraphicsUnit.Pixel);
         TextRenderer.DrawText(graphics, glyph, font, new Rectangle(0, 0, size, size), color,
             TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix);
         return bitmap;
@@ -421,6 +446,107 @@ public static class Ui
         }
     }
 
+    /// <summary>
+    /// Repasa TODA la ventana y pinta con la paleta cualquier control que se haya quedado
+    /// con los colores del sistema. Es lo que elimina las «barras blancas»: un Panel, un
+    /// TableLayoutPanel o un TextBox al que se le olvidó el BackColor sale con el gris claro
+    /// de Windows (#F0F0F0) o con blanco puro, y en una ventana oscura se ve como una franja
+    /// encendida. Solo toca lo que sigue en color de sistema: lo que ya tiene un color
+    /// propio (barras de progreso, pastillas de estado, botones de acento) no se pisa.
+    /// </summary>
+    public static void PaintAll(Control root, Palette palette)
+    {
+        // Nunca debe tumbar una ventana por un color: si algo falla, se deja como estaba.
+        if (root is null || palette is null) return;
+        try { Apply(root, palette, 0); }
+        catch { }
+    }
+
+    private static bool IsSystemBackground(Color color) =>
+        color.IsSystemColor
+        || color.ToArgb() == Color.White.ToArgb()
+        || color.ToArgb() == SystemColors.Control.ToArgb()
+        || color.ToArgb() == SystemColors.Window.ToArgb()
+        || color.ToArgb() == SystemColors.ControlLight.ToArgb()
+        || color.ToArgb() == SystemColors.ControlLightLight.ToArgb()
+        || color.ToArgb() == SystemColors.AppWorkspace.ToArgb();
+
+    private static bool IsSystemForeground(Color color) =>
+        color.IsSystemColor
+        || color.ToArgb() == Color.Black.ToArgb()
+        || color.ToArgb() == SystemColors.ControlText.ToArgb()
+        || color.ToArgb() == SystemColors.WindowText.ToArgb();
+
+    private static void Apply(Control control, Palette palette, int depth)
+    {
+        // Tope de profundidad: una jerarquía con un ciclo (no debería existir) no debe colgar
+        // el arranque de la ventana.
+        if (depth > 40) return;
+
+        switch (control)
+        {
+            // Los de texto editable van sobre la superficie elevada, no sobre el lienzo:
+            // así se distingue dónde se puede escribir.
+            case TextBoxBase box:
+                if (IsSystemBackground(box.BackColor)) box.BackColor = palette.SurfaceAlt;
+                if (IsSystemForeground(box.ForeColor)) box.ForeColor = palette.Text;
+                break;
+            case ComboBox combo:
+                if (IsSystemBackground(combo.BackColor)) combo.BackColor = palette.Raised;
+                if (IsSystemForeground(combo.ForeColor)) combo.ForeColor = palette.Text;
+                combo.FlatStyle = FlatStyle.Flat;
+                break;
+            case ListBox list:
+                if (IsSystemBackground(list.BackColor)) list.BackColor = palette.Surface;
+                if (IsSystemForeground(list.ForeColor)) list.ForeColor = palette.Text;
+                list.BorderStyle = BorderStyle.FixedSingle;
+                break;
+            case ListView view:
+                if (IsSystemBackground(view.BackColor)) view.BackColor = palette.Surface;
+                if (IsSystemForeground(view.ForeColor)) view.ForeColor = palette.Text;
+                break;
+            case TreeView tree:
+                if (IsSystemBackground(tree.BackColor)) tree.BackColor = palette.Surface;
+                if (IsSystemForeground(tree.ForeColor)) tree.ForeColor = palette.Text;
+                tree.BorderStyle = BorderStyle.None;
+                break;
+            case NumericUpDown numeric:
+                StyleNumeric(numeric, palette);
+                break;
+            case Button button:
+                if (IsSystemBackground(button.BackColor))
+                {
+                    button.BackColor = palette.Raised;
+                    button.FlatStyle = FlatStyle.Flat;
+                    button.FlatAppearance.BorderSize = 0;
+                }
+                if (IsSystemForeground(button.ForeColor)) button.ForeColor = palette.Text;
+                break;
+            case ProgressBar bar:
+                if (IsSystemBackground(bar.BackColor)) bar.BackColor = palette.Track;
+                break;
+            case Label or CheckBox or RadioButton or LinkLabel:
+                // Las etiquetas van transparentes para heredar el fondo del contenedor: si se
+                // les pone un color fijo se recortan en rectángulos cuando el padre cambia.
+                if (IsSystemBackground(control.BackColor)) control.BackColor = Color.Transparent;
+                if (IsSystemForeground(control.ForeColor)) control.ForeColor = palette.Text;
+                break;
+            case TabControl tabs:
+                if (IsSystemBackground(tabs.BackColor)) tabs.BackColor = palette.Canvas;
+                break;
+            case ToolStrip strip:
+                if (IsSystemBackground(strip.BackColor)) strip.BackColor = palette.Surface;
+                if (IsSystemForeground(strip.ForeColor)) strip.ForeColor = palette.Text;
+                break;
+            default:
+                if (IsSystemBackground(control.BackColor)) control.BackColor = palette.Canvas;
+                if (IsSystemForeground(control.ForeColor)) control.ForeColor = palette.Text;
+                break;
+        }
+
+        foreach (Control child in control.Controls) Apply(child, palette, depth + 1);
+    }
+
     public static void StyleMenu(ToolStrip menu, Palette palette)
     {
         menu.RenderMode = ToolStripRenderMode.Professional;
@@ -471,6 +597,12 @@ internal sealed class MenuColors : ProfessionalColorTable
 internal sealed class DarkMenuRenderer : ToolStripProfessionalRenderer
 {
     private readonly Palette _palette;
+
+    /// <summary>
+    /// Fuente de la marca de verificación de los menús. Compartida y estática: crear un
+    /// Font dentro de un OnRender se hace en CADA repintado y agota los recursos GDI.
+    /// </summary>
+    private static readonly Font CheckFont = new(Icons.IconFamily, 9f, FontStyle.Regular, GraphicsUnit.Pixel);
 
     public DarkMenuRenderer(Palette palette) : base(new MenuColors(palette))
     {
@@ -571,7 +703,7 @@ internal sealed class DarkMenuRenderer : ToolStripProfessionalRenderer
         using var background = new SolidBrush(_palette.Accent);
         using var path = Ui.RoundedRectangle(bounds, 3);
         e.Graphics.FillPath(background, path);
-        TextRenderer.DrawText(e.Graphics, "\uE73E", new Font("Segoe MDL2 Assets", 9f, FontStyle.Regular, GraphicsUnit.Pixel),
+        TextRenderer.DrawText(e.Graphics, "\uE73E", CheckFont,
             bounds, Color.White, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
     }
 

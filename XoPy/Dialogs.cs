@@ -8,6 +8,16 @@ namespace XoPy;
 
 internal sealed class PromptDialog : Form
 {
+    /// <summary>
+    /// Último repaso antes de que la ventana se vea: cualquier control que se haya quedado
+    /// con los colores de Windows se pinta con la paleta. Es lo que quita las barras blancas.
+    /// </summary>
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        Ui.PaintAll(this, _palette!);
+    }
+
     private readonly CheckBox? _checkBox;
     private readonly Palette _palette;
     public int SelectedIndex { get; private set; }
@@ -143,6 +153,16 @@ internal sealed class PromptDialog : Form
 
 internal sealed class OptionsDialog : Form
 {
+    /// <summary>
+    /// Último repaso antes de que la ventana se vea: cualquier control que se haya quedado
+    /// con los colores de Windows se pinta con la paleta. Es lo que quita las barras blancas.
+    /// </summary>
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        Ui.PaintAll(this, _palette!);
+    }
+
     private readonly Palette _palette;
     private readonly TabControl _tabs;
     private Button? _advancedBack;
@@ -169,6 +189,8 @@ internal sealed class OptionsDialog : Form
     private readonly NumericUpDown _retries;
     private readonly CheckBox _replaceCopier;
     private readonly CheckBox _askWhenBusy;
+    private readonly CheckBox _askWhenPasting;
+    private readonly CheckBox _showFullPath;
     private readonly CheckBox _sound;
     private readonly CheckBox _openDestination;
     private readonly CheckBox _closeWhenDone;
@@ -285,6 +307,11 @@ internal sealed class OptionsDialog : Form
         _replaceCopier = Check("Sustituir el copiador de Windows: Ctrl+V y Mayús+Insert en el Explorador abren XoPy",
             settings.ReplaceWindowsCopier);
         _askWhenBusy = Check("Preguntar qué hacer si ya hay una transferencia en curso", settings.AskWhenBusy);
+        // De fábrica DESMARCADA: pegar arranca directamente con lo que hay en el
+        // portapapeles, sin cuadros por el medio.
+        _askWhenPasting = Check("Al pegar, preguntar en qué lista van los archivos (si no, empieza directamente)",
+            settings.AskWhenPasting);
+        _showFullPath = Check("Mostrar la ruta completa de cada archivo en la lista", settings.ShowFullPath);
 
         _sound = Check("Reproducir un sonido al terminar", settings.PlaySoundWhenDone);
         _openDestination = Check("Abrir la carpeta de destino al terminar", settings.OpenDestinationWhenDone);
@@ -313,10 +340,11 @@ internal sealed class OptionsDialog : Form
         _slowDevices.PlaceholderText = @"Ejemplo: D:, \\PC-lento\datos";
         _language = new ChoiceButton(palette, new[] { "Español", "English" }, settings.Language == "en" ? 1 : 0);
         _language.Width = 170;
-        // Modo de ventana al abrir. «Reducida» esconde las pestañas y el historial de listas
-        // (solo barra, progreso y lista), «Completa» enseña la ventana entera y «Automático»
-        // usa la reducida únicamente cuando XoPy se abre para copiar algo.
-        _windowMode = new ChoiceButton(palette, new[] { "Reducida", "Completa", "Automático" },
+        // Modo de ventana al abrir. «Solo el progreso» esconde la lista de archivos y las
+        // pestañas (quedan la barra de botones, el progreso y el pie), «Completa» enseña la
+        // ventana entera y «Automático» usa la reducida solo al abrirse para copiar algo.
+        // Se vuelve a la vista completa con el botón «Mostrar lista» o con F9.
+        _windowMode = new ChoiceButton(palette, new[] { "Solo el progreso", "Completa", "Automático" },
             Math.Clamp(settings.WindowMode, 0, 2));
         _windowMode.Width = 170;
 
@@ -452,6 +480,8 @@ internal sealed class OptionsDialog : Form
         right.Controls.Add(Stack(_checkFreeSpace));
         right.Controls.Add(Stack(_systemWriteCache));
         right.Controls.Add(Stack(_showHashes));
+        right.Controls.Add(Stack(_showFullPath));
+        right.Controls.Add(Stack(_askWhenPasting));
         right.Controls.Add(Stack(_minimizeToTray, _startWithWindows));
 
         var columns = new TableLayoutPanel
@@ -1014,6 +1044,8 @@ internal sealed class OptionsDialog : Form
         Result.ExplorerIntegration = false;
         Result.ReplaceWindowsCopier = _replaceCopier.Checked;
         Result.AskWhenBusy = _askWhenBusy.Checked;
+        Result.AskWhenPasting = _askWhenPasting.Checked;
+        Result.ShowFullPath = _showFullPath.Checked;
         Result.PlaySoundWhenDone = _sound.Checked;
         Result.OpenDestinationWhenDone = _openDestination.Checked;
         Result.CloseWhenDone = _closeWhenDone.Checked;
@@ -1073,6 +1105,8 @@ internal sealed class OptionsDialog : Form
         target.ExplorerIntegration = false;
         target.ReplaceWindowsCopier = Result.ReplaceWindowsCopier;
         target.AskWhenBusy = Result.AskWhenBusy;
+        target.AskWhenPasting = Result.AskWhenPasting;
+        target.ShowFullPath = Result.ShowFullPath;
         target.PlaySoundWhenDone = Result.PlaySoundWhenDone;
         target.OpenDestinationWhenDone = Result.OpenDestinationWhenDone;
         target.CloseWhenDone = Result.CloseWhenDone;
@@ -1120,6 +1154,9 @@ internal sealed class OptionsDialog : Form
         ExplorerIntegration = source.ExplorerIntegration,
         ReplaceWindowsCopier = source.ReplaceWindowsCopier,
         AskWhenBusy = source.AskWhenBusy,
+        AskWhenPasting = source.AskWhenPasting,
+        ShowFullPath = source.ShowFullPath,
+        ShowList = source.ShowList,
         PlaySoundWhenDone = source.PlaySoundWhenDone,
         OpenDestinationWhenDone = source.OpenDestinationWhenDone,
         CloseWhenDone = source.CloseWhenDone,
@@ -1139,9 +1176,20 @@ internal sealed class OptionsDialog : Form
 
 internal sealed class HistoryDialog : Form
 {
+    /// <summary>
+    /// Último repaso antes de que la ventana se vea: cualquier control que se haya quedado
+    /// con los colores de Windows se pinta con la paleta. Es lo que quita las barras blancas.
+    /// </summary>
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        Ui.PaintAll(this, _palette!);
+    }
+
     private readonly List<HistoryEntry> _entries;
     private readonly ListView _list;
     private readonly Label _empty;
+    private readonly Palette _palette;
     private readonly Font _headerFont = new("Segoe UI", 9f, FontStyle.Bold);
 
     public bool Modified { get; private set; }
@@ -1150,6 +1198,7 @@ internal sealed class HistoryDialog : Form
     public HistoryDialog(List<HistoryEntry> entries, Palette palette)
     {
         _entries = entries.ToList();
+        _palette = palette;
 
         Text = "Historial de transferencias";
         BackColor = palette.Canvas;
@@ -1465,17 +1514,29 @@ internal sealed class HistoryDialog : Form
 /// </summary>
 internal sealed class ConflictDialog : Form
 {
+    /// <summary>
+    /// Último repaso antes de que la ventana se vea: cualquier control que se haya quedado
+    /// con los colores de Windows se pinta con la paleta. Es lo que quita las barras blancas.
+    /// </summary>
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        Ui.PaintAll(this, _palette!);
+    }
+
     /// <summary>0 Sobrescribir · 1 Omitir · 2 Cambiar nombre · 3 Cancelar.</summary>
     public int Choice { get; private set; } = 3;
 
     public bool ApplyToAll => _applyAll.Checked;
 
     private readonly CheckBox _applyAll;
+    private readonly Palette _palette;
     // Un solo ToolTip para todo el cuadro: antes se creaba uno por botón y no se liberaba.
     private readonly ToolTip _tips = new();
 
     public ConflictDialog(Palette palette, ConflictPrompt prompt)
     {
+        _palette = palette;
         var name = Path.GetFileName(prompt.TargetPath);
 
         Text = "Ya existe un archivo con ese nombre";
