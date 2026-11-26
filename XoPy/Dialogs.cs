@@ -301,11 +301,11 @@ internal sealed class OptionsDialog : Form
         _tabs = new TabControl
         {
             Dock = DockStyle.Fill,
-            // FRANJA BLANCA DE LAS PESTAÑAS. Con anchos fijos sobraba sitio a la derecha de
-            // cada renglón y ese hueco lo pintaba Windows de blanco (se veía una banda clara
-            // encima del cuadro oscuro). «FillToRight» estira las pestañas hasta llenar el
-            // renglón entero, así que no queda ni un pixel sin pintar por nosotros.
-            SizeMode = TabSizeMode.FillToRight,
+            // FRANJA BLANCA DE LAS PESTAÑAS: el trozo de renglón que sobraba a la derecha lo
+            // pintaba Windows de blanco. «FillToRight» no sirve (solo estira cuando hay
+            // varios renglones y, además, ignora el ancho que se le pide), así que se usa
+            // ancho fijo y en FitTabWidths se reparte el ancho ENTERO entre las pestañas.
+            SizeMode = TabSizeMode.Fixed,
             ItemSize = new Size(112, 30),
             Padding = new Point(12, 6),
             DrawMode = TabDrawMode.OwnerDrawFixed,
@@ -317,6 +317,9 @@ internal sealed class OptionsDialog : Form
         };
         _tabs.DrawItem += DrawTab;
         _tabs.HandleCreated += (_, _) => FitTabWidths();
+        // Al cambiar el tamaño del cuadro hay que repartir otra vez: si no, vuelve a
+        // asomar el hueco sin pintar al ensanchar la ventana.
+        _tabs.SizeChanged += (_, _) => FitTabWidths();
         // La vista principal es de una sola pantalla (estilo TeraCopy); las pestañas siguen
         // existiendo solo para las opciones avanzadas, que se abren desde un botón.
         _tabs.Visible = false;
@@ -1064,12 +1067,16 @@ internal sealed class OptionsDialog : Form
                 new Size(int.MaxValue, int.MaxValue), TextFormatFlags.NoPrefix);
             widest = Math.Max(widest, measured.Width);
         }
-        // Ancho MÍNIMO por pestaña: con «FillToRight» Windows estira las de cada renglón
-        // hasta llenarlo entero, y así no queda hueco blanco a la derecha. Hace falta que
-        // sobren pestañas para un segundo renglón; si caben todas en uno solo, Windows deja
-        // el sobrante sin pintar (que es justo lo que se veía blanco).
+        var count = Math.Max(1, _tabs.TabPages.Count);
+        var available = Math.Max(0, _tabs.ClientSize.Width - 4);
         var width = Math.Max(84, widest + 34);
-        _tabs.ItemSize = new Size(width, 30);
+        // Si todas caben en un solo renglón, se reparte entre ellas el ancho completo del
+        // cuadro: las pestañas llegan hasta el borde y no queda banda blanca al lado de la
+        // última. Si no caben, se usa el ancho del texto y Windows las pone en dos renglones.
+        if (available > 0 && width * count <= available) width = available / count;
+        // Solo se toca si cambia: asignar ItemSize dispara otra vuelta de layout.
+        if (_tabs.ItemSize.Width != width || _tabs.ItemSize.Height != 30)
+            _tabs.ItemSize = new Size(width, 30);
     }
 
     private void DrawTab(object? sender, DrawItemEventArgs e)
