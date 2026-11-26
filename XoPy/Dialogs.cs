@@ -1064,9 +1064,11 @@ internal sealed class OptionsDialog : Form
                 new Size(int.MaxValue, int.MaxValue), TextFormatFlags.NoPrefix);
             widest = Math.Max(widest, measured.Width);
         }
-        // Ancho mínimo por pestaña; «FillToRight» reparte el sobrante entre las del renglón.
-        // Se limita para que en dos renglones quepan todas sin que Windows saque flechitas.
-        var width = Math.Max(84, Math.Min(widest + 34, Math.Max(84, (_tabs.ClientSize.Width - 8) / 4)));
+        // Ancho MÍNIMO por pestaña: con «FillToRight» Windows estira las de cada renglón
+        // hasta llenarlo entero, y así no queda hueco blanco a la derecha. Hace falta que
+        // sobren pestañas para un segundo renglón; si caben todas en uno solo, Windows deja
+        // el sobrante sin pintar (que es justo lo que se veía blanco).
+        var width = Math.Max(84, widest + 34);
         _tabs.ItemSize = new Size(width, 30);
     }
 
