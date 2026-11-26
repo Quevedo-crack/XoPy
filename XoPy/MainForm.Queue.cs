@@ -935,9 +935,11 @@ public sealed partial class MainForm
     private void UpdateCountLabel(int leaves, long total)
     {
         if (_countLabel is null) return;
+        // Mensajes CORTOS: este hueco es estrecho y el pie ya dice «Arrastra archivos o
+        // carpetas a la ventana, o usa Añadir archivos».
         if (_items.Count == 0)
         {
-            _countLabel.Text = "Lista vacía — arrastra archivos o carpetas aquí";
+            _countLabel.Text = "Lista vacía";
             return;
         }
 
@@ -945,13 +947,11 @@ public sealed partial class MainForm
         var shown = files.Where(item => IsFinished(item) == _showFinished).ToList();
         if (shown.Count == 0)
         {
-            _countLabel.Text = _showFinished
-                ? "Todavía no hay nada terminado"
-                : "No queda nada pendiente";
+            _countLabel.Text = _showFinished ? "Nada terminado" : "Nada pendiente";
             return;
         }
         var bytes = shown.Sum(item => Math.Max(0, item.SizeBytes));
-        _countLabel.Text = $"{shown.Count} archivo(s) · {Format.Bytes(bytes)}";
+        _countLabel.Text = $"{shown.Count} {(shown.Count == 1 ? "archivo" : "archivos")} · {Format.Bytes(bytes)}";
     }
 
     private string? _currentStatus;

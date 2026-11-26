@@ -212,16 +212,19 @@ public sealed partial class MainForm
         var title = Ui.Label("Opciones de la transferencia", _palette, 11f, true);
         AddWideRow(grid, title, 30);
 
+        // Las opciones dicen lo MISMO que los botones de la ventana de conflicto: antes aquí
+        // ponía «Sobrescribir / Omitir / Cambiar el nombre» y allí «Reemplazar / No copiar
+        // este / Quedarme con los dos», y parecían cosas distintas.
         _optConflict = new ChoiceButton(_palette, new[]
         {
             "Preguntar siempre",
-            "Sobrescribir",
-            "Omitir los existentes",
-            "Cambiar el nombre",
-            "Sobrescribir si el original es más reciente",
-            "Sobrescribir si el original es más pequeño"
+            "Reemplazar siempre",
+            "No copiar los repetidos",
+            "Quedarme con los dos",
+            "Reemplazar si el que copio es más nuevo",
+            "Reemplazar si el que copio es más pequeño"
         }, (int)_settings.Conflict);
-        AddRow(grid, "Si el destino ya existe:", _optConflict, 36, "Preguntar muestra un cuadro con Sobrescribir, Omitir, Cambiar nombre y la opción de aplicarlo a todos.");
+        AddRow(grid, "Si el destino ya existe:", _optConflict, 36, "«Preguntar» abre la ventana de conflicto, que compara los dos archivos.");
 
         _optError = new ChoiceButton(_palette, new[]
         {
@@ -257,7 +260,7 @@ public sealed partial class MainForm
             Width = 110, Font = new Font("Segoe UI", 9f)
         };
         Ui.StyleNumeric(_optBuffer, _palette);
-        AddRow(grid, "Búfer por archivo (KB):", _optBuffer, 32, "4096 KB (4 MB) es el valor recomendado con 24 GB de RAM; 1024 KB para equipos modestos.");
+        AddRow(grid, "Búfer por archivo (KB):", _optBuffer, 32, "4096 KB (4 MB) es lo recomendado; 1024 KB para equipos modestos.");
 
         _optRetries = new NumericUpDown
         {
@@ -302,7 +305,7 @@ public sealed partial class MainForm
             (int)_settings.Engine);
         _optEngine.SelectedIndexChanged += (_, _) => SaveQuickOptions();
         AddRow(grid, "Motor de copia:", _optEngine, 36,
-            "Nativo usa CopyFileEx de Windows. Robocopy va mejor con miles de archivos, redes y rutas largas. Administrado es el más compatible.");
+            "Nativo usa CopyFileEx. Robocopy va mejor con miles de archivos y redes. Administrado es el más compatible.");
 
         _optSecurePasses = new NumericUpDown
         {
@@ -311,7 +314,7 @@ public sealed partial class MainForm
         };
         Ui.StyleNumeric(_optSecurePasses, _palette);
         AddRow(grid, "Pasadas de borrado seguro:", _optSecurePasses, 32,
-            "0 borra de forma normal. Con 1 o 3 se sobrescribe el contenido antes de eliminar (no funciona en unidades de red).");
+            "0 borra de forma normal. Con 1 o 3 se sobrescribe el contenido antes de borrarlo (no vale en red).");
 
         var scriptPanel = new TableLayoutPanel
         {
@@ -339,7 +342,7 @@ public sealed partial class MainForm
         scriptPanel.Controls.Add(_optScript, 0, 0);
         scriptPanel.Controls.Add(pickScript, 1, 0);
         AddRow(grid, "Script al finalizar:", scriptPanel, 32,
-            "Se ejecuta al terminar y recibe: carpeta de destino, número de errores y operación. Admite .ps1, .bat, .cmd o .exe.");
+            "Recibe la carpeta de destino, los errores y la operación. Admite .ps1, .bat, .cmd o .exe.");
 
         var extraPanel = new TableLayoutPanel
         {
@@ -506,10 +509,11 @@ public sealed partial class MainForm
         var hintRow = grid.RowStyles.Count;
         grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 20));
         grid.RowCount = hintRow + 1;
-        var hintLabel = new Label
+        // Una sola línea: la fila mide 20 px y un Label normal parte el texto en dos
+        // renglones, así que la segunda mitad de la frase se quedaba fuera.
+        var hintLabel = new Ui.OneLineLabel
         {
             Text = hint,
-            AutoSize = false,
             Dock = DockStyle.Fill,
             ForeColor = _palette.Muted,
             BackColor = Color.Transparent,

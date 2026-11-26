@@ -1260,7 +1260,9 @@ public sealed partial class MainForm : Form
         {
             Text = text,
             AutoSize = false,
-            Size = new Size(116, 26),
+            // 98 px: con 116 las dos pestañitas se comían el sitio del recuento, que salía
+            // recortado («4 archivo(s) · …»).
+            Size = new Size(98, 26),
             FlatStyle = FlatStyle.Flat,
             BackColor = _palette.Raised,
             ForeColor = _palette.Muted,
