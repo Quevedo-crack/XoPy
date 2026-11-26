@@ -313,7 +313,9 @@ internal sealed class OptionsDialog : Form
         _slowDevices.PlaceholderText = @"Ejemplo: D:, \\PC-lento\datos";
         _language = new ChoiceButton(palette, new[] { "Español", "English" }, settings.Language == "en" ? 1 : 0);
         _language.Width = 170;
-        // Modo de ventana al abrir: reducida (como TeraCopy), completa o automático.
+        // Modo de ventana al abrir. «Reducida» esconde las pestañas y el historial de listas
+        // (solo barra, progreso y lista), «Completa» enseña la ventana entera y «Automático»
+        // usa la reducida únicamente cuando XoPy se abre para copiar algo.
         _windowMode = new ChoiceButton(palette, new[] { "Reducida", "Completa", "Automático" },
             Math.Clamp(settings.WindowMode, 0, 2));
         _windowMode.Width = 170;

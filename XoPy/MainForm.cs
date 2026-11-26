@@ -98,12 +98,8 @@ public sealed partial class MainForm : Form
     private Label _targetFreeLabel = null!;
     private TextBox _logBox = null!;
     private Label _stOperation = null!;
-    private Label _stSource = null!;
-    private Label _stTarget = null!;
-    private Label _stTotals = null!;
     private Label _stSpeed = null!;
     private Label _stEta = null!;
-    private Label _stErrors = null!;
     private Label _stPercent = null!;
     private ProgressStrip _stProgress = null!;
     private ChoiceButton _optConflict = null!;
@@ -219,6 +215,7 @@ public sealed partial class MainForm : Form
         DragDrop += (_, e) => DropPaths(e);
         Shown += (_, _) =>
         {
+            LayoutRootRows();
             ResizeColumns();
             SelectTab(0);
             ApplyDarkScrollbars();
@@ -227,25 +224,69 @@ public sealed partial class MainForm : Form
 
     private void ToggleCompactView() => ApplyCompactView(!_compactView, persist: true);
 
+    // Alturas fijas de las franjas de la ventana (en píxeles de cliente).
+    private const int RowMenuHeight = 24;
+    private const int RowToolbarHeight = 48;
+    private const int RowHeaderHeight = 90;
+    private const int RowTabsHeight = 34;
+    private const int RowFooterNormal = 106;
+    private const int RowFooterCompact = 52;
+    private const int RowContentMin = 110;
+
+    /// <summary>
+    /// Reparte el alto de la ventana a mano. Hacía falta: con la fila del contenido en
+    /// «porcentaje», TableLayoutPanel le daba el alto que PEDÍA la pestaña más grande
+    /// (la de Estado) y se lo quitaba a las demás franjas — por eso desaparecía la barra de
+    /// pestañas y el pie salía cortado por la mitad. Aquí se calcula y se fija.
+    /// </summary>
+    private void LayoutRootRows()
+    {
+        if (_rootLayout is null || _rootLayout.RowStyles.Count < 6) return;
+
+        var menu = _settings.ShowMenuBar ? RowMenuHeight : 0;
+        var tabs = _compactView ? 0 : RowTabsHeight;
+        var footer = _compactView ? RowFooterCompact : RowFooterNormal;
+        var available = _rootLayout.ClientSize.Height;
+        if (available <= 0) available = ClientSize.Height;
+        var content = available - menu - RowToolbarHeight - RowHeaderHeight - tabs - footer;
+        if (content < RowContentMin) content = RowContentMin;
+
+        var changed = false;
+        void Set(int index, float height)
+        {
+            var style = _rootLayout.RowStyles[index];
+            if (style.SizeType == SizeType.Absolute && Math.Abs(style.Height - height) < 0.5f) return;
+            style.SizeType = SizeType.Absolute;
+            style.Height = height;
+            changed = true;
+        }
+
+        _rootLayout.SuspendLayout();
+        Set(0, menu);
+        Set(1, RowToolbarHeight);
+        Set(2, RowHeaderHeight);
+        Set(3, tabs);
+        Set(4, content);
+        Set(5, footer);
+        // Solo se vuelve a repartir si de verdad ha cambiado algo: esto se llama en cada
+        // repaso del temporizador de tamaño y un PerformLayout por tick parpadea.
+        _rootLayout.ResumeLayout(changed);
+    }
+
     private void ApplyCompactView(bool compact, bool persist)
     {
         _compactView = compact;
         if (_rootLayout is not null)
         {
             _rootLayout.SuspendLayout();
-            _rootLayout.RowStyles[1].Height = compact ? 44 : 48;
-            // 24+16+24+16 = 80 de contenido + relleno vertical de la cabecera.
-            _rootLayout.RowStyles[2].Height = 90;
-            // En reducido se ocultan las pestañas (como TeraCopy: solo metadatos y lista) y
-            // la lista SÍ queda a la vista: ahí está la barra de progreso de cada archivo.
-            // Sin pestañas en reducido: la fila se queda a cero (antes dejaba un hueco de 34 px).
-            _rootLayout.RowStyles[3].Height = compact ? 0 : 34;
+            // En reducido se ocultan las pestañas (como TeraCopy: solo la lista y el progreso);
+            // la lista SÍ queda a la vista, que es donde va la barra de cada archivo.
             if (_tabBar is not null) _tabBar.Visible = !compact;
-            _rootLayout.RowStyles[4].SizeType = SizeType.Percent;
-            _rootLayout.RowStyles[4].Height = 100;
-            // En reducido no hay pestañas que mostrar: la lista ocupa todo el ancho.
-            if (_contentGrid is not null && _contentGrid.ColumnStyles.Count >= 2)
-                _contentGrid.ColumnStyles[0].Width = compact ? 0 : 228;
+            // En reducido el historial de listas se repliega y la lista ocupa todo el ancho.
+            // Antes esto peleaba con SetJobsVisible: la vista reducida ponía la columna a 0 y
+            // el ajuste guardado la devolvía a 228 justo después, así que al abrir salía media
+            // ventana reducida (sin pestañas) y media completa (con el panel TRABAJOS).
+            ApplyJobsLayout();
             // VISTA REDUCIDA: el pie se queda SOLO con la barra de progreso y la línea de
             // estado. El gráfico de velocidad y la línea «quedan N archivos» repiten lo que
             // ya dice la cabecera (porcentaje, velocidad y tiempo restante) y era otra de las
@@ -262,8 +303,6 @@ public sealed partial class MainForm : Form
                 // cabecera: en reducido se ocultan aquí para no decirlo dos veces.
                 if (_speedLabel is not null) _speedLabel.Visible = !compact;
             }
-            // Pie completo: 90 px de filas + 16 de relleno. Reducido: barra + estado.
-            _rootLayout.RowStyles[5].Height = compact ? 56 : 106;
             if (_transferHeader is not null && _transferHeader.RowStyles.Count >= 4)
             {
                 // Las dos líneas (origen y destino) y sus barras siguen visibles en compacto,
@@ -273,6 +312,7 @@ public sealed partial class MainForm : Form
                 _transferHeader.RowStyles[2].Height = 24;
                 _transferHeader.RowStyles[3].Height = 16;
             }
+            if (compact && _tabIndex != 0) SelectTab(0);
             UpdateToolbarForCompact(compact);
             if (_compactButton is not null)
             {
@@ -284,6 +324,7 @@ public sealed partial class MainForm : Form
                 _compactButton.AccessibleName = _compactButton.ToolTipText;
             }
             _rootLayout.ResumeLayout(true);
+            LayoutRootRows();
         }
 
         // La ventana NUNCA se ajusta sola: se recortaba. Como en TeraCopy, es redimensionable
@@ -302,19 +343,8 @@ public sealed partial class MainForm : Form
 
                 // La altura se calcula sumando lo que sigue siendo visible (menú, barra,
                 // cabecera de progreso y pie), de modo que quepa TODO sin recortar nada.
-                var height = 0;
-                if (_rootLayout is not null)
-                {
-                    // Se suman TODAS las filas visibles (la lista incluida, con sus cuatro filas).
-                    foreach (var index in new[] { 0, 1, 2, 5 })
-                    {
-                        var style = _rootLayout.RowStyles[index];
-                        var value = style.SizeType == SizeType.Absolute ? style.Height : 0;
-                        height += (int)value;
-                    }
-                    // La fila 3 (pestañas) desaparece en reducido; la 4 es la lista y crece.
-                    height += compact ? 0 : (int)_rootLayout.RowStyles[3].Height;
-                }
+                var height = (_settings.ShowMenuBar ? RowMenuHeight : 0)
+                             + RowToolbarHeight + RowHeaderHeight + RowFooterCompact + 180;
                 height += SystemInformation.FrameBorderSize.Height * 2 + SystemInformation.CaptionHeight;
                 // Se acerca al tamaño justo, pero nunca por debajo de lo que necesita el contenido.
                 Height = Math.Max(height, MinimumSize.Height);
@@ -338,10 +368,8 @@ public sealed partial class MainForm : Form
     private void ApplyMenuBarSetting()
     {
         if (_menu is null || _rootLayout is null) return;
-        var show = _settings.ShowMenuBar;
-        _menu.Visible = show;
-        _rootLayout.RowStyles[0].Height = show ? 24 : 0;
-        _rootLayout.PerformLayout();
+        _menu.Visible = _settings.ShowMenuBar;
+        LayoutRootRows();
     }
 
     private void UpdateToolbarForCompact(bool compact)
@@ -454,12 +482,14 @@ public sealed partial class MainForm : Form
 
     private Control BuildToolbar()
     {
+        // Relleno de 6 arriba y abajo: con 8, los botones de 36 px pedían 52 y la franja mide
+        // 48, así que Windows les recortaba la base (se veía media fila de iconos).
         var bar = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
             BackColor = _palette.Surface,
-            Padding = new Padding(10, 8, 10, 8),
+            Padding = new Padding(10, 6, 10, 6),
             RowCount = 1
         };
         bar.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
@@ -1057,14 +1087,19 @@ public sealed partial class MainForm : Form
         shell.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
         shell.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
+        // Tres columnas: las dos pestañitas de la lista (ancho justo), el recuento (lo que
+        // sobre, con puntos suspensivos si no cabe) y los botones de la derecha (ancho justo).
+        // Con dos columnas, el recuento vivía dentro del FlowLayoutPanel de las pestañitas y
+        // se cortaba a media palabra («4 archivo(s) · 22.0» en la captura).
         var header = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            ColumnCount = 2,
+            ColumnCount = 3,
             BackColor = _palette.SurfaceAlt,
             RowCount = 1
         };
         header.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
+        header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
 
@@ -1075,14 +1110,17 @@ public sealed partial class MainForm : Form
         _viewDoneButton = ViewTab("Finalizados", () => SetQueueView(true));
 
         _countLabel = Ui.Label(string.Empty, _palette, 8.5f, false, _palette.Muted);
-        _countLabel.Anchor = AnchorStyles.Left;
-        _countLabel.AutoSize = true;
-        _countLabel.Margin = new Padding(10, 10, 0, 0);
+        _countLabel.AutoSize = false;
+        _countLabel.Dock = DockStyle.Fill;
+        _countLabel.TextAlign = ContentAlignment.MiddleLeft;
+        _countLabel.AutoEllipsis = true;
+        _countLabel.Margin = new Padding(10, 0, 6, 0);
 
         var viewRow = new FlowLayoutPanel
         {
             Dock = DockStyle.Fill,
             AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
             WrapContents = false,
             FlowDirection = FlowDirection.LeftToRight,
             BackColor = _palette.SurfaceAlt,
@@ -1091,7 +1129,6 @@ public sealed partial class MainForm : Form
         };
         viewRow.Controls.Add(_viewQueueButton);
         viewRow.Controls.Add(_viewDoneButton);
-        viewRow.Controls.Add(_countLabel);
 
         _upButton = Ui.IconButton(Icons.Up, _palette, "Subir el elemento seleccionado (Alt+↑)");
         _upButton.Click += (_, _) => MoveSelected(-1);
@@ -1107,6 +1144,7 @@ public sealed partial class MainForm : Form
         {
             Dock = DockStyle.Fill,
             AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
             WrapContents = false,
             FlowDirection = FlowDirection.RightToLeft,
             BackColor = _palette.SurfaceAlt,
@@ -1127,7 +1165,8 @@ public sealed partial class MainForm : Form
         tools.Controls.Add(_sortButton);
 
         header.Controls.Add(viewRow, 0, 0);
-        header.Controls.Add(tools, 1, 0);
+        header.Controls.Add(_countLabel, 1, 0);
+        header.Controls.Add(tools, 2, 0);
 
         _list = new ListView
         {
@@ -1865,10 +1904,12 @@ public sealed partial class MainForm : Form
                     break;
 
                 case "conflict":
-                    CaptureDialogPng(() => new PromptDialog(_palette, "Archivo ya existente",
-                        "El archivo «informe.pdf» ya existe en la carpeta de destino. ¿Qué quieres hacer?",
-                        "Puedes aplicar la decisión a todos los archivos de esta transferencia.",
-                        new[] { "Sobrescribir", "Omitir", "Cambiar nombre", "Cancelar" }, null), target);
+                    // La ventana REAL de conflicto (ConflictDialog), no el cuadro de texto
+                    // antiguo: así la captura enseña lo que de verdad ve el usuario.
+                    CaptureDialogPng(() => new ConflictDialog(_palette, new ConflictPrompt(
+                        @"C:\xopytest\informe.pdf", @"C:\xopytest\destino\informe.pdf",
+                        10_240, 7_168,
+                        new DateTime(2026, 11, 20, 18, 42, 0), new DateTime(2025, 4, 3, 9, 15, 0))), target);
                     break;
 
                 case "history":
@@ -2342,14 +2383,21 @@ public sealed partial class MainForm : Form
             Program.Log("MF2. LoadSettingsIntoUi done");
 
             Program.Log("MF3. ApplyCompactView");
-            // Modo de ventana de Preferencias: 0 reducida (por defecto, como TeraCopy),
-            // 1 completa, 2 automático (completa si hay archivos, reducida si no).
+            // Modo de ventana de Preferencias: 0 reducida, 1 completa (por defecto) y
+            // 2 automático. «Automático» usa la reducida SOLO cuando XoPy se abre para copiar
+            // algo (pegado, menú contextual, --to): ahí interesa una ventanita de progreso.
+            // Abierto a mano se ve la ventana entera, porque la vista reducida esconde las
+            // pestañas y no habría forma de llegar a Destino, Opciones, Estado ni Registro.
+            var startingTransfer = _startupRequest.Paths.Count > 0 || _startupRequest.Operation is not null;
             var compactOnStart = _settings.WindowMode switch
             {
-                1 => false,
-                2 => _startupRequest.Paths.Count == 0 && _startupRequest.Operation is null,
-                _ => true
+                0 => true,
+                2 => startingTransfer,
+                _ => false
             };
+            // En modo captura nunca se usa la vista reducida: las imágenes de documentación
+            // tienen que enseñar la ventana completa, con sus pestañas.
+            if (_startupRequest.Screenshot) compactOnStart = false;
             ApplyCompactView(compactOnStart, persist: false);
             Program.Log("MF3. ApplyCompactView done");
 

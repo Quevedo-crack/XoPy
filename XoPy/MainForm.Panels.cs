@@ -593,25 +593,23 @@ public sealed partial class MainForm
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 7,
+            RowCount = 6,
             BackColor = _palette.Surface,
             Padding = new Padding(16, 10, 16, 8)
         };
-        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
-        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
+        // Alturas fijas solo para lo que no puede encoger; la tabla de categorías ocupa lo
+        // que sobre. Así la pestaña cabe en cualquier tamaño de ventana sin recortarse.
+        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));
         page.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
         page.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
         page.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
-        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 114));
         page.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
 
         var title = Ui.Label("Estado de la transferencia", _palette, 11f, true);
         title.Anchor = AnchorStyles.Left;
 
         _stOperation = StatusLine();
-        _stSource = StatusLine();
-        _stTarget = StatusLine();
-        _stTotals = StatusLine();
 
         var progressRow = new TableLayoutPanel
         {
@@ -637,7 +635,6 @@ public sealed partial class MainForm
 
         _stSpeed = StatusLine();
         _stEta = StatusLine();
-        _stErrors = StatusLine();
 
         var speedRow = new TableLayoutPanel
         {
@@ -663,17 +660,14 @@ public sealed partial class MainForm
         hint.TextAlign = ContentAlignment.MiddleLeft;
         hint.Margin = new Padding(0, 4, 0, 0);
 
-        // «Origen» y «Destino» NO se añaden: salen ya en la cabecera de la ventana, que está
-        // siempre a la vista. Eran dos de los datos repetidos que señaló el usuario.
-        _stSource.Visible = false;
-        _stTarget.Visible = false;
+        // «Origen» y «Destino» NO están en esta pestaña: salen ya en la cabecera de la
+        // ventana, que está siempre a la vista. Eran dos de los datos repetidos.
         page.Controls.Add(title, 0, 0);
         page.Controls.Add(_stOperation, 0, 1);
-        page.Controls.Add(_stTotals, 0, 2);
-        page.Controls.Add(progressRow, 0, 3);
-        page.Controls.Add(speedRow, 0, 4);
-        page.Controls.Add(categories, 0, 5);
-        page.Controls.Add(hint, 0, 6);
+        page.Controls.Add(progressRow, 0, 2);
+        page.Controls.Add(speedRow, 0, 3);
+        page.Controls.Add(categories, 0, 4);
+        page.Controls.Add(hint, 0, 5);
         return page;
     }
 
@@ -700,7 +694,8 @@ public sealed partial class MainForm
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 22));
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 22));
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 16));
-        for (var row = 0; row < 5; row++) grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 20));
+        grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 20));
+        for (var row = 0; row < 4; row++) grid.RowStyles.Add(new RowStyle(SizeType.Percent, 25));
 
         var headers = new[] { "Categoría", "Archivos", "Bytes", "Tiempo" };
         for (var column = 0; column < 4; column++)
@@ -889,11 +884,6 @@ public sealed partial class MainForm
         };
         _stOperation.Text = "Operación: " + operationText;
 
-        var first = _items.FirstOrDefault(item => item.Kind is ItemKind.File);
-        _stSource.Text = "Origen: " + (first?.SourcePath ?? "—");
-        _stTarget.Text = "Destino: " + (string.IsNullOrWhiteSpace(_destination.Text) ? "—" : _destination.Text.Trim());
-        var errorCount = _items.Count(item => item.State == ItemState.Failed);
-        _stTotals.Text = $"Total: {Format.Bytes(done)} de {Format.Bytes(total)}  ·  {percent:0.0} %  ·  {errorCount} error(es)";
         _stProgress.Value = percent;
         _stPercent.Text = $"{percent:0.0} %";
         _stProgress.FillColor = _items.Any(item => item.State == ItemState.Failed) && !running ? _palette.Warning : _palette.Accent;
@@ -906,7 +896,6 @@ public sealed partial class MainForm
             _stSpeed.Text = $"Velocidad: {(speed > 0 ? Format.Speed(speed) : "calculando…")}"
                 + (_engine.IsPaused ? "  ·  en pausa" : string.Empty);
             _stEta.Text = "Tiempo restante: " + (remaining > TimeSpan.Zero ? Format.Duration(remaining) : "—");
-            _stErrors.Text = string.Empty;
         }
         else
         {
@@ -914,7 +903,6 @@ public sealed partial class MainForm
                 ? $"Última transferencia: {Format.Speed(_sessionBytes / Math.Max(0.1, _sessionElapsed.TotalSeconds))}  ·  {Format.Duration(_sessionElapsed)}"
                 : "Velocidad: —";
             _stEta.Text = "Tiempo restante: —";
-            _stErrors.Text = string.Empty;
         }
     }
 
@@ -1033,19 +1021,27 @@ public sealed partial class MainForm
 
     // ---------------------------------------------------------------- pestañas
 
+    // Las dos fuentes de las pestañas se crean UNA vez: antes se creaba una por pestaña en
+    // cada cambio y no se liberaba ninguna (el mismo agotamiento de recursos de GDI que ya
+    // se corrigió en el panel de trabajos).
+    private Font? _tabFontActive;
+    private Font? _tabFontIdle;
+
     private void SelectTab(int index)
     {
         if (_pages.Length == 0) return;
         _tabIndex = Math.Clamp(index, 0, _pages.Length - 1);
         for (var i = 0; i < _pages.Length; i++) _pages[i].Visible = i == _tabIndex;
 
+        _tabFontActive ??= new Font("Segoe UI", 9f, FontStyle.Bold);
+        _tabFontIdle ??= new Font("Segoe UI", 9f, FontStyle.Regular);
         var buttons = new[] { _tabFiles, _tabTarget, _tabOptions, _tabStatus, _tabLog };
         for (var i = 0; i < buttons.Length; i++)
         {
             var active = i == _tabIndex;
             buttons[i].ForeColor = active ? _palette.Text : _palette.Muted;
             buttons[i].BackColor = active ? _palette.Surface : _palette.Canvas;
-            buttons[i].Font = new Font("Segoe UI", 9f, active ? FontStyle.Bold : FontStyle.Regular);
+            buttons[i].Font = active ? _tabFontActive : _tabFontIdle;
         }
         _tabFiles.Parent?.Invalidate();
         if (IsHandleCreated) BeginInvoke(new Action(ApplyDarkScrollbars));
@@ -1089,6 +1085,9 @@ public sealed partial class MainForm
     {
         _resizeDebounce.Stop();
         if (IsDisposed || _list is null) return;
+        // Primero el reparto de franjas de la ventana (barra, cabecera, pestañas, lista y
+        // pie) y después el de columnas: si no, las columnas se calculan con el alto viejo.
+        LayoutRootRows();
         // Si el tamaño no cambió de verdad, no se toca nada: evita repintados en bucle.
         if (_list.ClientSize == _lastSizedClient && _columnUpdatePending) return;
         _lastSizedClient = _list.ClientSize;

@@ -212,7 +212,7 @@ public sealed class AppSettings
     // Falso: la ventana abre con la lista de archivos visible, como TeraCopy. La vista
     // compacta queda como opción («Ocultar»), no como estado inicial.
     /// <summary>Modo de ventana al abrir: 0 = reducida, 1 = completa, 2 = automático.</summary>
-    public int WindowMode { get; set; } = 0;
+    public int WindowMode { get; set; } = 1;
     public bool CompactView { get; set; }
     public bool ReplaceWindowsCopier { get; set; } = true;
     public bool AskWhenBusy { get; set; } = true;

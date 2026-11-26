@@ -337,11 +337,41 @@ public sealed partial class MainForm
         folder.Error = result.Error;
         folder.State = ItemState.Pending;
 
+        // El árbol se enseña ABIERTO: el usuario pidió ver carpeta → subcarpeta → archivo.
+        // Con listas enormes se deja plegado para que la ventana no se arrastre; en ese caso
+        // basta con pulsar la flecha de la carpeta (o «Expandir todo» en el menú de la lista).
+        ExpandByDefault();
+
         RebuildRows();
         UpdateFooter();
         UpdateButtons();
         UpdateJobs();
     }
+
+    /// <summary>Cuántas filas se pueden desplegar de golpe sin que la lista se arrastre.</summary>
+    private const int MaxAutoExpandRows = 1500;
+
+    /// <summary>
+    /// Deja el árbol abierto para que se vea la estructura real (carpeta → subcarpeta →
+    /// archivo). Si la lista es muy grande se deja plegada: desplegar 20.000 filas de golpe
+    /// deja la ventana inservible.
+    /// </summary>
+    private void ExpandByDefault()
+    {
+        // Las filas nacen plegadas; aquí solo se ABREN. Nunca se pliega nada por las malas:
+        // si la lista es enorme se deja como está y el usuario abre lo que le interese.
+        if (_items.Count > MaxAutoExpandRows) return;
+        foreach (var item in _items)
+        {
+            if (item.Kind != ItemKind.Folder) continue;
+            // Si el usuario ya ha plegado algo a mano, no se le vuelve a abrir.
+            if (_userCollapsed.Contains(item.Id)) continue;
+            item.IsExpanded = true;
+        }
+    }
+
+    /// <summary>Carpetas que el usuario ha plegado a mano: no se vuelven a abrir solas.</summary>
+    private readonly HashSet<Guid> _userCollapsed = new();
 
     private static void AppendScanRows(ScanNode node, TransferItem parent, List<TransferItem> rows)
     {
@@ -938,6 +968,8 @@ public sealed partial class MainForm
         if (item.Kind != ItemKind.Folder) return;
         if (ChildCount(item) == 0) return;
         item.IsExpanded = !item.IsExpanded;
+        if (item.IsExpanded) _userCollapsed.Remove(item.Id);
+        else _userCollapsed.Add(item.Id);
         RebuildRows();
     }
 
@@ -946,13 +978,23 @@ public sealed partial class MainForm
         var folders = SelectedItems().Where(item => item.Kind == ItemKind.Folder).ToList();
         if (folders.Count == 0) { SetStatus("Selecciona una carpeta para expandirla o contraerla."); return; }
         var expand = folders.Any(folder => !folder.IsExpanded);
-        foreach (var folder in folders) folder.IsExpanded = expand;
+        foreach (var folder in folders)
+        {
+            folder.IsExpanded = expand;
+            if (expand) _userCollapsed.Remove(folder.Id);
+            else _userCollapsed.Add(folder.Id);
+        }
         RebuildRows();
     }
 
     private void ExpandAll(bool expand)
     {
-        foreach (var folder in _items.Where(item => item.Kind == ItemKind.Folder)) folder.IsExpanded = expand;
+        foreach (var folder in _items.Where(item => item.Kind == ItemKind.Folder))
+        {
+            folder.IsExpanded = expand;
+            if (expand) _userCollapsed.Remove(folder.Id);
+            else _userCollapsed.Add(folder.Id);
+        }
         RebuildRows();
     }
 
@@ -1152,6 +1194,7 @@ public sealed partial class MainForm
             foreach (var folder in SelectedItems().Where(item => item.Kind == ItemKind.Folder))
             {
                 folder.IsExpanded = true;
+                _userCollapsed.Remove(folder.Id);
                 var first = Children(folder).FirstOrDefault();
                 if (first is not null) SelectRows(new[] { first.Id });
             }
@@ -1160,7 +1203,11 @@ public sealed partial class MainForm
         }
         else if (e.KeyCode == Keys.Left)
         {
-            foreach (var folder in SelectedItems().Where(item => item.Kind == ItemKind.Folder)) folder.IsExpanded = false;
+            foreach (var folder in SelectedItems().Where(item => item.Kind == ItemKind.Folder))
+            {
+                folder.IsExpanded = false;
+                _userCollapsed.Add(folder.Id);
+            }
             RebuildRows();
             e.Handled = true;
         }
@@ -2441,9 +2488,7 @@ public sealed partial class MainForm
         _jobsCollapsed = !visible;
         try
         {
-            if (_contentGrid is not null && _contentGrid.ColumnStyles.Count > 0)
-                _contentGrid.ColumnStyles[0].Width = visible ? 228 : 0;
-            if (_jobsPanel is not null) _jobsPanel.Visible = visible;
+            ApplyJobsLayout();
             // « y » son caracteres de texto, no del set de iconos: se cambia el TEXTO del
             // botón en lugar de generar la imagen con la fuente de iconos (que no los tiene).
             if (_jobsToggleButton is not null)
@@ -2465,6 +2510,19 @@ public sealed partial class MainForm
             _store.Save(_settings);
             SetStatus(visible ? "Historial de listas visible." : "Historial de listas oculto.");
         }
+    }
+
+    /// <summary>
+    /// Coloca el panel TRABAJOS según el ajuste guardado y la vista actual. Es el ÚNICO
+    /// sitio que toca el ancho de esa columna: la vista reducida y el botón de ocultar
+    /// escribían los dos sobre ella y se pisaban entre sí.
+    /// </summary>
+    private void ApplyJobsLayout()
+    {
+        var show = _jobsVisible && !_compactView;
+        if (_contentGrid is not null && _contentGrid.ColumnStyles.Count > 0)
+            _contentGrid.ColumnStyles[0].Width = show ? 228 : 0;
+        if (_jobsPanel is not null) _jobsPanel.Visible = show;
     }
 
     /// <summary>
@@ -3655,6 +3713,9 @@ public sealed partial class MainForm
     protected override void OnResize(EventArgs e)
     {
         base.OnResize(e);
+        // El reparto de franjas (barra, cabecera, pestañas, lista y pie) se recalcula aquí
+        // mismo: esperar al temporizador dejaba el pie fuera de sitio durante el arrastre.
+        try { LayoutRootRows(); } catch { }
         if (WindowState != FormWindowState.Minimized || !_settings.MinimizeToTray || _exitRequested) return;
         // Hide() dentro de OnResize deja el estado de la ventana a medias (Visible=false con
         // WindowState=Minimized) y luego no vuelve al pulsar el icono. Se aplaza al bucle
@@ -3717,6 +3778,8 @@ public sealed partial class MainForm
             _resizeDebounce.Stop();
             _resizeDebounce.Dispose();
             _jobsBoldFont?.Dispose();
+            _tabFontActive?.Dispose();
+            _tabFontIdle?.Dispose();
             _engine.Cancel();
             _tray.Visible = false;
             _tray.Dispose();
