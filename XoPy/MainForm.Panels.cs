@@ -847,7 +847,8 @@ public sealed partial class MainForm
         var filePercent = runningLeaf is { SizeBytes: > 0 }
             ? Math.Clamp(runningLeaf.TransferredBytes * 100d / runningLeaf.SizeBytes, 0, 100)
             : 0;
-        _hdrTargetBar.Value = running ? filePercent : 0;
+        // Solo el número: la barra del archivo en curso desapareció (había dos barras y las
+        // dos parecían el total).
         _hdrTargetPercent.Text = running ? $"{filePercent:0.0} %" : "—";
     }
 
@@ -1258,6 +1259,36 @@ public sealed partial class MainForm
 
     private string _jobsSignature = string.Empty;
 
+    /// <summary>
+    /// Elementos cuya línea de puntos va resaltada: el archivo marcado y TODAS sus carpetas
+    /// hasta la raíz. Es lo que permite seguir con la vista de dónde sale un archivo cuando
+    /// la lista se ha reordenado a mano.
+    /// </summary>
+    private readonly HashSet<Guid> _highlightChain = new();
+
+    private void UpdateHighlightChain()
+    {
+        var before = _highlightChain.Count;
+        _highlightChain.Clear();
+        var byId = new Dictionary<Guid, TransferItem>(_items.Count);
+        foreach (var candidate in _items) byId[candidate.Id] = candidate;
+
+        foreach (ListViewItem row in _list.SelectedItems)
+        {
+            if (row.Tag is not TransferItem item) continue;
+            var node = item;
+            var guard = 0;
+            while (node is not null && guard++ < 64)
+            {
+                _highlightChain.Add(node.Id);
+                if (node.ParentId is not { } parentId) break;
+                node = byId.TryGetValue(parentId, out var parent) ? parent : null;
+            }
+        }
+        // Repintar solo cuando de verdad cambia algo: esto se dispara con cada flechita.
+        if (before > 0 || _highlightChain.Count > 0) _list.Invalidate();
+    }
+
     // ---------------------------------------------------------------- dibujado de la lista
 
     private void ListDrawColumnHeader(object? sender, DrawListViewColumnHeaderEventArgs e)
@@ -1286,6 +1317,13 @@ public sealed partial class MainForm
             : (e.ItemIndex % 2 == 0 ? _palette.Surface : _palette.SurfaceAlt);
         using (var brush = new SolidBrush(background))
             e.Graphics.FillRectangle(brush, e.Bounds);
+        // La fila marcada lleva además una banda de acento a la izquierda del todo: con la
+        // lista llena, el cambio de fondo solo no se distinguía bien.
+        if (selected && e.ColumnIndex == 0)
+        {
+            using var stripe = new SolidBrush(_palette.Accent);
+            e.Graphics.FillRectangle(stripe, e.Bounds.Left, e.Bounds.Top, 3, e.Bounds.Height);
+        }
 
         if (e.Item.Tag is not TransferItem item) return;
         var flags = TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis;
@@ -1302,15 +1340,27 @@ public sealed partial class MainForm
                 var indent = Math.Clamp(item.Depth, 0, 12) * 18;
                 var x = e.Bounds.Left + 8 + indent;
 
-                // Líneas de guía verticales: ayudan a seguir la jerarquía con muchas filas.
+                // LÍNEAS DE PUNTOS QUE LLEVAN A LA RAÍZ. Cada nivel de carpeta deja su línea
+                // vertical discontinua, y del último nivel sale un codo hasta el icono del
+                // archivo: se sigue con el dedo de dónde cuelga cada fila aunque la lista
+                // esté reordenada a mano. Cuando la fila seleccionada pertenece a esa rama,
+                // TODA la línea se pinta en el color de acento (lo que pidió el usuario:
+                // ver de un vistazo la ruta completa del archivo marcado).
                 if (item.Depth > 0)
                 {
-                    using var guide = new Pen(_palette.Border);
+                    var chain = _highlightChain;
+                    using var plain = new Pen(_palette.Border) { DashStyle = System.Drawing.Drawing2D.DashStyle.Dot };
+                    using var marked = new Pen(_palette.Accent, 1.6f) { DashStyle = System.Drawing.Drawing2D.DashStyle.Dot };
+                    var onPath = chain.Count > 0 && chain.Contains(item.Id);
                     for (var level = 1; level <= item.Depth; level++)
                     {
                         var gx = e.Bounds.Left + 8 + (level - 1) * 18 + 8;
-                        e.Graphics.DrawLine(guide, gx, top, gx, top + height);
+                        e.Graphics.DrawLine(onPath ? marked : plain, gx, top, gx, top + height);
                     }
+                    // Codo: del último nivel al icono de esta fila.
+                    var elbowX = e.Bounds.Left + 8 + (item.Depth - 1) * 18 + 8;
+                    var middle = top + height / 2;
+                    e.Graphics.DrawLine(onPath ? marked : plain, elbowX, middle, elbowX + 12, middle);
                 }
 
                 var hasChildren = item.Kind == ItemKind.Folder && ChildCount(item) > 0;

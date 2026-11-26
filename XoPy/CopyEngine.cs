@@ -697,20 +697,35 @@ public sealed class CopyEngine
                     item.TransferredBytes = 0;
                 }
                 FileLog.Write($"Intento {attempt} fallido para {source} -> {target}: {ex.Message}");
-                // Windows Defender, el Explorador o un reproductor pueden bloquear el archivo unos segundos.
                 var win32 = ex.HResult & 0xFFFF;
-                var transient = ex is UnauthorizedAccessException || win32 is 5 or 32 or 33;
+
+                // ACCESO DENEGADO (5): casi siempre es el archivo de destino con el atributo
+                // de solo lectura, oculto o de sistema. Se quitan esos atributos y se prueba
+                // UNA vez más. Si vuelve a fallar, esperar no arregla nada.
+                if (win32 == 5 && attempt == 1)
+                {
+                    ClearReadOnly(target);
+                    continue;
+                }
+
+                // Reintentar con espera SOLO cuando tiene sentido: el archivo lo tiene
+                // abierto otro programa (32/33) o hay un corte momentáneo de red (64, 1231,
+                // 1232). Con «acceso denegado», «no existe» o «ruta no encontrada»,
+                // reintentar cuatro veces por archivo era lo que dejaba la segunda copia
+                // arrastrándose durante minutos para acabar fallando igual.
+                var transient = win32 is 32 or 33 or 64 or 1231 or 1232;
+                var hopeless = win32 is 2 or 3 or 5 or 87 or 123 or 161 or 206;
                 if (transient && attempt <= 2)
                 {
-                    await Task.Delay(350 * attempt, token).ConfigureAwait(false);
+                    await Task.Delay(250 * attempt, token).ConfigureAwait(false);
                     continue;
                 }
                 var choice = DecideError(source, ex, attempt, options);
                 if (choice == ErrorChoice.Retry)
                 {
-                    if (attempt <= Math.Max(1, options.RetryCount))
+                    if (!hopeless && attempt <= Math.Max(1, options.RetryCount))
                     {
-                        await Task.Delay(250 * attempt, token).ConfigureAwait(false);
+                        await Task.Delay(200 * attempt, token).ConfigureAwait(false);
                         continue;
                     }
 
@@ -1467,13 +1482,21 @@ public sealed class CopyEngine
         }
     }
 
+    /// <summary>
+    /// Quita del archivo los atributos que IMPIDEN sobrescribirlo: solo lectura, oculto y
+    /// de sistema. Windows devuelve «Acceso denegado (5)» al copiar encima de un archivo
+    /// oculto o de sistema aunque haya permisos de sobra, y así es como 209 archivos de una
+    /// carpeta de juego fallaban uno detrás de otro en la segunda copia.
+    /// </summary>
     private static void ClearReadOnly(string path)
     {
         try
         {
+            if (!File.Exists(path)) return;
             var attributes = File.GetAttributes(path);
-            if ((attributes & FileAttributes.ReadOnly) != 0)
-                File.SetAttributes(path, attributes & ~FileAttributes.ReadOnly);
+            const FileAttributes blocking = FileAttributes.ReadOnly | FileAttributes.Hidden | FileAttributes.System;
+            if ((attributes & blocking) != 0)
+                File.SetAttributes(path, attributes & ~blocking);
         }
         catch { }
     }

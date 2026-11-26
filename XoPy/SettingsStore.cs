@@ -80,6 +80,18 @@ public sealed class SettingsStore
             migrated = true;
         }
 
+        if (settings.SettingsVersion < 6)
+        {
+            // Cerrar la ventana NO debe cerrar XoPy: se queda junto al reloj, como
+            // TeraCopy o SuperCopier. Venía apagado en algunas instalaciones y la X
+            // mataba el programa entero (y con él el interceptor de Ctrl+V).
+            settings.MinimizeToTray = true;
+            // La ventana se abre en su tamaño normal, nunca maximizada de salida.
+            settings.WindowMaximized = false;
+            settings.SettingsVersion = 6;
+            migrated = true;
+        }
+
         settings.Favorites ??= new List<string>();
         settings.ExtraDestinations ??= new List<string>();
         settings.ExtraDestinations = settings.ExtraDestinations

@@ -62,7 +62,7 @@ public sealed partial class MainForm : Form
     private PillLabel _hdrCopyState = null!, _hdrTargetState = null!;
     private Label _hdrCopyPath = null!, _hdrCopyInfo = null!, _hdrCopyPercent = null!;
     private Label _hdrTargetPath = null!, _hdrTargetInfo = null!, _hdrTargetPercent = null!;
-    private ProgressStrip _hdrCopyBar = null!, _hdrTargetBar = null!;
+    private ProgressStrip _hdrCopyBar = null!;
     private SpeedGraph _footerGraph = null!;
     private TableLayoutPanel? _footerLayout;
     private TableLayoutPanel? _statusRow;
@@ -267,13 +267,16 @@ public sealed partial class MainForm : Form
     // Alturas fijas de las franjas de la ventana (en píxeles de cliente).
     private const int RowMenuHeight = 24;
     private const int RowToolbarHeight = 48;
-    private const int RowHeaderHeight = 90;
+    // Cabecera: dos líneas de 24 px y UNA barra de 18, más 8 de relleno. Ni un píxel de
+    // más: lo que sobraba se veía como una franja vacía encima de la lista.
+    private const int RowHeaderHeight = 74;
     private const int RowTabsHeight = 34;
-    private const int RowFooterNormal = 106;
-    // Pie de la vista reducida: SOLO la barra de progreso. La línea de estado («Transferencia
-    // en pausa…») repetía lo que ya dicen el botón Pausar y la cabecera, y se comía 26 px de
-    // una ventana que el usuario quiere mínima.
-    private const int RowFooterCompact = 16;
+    // Pie: línea del archivo en curso (17) + gráfico de velocidad (35) + línea de estado
+    // (28) + relleno (16). La barra de progreso ya no está aquí.
+    private const int RowFooterNormal = 96;
+    // Pie de la vista reducida: NADA. El progreso, la velocidad y el tiempo restante están
+    // en la cabecera, que siempre se ve; dejar una franja aquí era hueco desperdiciado.
+    private const int RowFooterCompact = 0;
     private const int RowContentMin = 110;
 
     /// <summary>
@@ -342,11 +345,12 @@ public sealed partial class MainForm : Form
             {
                 _footerLayout.RowStyles[0].Height = compact ? 0 : 17;
                 _footerLayout.RowStyles[1].Height = compact ? 0 : 35;
-                _footerLayout.RowStyles[2].Height = 10;
+                _footerLayout.RowStyles[2].Height = 0;
                 // En reducido la línea de estado se va del todo: «Transferencia en pausa» ya
                 // se ve en el botón (que pasa a decir «Reanudar») y en la cabecera, y esa
                 // franja era el hueco desperdiciado de la ventana pequeña.
                 _footerLayout.RowStyles[3].Height = compact ? 0 : 28;
+                if (_footerLayout.Parent is not null) _footerLayout.Visible = !compact;
                 if (_currentLabel is not null) _currentLabel.Visible = !compact;
                 if (_footerGraph is not null) _footerGraph.Visible = !compact;
                 if (_statusRow is not null) _statusRow.Visible = !compact;
@@ -354,14 +358,13 @@ public sealed partial class MainForm : Form
                 // cabecera: en reducido se ocultan aquí para no decirlo dos veces.
                 if (_speedLabel is not null) _speedLabel.Visible = !compact;
             }
-            if (_transferHeader is not null && _transferHeader.RowStyles.Count >= 4)
+            if (_transferHeader is not null && _transferHeader.RowStyles.Count >= 3)
             {
-                // Las dos líneas (origen y destino) y sus barras siguen visibles en compacto,
-                // con la misma altura que en la ventana completa para que la barra se vea.
+                // Las dos líneas (origen y destino) y la barra del total se ven igual en
+                // reducido: en ese modo son lo único que queda.
                 _transferHeader.RowStyles[0].Height = 24;
-                _transferHeader.RowStyles[1].Height = 16;
-                _transferHeader.RowStyles[2].Height = 24;
-                _transferHeader.RowStyles[3].Height = 16;
+                _transferHeader.RowStyles[1].Height = 24;
+                _transferHeader.RowStyles[2].Height = 18;
             }
             if (compact && _tabIndex != 0) SelectTab(0);
             // La lista (con sus pestañas y el panel de trabajos) se esconde entera.
@@ -1031,22 +1034,23 @@ public sealed partial class MainForm : Form
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 4,
+            RowCount = 3,
             BackColor = _palette.Surface,
             Padding = new Padding(10, 5, 10, 3),
             Margin = new Padding(0, 0, 0, 0)
         };
         _transferHeader = host;
-        // La barra ocupa 12 px de alto (antes 4, prácticamente invisible).
+        // UNA SOLA BARRA, la del TOTAL. Antes había dos (una debajo de «Copiando» y otra
+        // debajo de «Destino») y las dos parecían el total: no había forma de saber cuál
+        // era cuál. El avance del archivo en curso se lee en el número de la primera fila
+        // y en la columna Progreso de la lista.
         host.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
-        host.RowStyles.Add(new RowStyle(SizeType.Absolute, 16));
         host.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
-        host.RowStyles.Add(new RowStyle(SizeType.Absolute, 16));
+        host.RowStyles.Add(new RowStyle(SizeType.Absolute, 18));
 
         host.Controls.Add(BuildHeaderLine("Copiando", out _hdrCopyState, out _hdrCopyPath, out _hdrCopyInfo, out _hdrCopyPercent), 0, 0);
-        host.Controls.Add(BuildHeaderBar(out _hdrCopyBar), 0, 1);
-        host.Controls.Add(BuildHeaderLine("Destino", out _hdrTargetState, out _hdrTargetPath, out _hdrTargetInfo, out _hdrTargetPercent), 0, 2);
-        host.Controls.Add(BuildHeaderBar(out _hdrTargetBar), 0, 3);
+        host.Controls.Add(BuildHeaderLine("Destino", out _hdrTargetState, out _hdrTargetPath, out _hdrTargetInfo, out _hdrTargetPercent), 0, 1);
+        host.Controls.Add(BuildHeaderBar(out _hdrCopyBar), 0, 2);
         return host;
     }
 
@@ -1167,9 +1171,12 @@ public sealed partial class MainForm : Form
             Padding = new Padding(12, 8, 12, 8),
             RowCount = 4
         };
+        // La fila de la barra de progreso se queda en 0: LA BARRA DEL TOTAL ES LA DE LA
+        // CABECERA, y solo hay una. Tener otra aquí abajo era la «segunda barra de progreso
+        // total» que no había manera de distinguir de la primera.
         footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 17));
         footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 35));
-        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 10));
+        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 0));
         footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
 
         _currentLabel = new Label
@@ -1185,7 +1192,9 @@ public sealed partial class MainForm : Form
         };
 
         _footerGraph = new SpeedGraph(_palette) { Dock = DockStyle.Fill, Height = 32, Margin = new Padding(0, 1, 0, 2) };
-        _progress = new ProgressStrip(_palette) { Dock = DockStyle.Fill, Height = 10, Margin = new Padding(0, 0, 0, 1) };
+        // Sigue existiendo (hay código que le pone el valor), pero no se ve: la única barra
+        // de progreso total de la ventana es la de la cabecera.
+        _progress = new ProgressStrip(_palette) { Dock = DockStyle.Fill, Height = 10, Margin = new Padding(0, 0, 0, 1), Visible = false };
 
         _statusLabel = new Label
         {
@@ -1424,6 +1433,7 @@ public sealed partial class MainForm : Form
         {
             UpdateButtons();
             ShowSelectedError();
+            UpdateHighlightChain();
         };
         _list.ColumnClick += ListColumnClick;
 
@@ -1705,7 +1715,18 @@ public sealed partial class MainForm : Form
 
         StartPosition = FormStartPosition.Manual;
         Location = new Point(posX, posY);
-        if (_settings.WindowMaximized && !_compactView) WindowState = FormWindowState.Maximized;
+
+        // NUNCA se abre maximizada. El usuario lo pidió expresamente: XoPy arranca en su
+        // ventana normal (el tamaño que tenía la última vez, si cabe en la pantalla) y
+        // maximiza quien quiera, cuando quiera.
+        WindowState = FormWindowState.Normal;
+        if (!_compactView && _settings.WindowWidth > 400 && _settings.WindowHeight > 300)
+        {
+            var width = Math.Min(_settings.WindowWidth, workingArea.Width);
+            var height = Math.Min(_settings.WindowHeight, workingArea.Height);
+            try { Size = new Size(width, height); }
+            catch { }
+        }
     }
 
     /// <summary>
@@ -3150,8 +3171,10 @@ public sealed partial class MainForm : Form
             MinimizeBox = false,
             MaximizeBox = false,
             ShowInTaskbar = false,
-            MinimumSize = new Size(640, 360),
-            ClientSize = new Size(760, 400),
+            MinimumSize = new Size(520, 210),
+            // El tamaño DEFINITIVO se calcula abajo con las opciones que haya: este cuadro
+            // enseña dos o tres líneas y antes ocupaba media pantalla.
+            ClientSize = new Size(560, 240),
         };
 
         var verb = move ? "mover" : "copiar";
@@ -3259,6 +3282,11 @@ public sealed partial class MainForm : Form
         // UNA SOLA MARCA, y siempre después de que todas tengan padre.
         foreach (var rb in choices) rb.Checked = false;
         (preferred ?? newOption).Checked = true;
+
+        // VENTANA A MEDIDA: alto = texto de arriba + una fila por opción + los botones.
+        // Nada de 400 px fijos para enseñar dos líneas.
+        var optionsHeight = Math.Min(choices.Count * 36 + 16, 340);
+        dlg.ClientSize = new Size(560, 56 + optionsHeight + 52);
 
         var buttons = new FlowLayoutPanel
         {

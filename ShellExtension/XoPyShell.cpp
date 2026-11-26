@@ -8,6 +8,7 @@
 #include <strsafe.h>
 #include <string>
 #include <new>
+#include <wchar.h>
 
 // El icono del menú necesita GDI (CreateDIBSection, SelectObject, DeleteDC…). Se declara
 // aquí además de en la línea de enlazado para que cualquier compilación local funcione.
@@ -64,6 +65,40 @@ static HBITMAP IconToBitmap(HICON icon, int size)
     return bitmap;
 }
 
+// ¿Está XoPy puesto como gestor de copias predeterminado? Lo escribe la propia aplicación
+// al guardar las preferencias. Si no se puede leer, se responde que NO: nunca se toca el
+// menú de Windows «por si acaso».
+static bool IsDefaultCopier()
+{
+    DWORD value = 0;
+    DWORD size = sizeof(value);
+    if (RegGetValueW(HKEY_CURRENT_USER, L"Software\\XoPy", L"DefaultCopier",
+                     RRF_RT_REG_DWORD, nullptr, &value, &size) == ERROR_SUCCESS) return value != 0;
+    return false;
+}
+
+// Busca el «Pegar» que pone Windows en el menú. Se compara el texto sin el & del acelerador
+// y sin puntos suspensivos, y se descartan «Pegar acceso directo» y los de otros programas.
+static int FindNativePaste(HMENU menu)
+{
+    const int count = GetMenuItemCount(menu);
+    for (int i = 0; i < count; ++i)
+    {
+        wchar_t text[128] = {};
+        if (GetMenuStringW(menu, static_cast<UINT>(i), text, 128, MF_BYPOSITION) <= 0) continue;
+        std::wstring clean;
+        for (wchar_t c : std::wstring(text))
+        {
+            if (c == L'&') continue;
+            if (c == L'\t') break;   // el atajo («Ctrl+V») va detrás de una tabulación
+            clean += c;
+        }
+        while (!clean.empty() && (clean.back() == L' ' || clean.back() == L'.')) clean.pop_back();
+        if (_wcsicmp(clean.c_str(), L"Pegar") == 0 || _wcsicmp(clean.c_str(), L"Paste") == 0) return i;
+    }
+    return -1;
+}
+
 static std::wstring Quote(const std::wstring& value)
 {
     std::wstring out = L"\"";
@@ -99,7 +134,12 @@ public:
     HRESULT STDMETHODCALLTYPE Initialize(PCIDLIST_ABSOLUTE folder, IDataObject* selection, HKEY) override
     {
         wchar_t path[MAX_PATH] = {};
-        if (!folder || !path[0]) { destination_.clear(); return E_INVALIDARG; }
+        // OJO con esta comprobación: antes decía «if (!folder || !path[0])» y path acababa
+        // de inicializarse a ceros, así que SIEMPRE salía por aquí con E_INVALIDARG. Es
+        // decir: la entrada «Pegar con XoPy» no llegaba a aparecer nunca y el usuario
+        // acababa pulsando el «Pegar» de Windows. Ese era el fallo de «al tocar pegar lo
+        // hace el copiador de Windows».
+        if (!folder) { destination_.clear(); return E_INVALIDARG; }
 
         // El escritorio no es una ruta normal: su carpeta de sistema es la de escritorio del
         // usuario. Sin esto, pegar en el escritorio no mostraba «Pegar» y seguía copiando Windows.
@@ -138,7 +178,24 @@ public:
         // pero como la entrada se llamaba solo «Pegar» el usuario no sabía si la copia la
         // iba a hacer XoPy o el propio Windows. Ahora se llama «Pegar con XoPy» y lleva icono.
         if (!IsClipboardFormatAvailable(CF_HDROP)) return MAKE_HRESULT(SEVERITY_SUCCESS, 0, 0);
-        if (!InsertMenuW(menu, index, MF_BYPOSITION | MF_STRING, first, L"Pegar con XoPy"))
+
+        // SI XOPY ES EL GESTOR DE COPIAS PREDETERMINADO, el «Pegar» de Windows se quita del
+        // menú y el de XoPy ocupa su sitio: pulsar «Pegar» copia con XoPy, que es lo que el
+        // usuario espera al marcar esa casilla. Sin el ajuste puesto, el de Windows se
+        // queda donde está y XoPy solo añade su entrada.
+        const bool replaceNative = IsDefaultCopier();
+        UINT insertAt = index;
+        if (replaceNative)
+        {
+            const int nativePaste = FindNativePaste(menu);
+            if (nativePaste >= 0)
+            {
+                insertAt = static_cast<UINT>(nativePaste);
+                DeleteMenu(menu, static_cast<UINT>(nativePaste), MF_BYPOSITION);
+            }
+        }
+        if (!InsertMenuW(menu, insertAt, MF_BYPOSITION | MF_STRING, first,
+                         replaceNative ? L"Pegar  (XoPy)" : L"Pegar con XoPy"))
             return HRESULT_FROM_WIN32(GetLastError());
         // Icono de la aplicación junto al texto (si se puede cargar; si no, el texto basta).
         wchar_t iconPath[MAX_PATH] = {};

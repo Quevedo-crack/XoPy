@@ -87,6 +87,7 @@ public static class ShellIntegration
             // crea a propósito y comprueba que desaparecen), pero Unregister ya NO borra el
             // CLSID de la extensión «Pegar»: esa clave es la que hace funcionar Ctrl+V.
             try { RegisterAppPath(Application.ExecutablePath); } catch { }
+            try { SetDefaultCopierFlag(true); } catch { }
             try { Unregister(); } catch { }
             // «Enviar a → XoPy»: se crea y se deja. Antes el arranque llamaba a Cleanup(),
             // que borraba el acceso, y por eso «Enviar a» no existía nunca.
@@ -210,9 +211,22 @@ public static class ShellIntegration
     {
         var exe = Application.ExecutablePath;
         try { RegisterAppPath(exe); } catch { }
+        try { SetDefaultCopierFlag(false); } catch { }
         try { RemoveSendToShortcuts(); } catch { }
         try { Unregister(); } catch { }
         try { SHChangeNotify(0x08000000, 0, IntPtr.Zero, IntPtr.Zero); } catch { }
+    }
+
+    /// <summary>
+    /// Deja escrito en el registro si XoPy es el gestor de copias predeterminado. Lo lee la
+    /// extensión del Explorador (XoPyShell.dll) para decidir si quita el «Pegar» de Windows
+    /// del menú contextual y pone el suyo en su sitio. Sin esta marca, la extensión no toca
+    /// el menú del sistema.
+    /// </summary>
+    private static void SetDefaultCopierFlag(bool enabled)
+    {
+        using var key = Registry.CurrentUser.CreateSubKey(@"Software\XoPy");
+        key?.SetValue("DefaultCopier", enabled ? 1 : 0, RegistryValueKind.DWord);
     }
 
     private static void CreateSendToShortcut()

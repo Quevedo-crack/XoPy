@@ -151,6 +151,34 @@ el otro gestor de copias de este mismo autor, y resuelve de paso lo que allí fa
 - En la barra de copia se puede alternar entre modo secuencial y multihilo, también durante una transferencia; un archivo se puede pausar/reanudar individualmente desde el menú contextual de la lista. La lista admite reordenado por arrastre; las carpetas se muestran contraídas al añadirse y se pueden desplegar con la flecha o desde el menú. La columna de trabajos también empieza plegada y puede expandirse.
 - El instalador limpia las antiguas claves del menú contextual antes de iniciar la aplicación.
 
+## Novedades de la versión 2.6.2
+
+**Repaso a fondo de los fallos que se arrastraban de versiones anteriores.**
+
+Ventana e interfaz
+
+- **La X minimiza al área de notificación** (junto al reloj) en vez de cerrar el programa, y el ajuste viene activado de fábrica. Para salir de verdad: menú «Archivo → Salir» o el icono de la bandeja.
+- **XoPy ya no abre maximizado** y recuerda el tamaño que tenía, siempre dentro de la pantalla.
+- **Se acabó el hueco vacío** debajo de la lista: la cabecera y el pie se ajustan al contenido real, y en vista compacta el pie desaparece entero.
+- **Una sola barra de progreso**, la del total. Antes había dos (una encima de otra) y no se entendía cuál era cuál.
+- **Los botones de los cuadros de diálogo son todos iguales**, sin colores ni resaltes: ninguna opción «tira» del ratón.
+- **El cuadro «Añadir archivos a la copia» es pequeño**, del tamaño justo de lo que enseña.
+- **La ruta del archivo marcado se ve de un vistazo**: la fila seleccionada lleva una banda azul y toda su rama se marca con una línea de puntos hasta la raíz. Al reordenar la lista ya no se pierde de vista de dónde sale cada archivo.
+
+Copia
+
+- **Segunda copia sobre la misma carpeta: se acabaron los «Acceso denegado (error 5)» en cadena.** Al sobrescribir se quitan también los atributos **oculto** y **de sistema**, no solo el de solo lectura; es lo que hacía fallar cientos de archivos seguidos en carpetas de juegos y programas.
+- **Reintentos con cabeza.** Solo se reintenta lo que puede arreglarse esperando (archivo en uso por otro programa, corte de red). Con «acceso denegado», «no existe» o «ruta no encontrada» no se insiste cuatro veces por archivo: antes eso convertía la segunda copia en una tortura de varios minutos para acabar fallando igual.
+- **«Hacer lo mismo con el resto»** en el cuadro de error: una respuesta vale para todos los archivos que fallen después. Con doscientos archivos rotos, contestar doscientas veces no es una opción.
+
+Explorador de Windows
+
+- **«Pegar» del menú contextual vuelve a ser el de XoPy.** La extensión tenía una comprobación mal escrita que la invalidaba siempre, así que la entrada no llegaba a aparecer nunca y pegaba Windows. Además, con XoPy puesto como gestor de copias predeterminado, **el «Pegar» del sistema se sustituye por el de XoPy** en el menú.
+
+Icono
+
+- **Icono nuevo**, en la línea del de FlashCopyPro: anillo azul, fondo oscuro y el rayo sobre las dos hojas, con el azul y los tonos oscuros del propio programa.
+
 ## Novedades de la versión 2.5.9
 
 **Arreglo crítico: el equipo podía quedarse «pensando» y no abrir nada** (ni XoPy, ni el instalador, ni ningún otro programa).

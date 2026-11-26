@@ -351,23 +351,34 @@ public static class Ui
         return button;
     }
 
+    /// <summary>
+    /// Botón de cuadro de diálogo. TODOS IGUALES: mismo fondo, mismo texto y mismo borde.
+    /// El parámetro <paramref name="primary"/> se mantiene para no tocar las llamadas, pero
+    /// ya no pinta nada de otro color: el usuario pidió que ninguna respuesta venga
+    /// resaltada, para decidir leyendo y no por el color del botón.
+    /// </summary>
     public static Button DialogButton(string text, Palette palette, bool primary = false)
     {
-        var background = primary ? palette.Accent : palette.Raised;
-        var foreground = primary ? Color.White : palette.Text;
-        return new Button
+        var background = palette.Raised;
+        var button = new Button
         {
             Text = text,
             AutoSize = false,
             Size = new Size(112, 32),
             BackColor = background,
-            ForeColor = foreground,
+            ForeColor = palette.Text,
             FlatStyle = FlatStyle.Flat,
-            Font = new Font("Segoe UI", 9f, FontStyle.Bold),
+            Font = new Font("Segoe UI", 9f),
             Cursor = Cursors.Hand,
             Margin = new Padding(6, 0, 0, 0),
-            FlatAppearance = { BorderSize = 0, MouseOverBackColor = Lighten(background, 16) }
+            // Sin foco dibujado: el rectángulo de puntos del botón predeterminado también
+            // es «resaltar uno más que los demás».
+            UseVisualStyleBackColor = false,
+            TabStop = true,
+            FlatAppearance = { BorderSize = 1, MouseOverBackColor = Lighten(background, 16) }
         };
+        button.FlatAppearance.BorderColor = palette.Border;
+        return button;
     }
 
     /// <summary>

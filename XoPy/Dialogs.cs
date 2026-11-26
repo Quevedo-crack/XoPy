@@ -1687,9 +1687,8 @@ internal sealed class ConflictDialog : Form
         MinimizeBox = false;
         MaximizeBox = false;
         ShowInTaskbar = false;
-        // Ancho suficiente para las cuatro respuestas en una sola fila, ya con la coletilla
-        // «(recomendado)» en la que no se pierde nada.
-        ClientSize = new Size(792, 356);
+        // Ancho suficiente para las cuatro respuestas en una sola fila.
+        ClientSize = new Size(700, 356);
         KeyPreview = true;
 
         var newer = prompt.SourceModified > prompt.TargetModified ? 1
@@ -1775,16 +1774,12 @@ internal sealed class ConflictDialog : Form
             Margin = new Padding(0, 4, 0, 0)
         };
 
-        // CADA RESPUESTA CON SU COLOR. Antes los cuatro botones eran iguales y había que
-        // leerlos uno a uno: ahora el color dice de un vistazo qué hace cada uno —azul el
-        // recomendado (no se pierde nada), rojo el que BORRA el archivo del destino, gris
-        // el que no toca nada y apagado el que detiene la copia entera.
-        Button Make(string text, string tip, int choice, Color back, Color fore)
+        // Las cuatro respuestas, todas con el mismo aspecto. Lo que las distingue es el
+        // TEXTO y el globo de ayuda, no el color: así ninguna parece «la buena» de entrada.
+        Button Make(string text, string tip, int choice)
         {
+            // Todos los botones con EL MISMO estilo: ninguno resaltado, ninguno de color.
             var button = Ui.DialogButton(text, palette);
-            button.BackColor = back;
-            button.ForeColor = fore;
-            button.FlatAppearance.MouseOverBackColor = Ui.Lighten(back, 22);
             // El ancho se MIDE con la fuente del botón: con 128 fijos, «Quedarme con los
             // dos» se quedaba en «Quedarme con los».
             button.Width = Math.Max(118, TextRenderer.MeasureText(text, button.Font).Width + 26);
@@ -1796,14 +1791,10 @@ internal sealed class ConflictDialog : Form
 
         // Orden de izquierda a derecha en pantalla: Cancelar · Omitir · Copiar las dos ·
         // Reemplazar. El botón resaltado es el que menos daño hace.
-        var replace = Make("Reemplazar", "BORRA el archivo del destino y pone el nuevo en su sitio. Lo que había se pierde.",
-            0, palette.Danger, Color.White);
-        var skip = Make("No copiar este", "Deja el destino como está y pasa al siguiente archivo.",
-            1, palette.Raised, palette.Text);
-        var both = Make("Quedarme con los dos  (recomendado)", "Copia el nuevo con un nombre distinto; no se pierde ninguno.",
-            2, palette.Accent, Color.White);
-        var cancel = Make("Cancelar la copia", "Detiene la transferencia completa.",
-            3, palette.SurfaceAlt, palette.Muted);
+        var replace = Make("Reemplazar", "BORRA el archivo del destino y pone el nuevo en su sitio. Lo que había se pierde.", 0);
+        var skip = Make("No copiar este", "Deja el destino como está y pasa al siguiente archivo.", 1);
+        var both = Make("Quedarme con los dos", "Copia el nuevo con un nombre distinto; no se pierde ninguno.", 2);
+        var cancel = Make("Cancelar la copia", "Detiene la transferencia completa.", 3);
 
         buttons.Controls.Add(replace);
         buttons.Controls.Add(skip);
@@ -1819,7 +1810,9 @@ internal sealed class ConflictDialog : Form
 
         AcceptButton = both;
         CancelButton = cancel;
-        Shown += (_, _) => both.Focus();
+        // Nadie empieza con el foco puesto: un botón enfocado se ve distinto de los demás y
+        // eso es, otra vez, resaltar una respuesta. Se contesta con el ratón o con Tab.
+        Shown += (_, _) => ActiveControl = null;
         KeyDown += (_, e) =>
         {
             if (e.KeyCode != Keys.Escape) return;

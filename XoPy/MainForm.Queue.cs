@@ -2547,10 +2547,16 @@ public sealed partial class MainForm
     private ErrorChoice AskError(ErrorPrompt prompt)
     {
         BringUpForPrompt($"error con {Path.GetFileName(prompt.FilePath)}");
+        // «Hacer lo mismo con el resto»: cuando falla una carpeta entera por la misma causa
+        // (doscientos archivos con el mismo «acceso denegado»), contestar doscientas veces
+        // no es una opción. Marcando la casilla, la respuesta vale para todos los que
+        // fallen después.
         var choice = PromptDialog.Ask(this, _palette, "Error de transferencia",
             "No se pudo transferir \"" + Path.GetFileName(prompt.FilePath) + "\".",
             prompt.Message + $"\n\nIntento {prompt.Attempt}. Archivo: {prompt.FilePath}",
-            new[] { "Reintentar", "Omitir", "Omitir todos", "Detener" });
+            new[] { "Reintentar", "Omitir", "Omitir todos", "Detener" },
+            "Hacer lo mismo con el resto de archivos que fallen", out var applyToAll);
+        if (applyToAll && choice == 1) return ErrorChoice.SkipAll;
         return choice switch
         {
             0 => ErrorChoice.Retry,
@@ -4184,6 +4190,8 @@ public sealed partial class MainForm
         // Mientras hay una transferencia en marcha SIEMPRE se va a la bandeja, aunque el
         // ajuste esté desactivado: cerrar la ventana no puede abortar una copia a medias.
         var keepAlive = _settings.MinimizeToTray || _engine.IsRunning;
+        FileLog.Write($"Cierre de la ventana: motivo={e.CloseReason}, salir_pedido={_exitRequested}, " +
+                      $"bandeja={_settings.MinimizeToTray}, copiando={_engine.IsRunning}");
         if (!_exitRequested && keepAlive && e.CloseReason == CloseReason.UserClosing)
         {
             e.Cancel = true;
