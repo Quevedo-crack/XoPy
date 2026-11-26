@@ -474,8 +474,9 @@ public sealed partial class MainForm : Form
         viewMenu.DropDownItems.Add(new ToolStripSeparator());
         viewMenu.DropDownItems.Add(MenuItem("Ocultar o mostrar la lista de archivos (F9)", (_, _) => ToggleCompactView(), Keys.F9));
         viewMenu.DropDownItems.Add(MenuItem("Mostrar la ruta completa de cada archivo", (_, _) => ToggleFullPath()));
-        viewMenu.DropDownItems.Add(MenuItem("Ocultar o mostrar el historial de listas", (_, _) => SetJobsVisible(!_jobsVisible, persist: true)));
-        viewMenu.DropDownItems.Add(MenuItem("Mostrar u ocultar la columna de trabajos", (_, _) => ToggleJobsPanel()));
+        // Antes había dos entradas («historial de listas» y «columna de trabajos») que
+        // llamaban a lo mismo con nombres distintos. Una sola, con atajo.
+        viewMenu.DropDownItems.Add(MenuItem("Ocultar o mostrar la columna de listas (F8)", (_, _) => ToggleJobsPanel(), Keys.F8));
         queue.DropDownItems.Add(viewMenu);
         queue.DropDownItems.Add(new ToolStripSeparator());
         queue.DropDownItems.Add(MenuItem("Quitar seleccionados", (_, _) => RemoveSelected()));
@@ -840,7 +841,9 @@ public sealed partial class MainForm : Form
         closeListButton.Margin = new Padding(2, 2, 0, 0);
         closeListButton.Click += (_, _) => DeleteActiveList();
 
-        _jobsToggleButton = Ui.IconButton("\u00AB", _palette, "Ocultar el historial de listas de copia");
+        _jobsToggleButton = Ui.IconButton("\u00AB", _palette, "Ocultar la columna de listas (F8)");
+        _jobsToggleButton.Image = null;
+        _jobsToggleButton.Text = "\u00AB";
         _jobsToggleButton.Size = new Size(22, 22);
         _jobsToggleButton.Margin = new Padding(2, 2, 0, 0);
         _jobsToggleButton.Click += (_, _) => SetJobsVisible(!_jobsVisible, persist: true);
@@ -1229,7 +1232,14 @@ public sealed partial class MainForm : Form
             "Ordenar la lista por nombre, tamaño, fecha de modificación, destino u origen");
         _sortButton.Click += (_, _) => ShowSortMenu(_sortButton);
 
-        _collapseButton = Ui.IconButton("\u00AB", _palette, "Mostrar u ocultar la columna de trabajos");
+        // Único interruptor que queda a la vista cuando la columna de listas se esconde: por eso
+        // al ocultarla se le pone texto («Listas») en vez de dejar solo el chevrón.
+        _collapseButton = Ui.IconButton("\u00AB", _palette, "Ocultar la columna de listas (F8)");
+        // « y » no están en la fuente de iconos: se pintan como TEXTO. Si además se deja la
+        // imagen del glifo, WinForms superpone las dos cosas y queda un borrón.
+        _collapseButton.Image = null;
+        _collapseButton.Text = "\u00AB";
+        _collapseButton.Font = new Font("Segoe UI", 9f, FontStyle.Bold);
         _collapseButton.Click += (_, _) => ToggleJobsPanel();
         tools.Controls.Add(_collapseButton);
         tools.Controls.Add(_clearButton);

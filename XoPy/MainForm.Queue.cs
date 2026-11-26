@@ -2524,7 +2524,19 @@ public sealed partial class MainForm
                     ? "Ocultar el historial de listas de copia"
                     : "Mostrar el historial de listas de copia";
             }
-            if (_collapseButton is not null) _collapseButton.Text = visible ? "\u00AB" : "\u00BB";
+            // Cuando la columna desaparece, su botón de dentro se va con ella: el de la cabecera
+            // de la lista es el único camino de vuelta, así que deja de ser un chevrón suelto y
+            // pasa a decir qué hace. Al volver a verse la columna recupera el tamaño de icono.
+            if (_collapseButton is not null)
+            {
+                _collapseButton.Text = visible ? "\u00AB" : "\u00BB  Listas";
+                _collapseButton.AutoSize = false;
+                _collapseButton.Width = visible ? 26 : 86;
+                _collapseButton.AccessibleName = visible
+                    ? "Ocultar la columna de listas (F8)"
+                    : "Mostrar la columna de listas (F8)";
+                _collapseButton.ForeColor = visible ? _palette.Text : _palette.Accent;
+            }
         }
         catch { }
         if (persist)
