@@ -1154,12 +1154,13 @@ public sealed partial class MainForm
         // 0 = Nombre · 1 = Subcarpeta · 2 = Tamaño · 3 = Estado · 4 = Progreso · 5/6 = hashes
         // La subcarpeta es corta (normalmente «—»): el espacio que antes se llevaba repetir
         // la ruta de destino se lo queda la columna del nombre, donde está el árbol.
-        // Con la ruta completa a la vista, la subcarpeta de destino cede ancho: lo que
-        // importa es ver de dónde sale cada archivo.
-        SetWidth(_list.Columns[1], _settings.ShowFullPath ? 112 : 150);
-        SetWidth(_list.Columns[2], show ? 84 : 92);
-        SetWidth(_list.Columns[3], show ? 108 : 128);
-        SetWidth(_list.Columns[4], show ? 126 : 190);
+        // Con la ruta completa a la vista, el resto de columnas ceden ancho: lo que importa
+        // es ver de dónde sale cada archivo, y la ruta es lo que más sitio necesita.
+        var path = _settings.ShowFullPath;
+        SetWidth(_list.Columns[1], path ? 100 : 150);
+        SetWidth(_list.Columns[2], show ? 84 : path ? 88 : 92);
+        SetWidth(_list.Columns[3], show ? 108 : path ? 112 : 128);
+        SetWidth(_list.Columns[4], show ? 126 : path ? 150 : 190);
         SetWidth(_list.Columns[5], show ? 138 : 0);
         SetWidth(_list.Columns[6], show ? 138 : 0);
     }

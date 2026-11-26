@@ -337,8 +337,7 @@ internal sealed class OptionsDialog : Form
         _askWhenBusy = Check("Preguntar qué hacer si ya hay una transferencia en curso", settings.AskWhenBusy);
         // De fábrica DESMARCADA: pegar arranca directamente con lo que hay en el
         // portapapeles, sin cuadros por el medio.
-        _askWhenPasting = Check("Al pegar, preguntar en qué lista van los archivos (si no, empieza directamente)",
-            settings.AskWhenPasting);
+        _askWhenPasting = Check("Al pegar, preguntar en qué lista van los archivos", settings.AskWhenPasting);
         _showFullPath = Check("Mostrar la ruta completa de cada archivo en la lista", settings.ShowFullPath);
 
         _sound = Check("Reproducir un sonido al terminar", settings.PlaySoundWhenDone);
