@@ -1471,6 +1471,8 @@ internal sealed class ConflictDialog : Form
     public bool ApplyToAll => _applyAll.Checked;
 
     private readonly CheckBox _applyAll;
+    // Un solo ToolTip para todo el cuadro: antes se creaba uno por botón y no se liberaba.
+    private readonly ToolTip _tips = new();
 
     public ConflictDialog(Palette palette, ConflictPrompt prompt)
     {
@@ -1485,7 +1487,8 @@ internal sealed class ConflictDialog : Form
         MinimizeBox = false;
         MaximizeBox = false;
         ShowInTaskbar = false;
-        ClientSize = new Size(620, 356);
+        // Ancho suficiente para las cuatro respuestas en una sola fila.
+        ClientSize = new Size(680, 356);
         KeyPreview = true;
 
         var newer = prompt.SourceModified > prompt.TargetModified ? 1
@@ -1574,9 +1577,11 @@ internal sealed class ConflictDialog : Form
         Button Make(string text, string tip, int choice, bool accent = false)
         {
             var button = Ui.DialogButton(text, palette, accent);
-            button.Width = Math.Max(button.Width, 128);
+            // El ancho se MIDE con la fuente del botón: con 128 fijos, «Quedarme con los
+            // dos» se quedaba en «Quedarme con los».
+            button.Width = Math.Max(118, TextRenderer.MeasureText(text, button.Font).Width + 26);
             button.Margin = new Padding(8, 0, 0, 0);
-            new ToolTip().SetToolTip(button, tip);
+            _tips.SetToolTip(button, tip);
             button.Click += (_, _) => { Choice = choice; DialogResult = DialogResult.OK; Close(); };
             return button;
         }
@@ -1610,6 +1615,12 @@ internal sealed class ConflictDialog : Form
             DialogResult = DialogResult.Cancel;
             Close();
         };
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing) _tips.Dispose();
+        base.Dispose(disposing);
     }
 
     /// <summary>Tarjeta con los datos de uno de los dos archivos.</summary>

@@ -318,6 +318,48 @@ public static class Ui
         };
     }
 
+    /// <summary>
+    /// Etiqueta de UNA sola línea que recorta con puntos suspensivos. El Label de WinForms
+    /// parte el texto en varias líneas cuando no cabe a lo ancho (AutoEllipsis solo actúa
+    /// después de partirlo), y en una franja de 36 px eso se ve como dos renglones
+    /// apretados: pasaba con el recuento de la lista («4 archivo(s) · 22.0 KB»).
+    /// </summary>
+    public sealed class OneLineLabel : Label
+    {
+        public OneLineLabel()
+        {
+            AutoSize = false;
+            UseCompatibleTextRendering = false;
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            var align = TextAlign switch
+            {
+                ContentAlignment.MiddleRight or ContentAlignment.TopRight or ContentAlignment.BottomRight
+                    => TextFormatFlags.Right,
+                ContentAlignment.MiddleCenter or ContentAlignment.TopCenter or ContentAlignment.BottomCenter
+                    => TextFormatFlags.HorizontalCenter,
+                _ => TextFormatFlags.Left
+            };
+            var flags = TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis
+                        | TextFormatFlags.NoPrefix | TextFormatFlags.VerticalCenter | align;
+            // El fondo ya lo pinta OnPaintBackground (y respeta el color transparente).
+            TextRenderer.DrawText(e.Graphics, Text, Font, ClientRectangle, ForeColor, flags);
+        }
+    }
+
+    /// <summary>Etiqueta de una línea con el estilo del tema.</summary>
+    public static OneLineLabel OneLine(string text, Palette palette, float size = 9f, bool bold = false, Color? color = null)
+        => new()
+        {
+            Text = text,
+            ForeColor = color ?? palette.Text,
+            BackColor = Color.Transparent,
+            Font = new Font("Segoe UI", size, bold ? FontStyle.Bold : FontStyle.Regular),
+            Margin = new Padding(0)
+        };
+
     public static Label Label(string text, Palette palette, float size = 9f, bool bold = false, Color? color = null)
         => new()
         {

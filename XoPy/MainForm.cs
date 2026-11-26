@@ -1109,11 +1109,11 @@ public sealed partial class MainForm : Form
         _viewQueueButton = ViewTab("En cola", () => SetQueueView(false));
         _viewDoneButton = ViewTab("Finalizados", () => SetQueueView(true));
 
-        _countLabel = Ui.Label(string.Empty, _palette, 8.5f, false, _palette.Muted);
-        _countLabel.AutoSize = false;
+        // Etiqueta de UNA línea: el Label normal partía «4 archivo(s) · 22.0 KB» en dos
+        // renglones dentro de una franja de 36 px.
+        _countLabel = Ui.OneLine(string.Empty, _palette, 8.5f, false, _palette.Muted);
         _countLabel.Dock = DockStyle.Fill;
         _countLabel.TextAlign = ContentAlignment.MiddleLeft;
-        _countLabel.AutoEllipsis = true;
         _countLabel.Margin = new Padding(10, 0, 6, 0);
 
         var viewRow = new FlowLayoutPanel
