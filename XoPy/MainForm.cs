@@ -65,6 +65,7 @@ public sealed partial class MainForm : Form
     private ProgressStrip _hdrCopyBar = null!, _hdrTargetBar = null!;
     private SpeedGraph _footerGraph = null!;
     private TableLayoutPanel? _footerLayout;
+    private TableLayoutPanel? _statusRow;
     private TableLayoutPanel _rootLayout = null!;
     private TableLayoutPanel _transferHeader = null!;
     private ToolStripButton _compactButton = null!;
@@ -269,7 +270,10 @@ public sealed partial class MainForm : Form
     private const int RowHeaderHeight = 90;
     private const int RowTabsHeight = 34;
     private const int RowFooterNormal = 106;
-    private const int RowFooterCompact = 52;
+    // Pie de la vista reducida: SOLO la barra de progreso. La línea de estado («Transferencia
+    // en pausa…») repetía lo que ya dicen el botón Pausar y la cabecera, y se comía 26 px de
+    // una ventana que el usuario quiere mínima.
+    private const int RowFooterCompact = 16;
     private const int RowContentMin = 110;
 
     /// <summary>
@@ -339,9 +343,13 @@ public sealed partial class MainForm : Form
                 _footerLayout.RowStyles[0].Height = compact ? 0 : 17;
                 _footerLayout.RowStyles[1].Height = compact ? 0 : 35;
                 _footerLayout.RowStyles[2].Height = 10;
-                _footerLayout.RowStyles[3].Height = compact ? 26 : 28;
+                // En reducido la línea de estado se va del todo: «Transferencia en pausa» ya
+                // se ve en el botón (que pasa a decir «Reanudar») y en la cabecera, y esa
+                // franja era el hueco desperdiciado de la ventana pequeña.
+                _footerLayout.RowStyles[3].Height = compact ? 0 : 28;
                 if (_currentLabel is not null) _currentLabel.Visible = !compact;
                 if (_footerGraph is not null) _footerGraph.Visible = !compact;
+                if (_statusRow is not null) _statusRow.Visible = !compact;
                 // La velocidad y el tiempo restante salen ya en la segunda línea de la
                 // cabecera: en reducido se ocultan aquí para no decirlo dos veces.
                 if (_speedLabel is not null) _speedLabel.Visible = !compact;
@@ -387,28 +395,47 @@ public sealed partial class MainForm : Form
         MinimumSize = compact ? new Size(620, 300) : new Size(820, 560);
         if (persist)
         {
+            // LA VENTANA NO SE MUEVE DE SITIO. Solo cambia de alto, y crece o encoge hacia
+            // abajo desde la esquina en la que está: antes se recolocaba sola por la
+            // pantalla cada vez que se mostraba o se escondía la lista.
             if (compact)
             {
                 _expandedWasMaximized = WindowState == FormWindowState.Maximized;
                 _expandedBounds = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
-                WindowState = FormWindowState.Normal;
 
-                // La altura se calcula sumando lo que sigue siendo visible (menú, barra,
-                // cabecera de progreso y pie). Sin la lista ya no hace falta reservar su
-                // hueco: la ventana se queda en una banda de progreso, como FlashCopyPro.
-                var height = (_settings.ShowMenuBar ? RowMenuHeight : 0)
-                             + RowToolbarHeight + RowHeaderHeight + RowFooterCompact + 12;
-                height += SystemInformation.FrameBorderSize.Height * 2 + SystemInformation.CaptionHeight;
-                // Se acerca al tamaño justo, pero nunca por debajo de lo que necesita el contenido.
-                Height = Math.Max(height, MinimumSize.Height);
-                Width = Math.Max(Width, MinimumSize.Width);
+                // Maximizada se queda maximizada: encogerla a una banda la habría mandado a
+                // otra parte de la pantalla. La lista desaparece igual, que es lo que se pide.
+                if (WindowState == FormWindowState.Normal)
+                {
+                    // La altura se calcula sumando lo que sigue siendo visible (menú, barra,
+                    // cabecera de progreso y pie). Sin la lista ya no hace falta reservar su
+                    // hueco: la ventana se queda en una banda de progreso, como FlashCopyPro.
+                    var height = (_settings.ShowMenuBar ? RowMenuHeight : 0)
+                                 + RowToolbarHeight + RowHeaderHeight + RowFooterCompact + 12;
+                    height += SystemInformation.FrameBorderSize.Height * 2 + SystemInformation.CaptionHeight;
+                    // Una sola asignación de Bounds: cambiar Height y Width por separado
+                    // provocaba dos recolocaciones y el típico salto de la ventana.
+                    Bounds = new Rectangle(Left, Top,
+                        Math.Max(Width, MinimumSize.Width),
+                        Math.Max(height, MinimumSize.Height));
+                }
             }
             else if (_expandedBounds.Width > 0)
             {
                 AutoSize = false;
-                Bounds = new Rectangle(_expandedBounds.X, _expandedBounds.Y,
-                    Math.Max(MinimumSize.Width, _expandedBounds.Width), Math.Max(MinimumSize.Height, _expandedBounds.Height));
-                if (_expandedWasMaximized) WindowState = FormWindowState.Maximized;
+                if (_expandedWasMaximized)
+                {
+                    if (WindowState != FormWindowState.Maximized) WindowState = FormWindowState.Maximized;
+                }
+                else if (WindowState == FormWindowState.Normal)
+                {
+                    // Vuelve al alto que tenía, EN EL MISMO SITIO en el que está ahora: si el
+                    // usuario movió la ventana con la lista escondida, no se la devolvemos de
+                    // un salto a las coordenadas antiguas.
+                    Bounds = new Rectangle(Left, Top,
+                        Math.Max(MinimumSize.Width, _expandedBounds.Width),
+                        Math.Max(MinimumSize.Height, _expandedBounds.Height));
+                }
                 _expandedBounds = Rectangle.Empty;
                 _expandedWasMaximized = false;
             }
@@ -1174,6 +1201,7 @@ public sealed partial class MainForm : Form
         statusRow.Controls.Add(_statusLabel, 0, 0);
         statusRow.Controls.Add(_summaryLabel, 1, 0);
         statusRow.Controls.Add(_speedLabel, 2, 0);
+        _statusRow = statusRow;
 
         footer.Controls.Add(_currentLabel, 0, 0);
         footer.Controls.Add(_footerGraph, 0, 1);
@@ -1340,6 +1368,11 @@ public sealed partial class MainForm : Form
         // así la aparición de la barra de desplazamiento no provoca un bucle de redimensionado.
         Resize += (_, _) => ScheduleColumnUpdate();
         Shown += (_, _) => ScheduleColumnUpdate();
+        // Cualquier cambio de ancho de la LISTA (no solo de la ventana) vuelve a repartir
+        // las columnas: plegar la columna de listas, mostrar u ocultar la barra de menús o
+        // que aparezca la barra de desplazamiento la ensanchan o la estrechan, y el hueco
+        // sobrante a la derecha de la última columna se pintaba de blanco.
+        _list.ClientSizeChanged += (_, _) => ScheduleColumnUpdate();
         _list.KeyDown += ListKeyDown;
         _list.DoubleClick += ListDoubleClick;
         _list.AfterLabelEdit += ListAfterLabelEdit;

@@ -2048,6 +2048,12 @@ public sealed partial class MainForm
             try { RestoreWindow(); } catch { }
         }
 
+        // LA COPIA EMPIEZA CON LA LISTA CONTRAÍDA. Con una carpeta de tres mil archivos
+        // abierta, la lista era un muro de nombres imposible de seguir; plegada se ven las
+        // carpetas y su avance, y quien quiera el detalle abre la que le interese (o pulsa
+        // Ver → Expandir todo).
+        ExpandAll(false);
+
         _wasRunning = true;
         _pauseButton.Text = "Pausar";
         _pauseButton.Image = Icons.Glyph(Icons.Pause, _palette.Text, 18);
@@ -2668,8 +2674,9 @@ public sealed partial class MainForm
             if (_settings.MinimizeToTray)
             {
                 EnsureTrayIcon();
+                // Sin tocar ShowInTaskbar: cambiarlo recrea la ventana y, maximizada, la
+                // devolvía a la pantalla ella sola.
                 Hide();
-                ShowInTaskbar = false;
             }
             else
             {
@@ -2783,6 +2790,11 @@ public sealed partial class MainForm
         if (_contentGrid is not null && _contentGrid.ColumnStyles.Count > 0)
             _contentGrid.ColumnStyles[0].Width = show ? 228 : 0;
         if (_jobsPanel is not null) _jobsPanel.Visible = show;
+        // Al plegar la columna de listas, la lista de archivos se ensancha 228 px de golpe.
+        // Si no se reparten otra vez las columnas, esos 228 px quedan a la derecha de la
+        // última columna y la cabecera los pinta con el color del sistema: ES EL CUADRADO
+        // BLANCO de la esquina derecha.
+        ScheduleColumnUpdate();
     }
 
     /// <summary>
@@ -3945,7 +3957,9 @@ public sealed partial class MainForm
             EnsureTrayIcon();
             // El usuario ha pedido ver la ventana: el «arranque oculto» ya no aplica.
             _startHidden = false;
-            ShowInTaskbar = true;
+            // Solo se toca si de verdad hace falta: asignarla recrea la ventana y da un
+            // parpadeo (y con la ventana maximizada, saltos raros).
+            if (!ShowInTaskbar) ShowInTaskbar = true;
             // Restaurar SIEMPRE al frente: antes, con el proceso ya minimizado, la ventana
             // volvía en estado minimizado en la barra de tareas. Pero si estaba maximizada,
             // se devuelve maximizada: al pasar por Normal se perdía el maximizado y la
@@ -4002,7 +4016,7 @@ public sealed partial class MainForm
         {
             Program.Log("EnsureWindowVisible " + motivo);
             _startHidden = false;
-            ShowInTaskbar = true;
+            if (!ShowInTaskbar) ShowInTaskbar = true;
             if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
             if (!Visible) Show();
             Activate();
@@ -4029,8 +4043,11 @@ public sealed partial class MainForm
             EnsureWindowVisible();
             return;
         }
+        // OJO: aquí NO se toca ShowInTaskbar. Cambiar esa propiedad obliga a Windows a
+        // volver a crear la ventana, y con la ventana maximizada eso la devolvía a la
+        // pantalla justo después de cerrarla («se cierra y se vuelve a abrir sola»). Una
+        // ventana oculta ya no tiene botón en la barra de tareas, así que no hacía falta.
         Hide();
-        ShowInTaskbar = false;
         if (silent) return;
         try
         {

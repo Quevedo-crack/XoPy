@@ -183,12 +183,11 @@ public static class Icons
                 graphics.FillEllipse(background, box);
 
             using var text = new SolidBrush(Color.White);
-            using var format = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
             // Sin el símbolo «%»: a 16 px reales no se lee y solo robaba sitio al número.
+            // El tamaño se MIDE para que el número entre entero: «100» se quedaba cortado.
             var label = clamped.ToString();
-            var pixels = label.Length >= 3 ? 46f : label.Length == 2 ? 62f : 72f;
-            using var font = new Font("Segoe UI", pixels, FontStyle.Bold, GraphicsUnit.Pixel);
-            graphics.DrawString(label, font, text, new RectangleF(box.X, box.Y - 2, box.Width, box.Height + 4), format);
+            var inner = new RectangleF(box.X + 6, box.Y + 4, box.Width - 12, box.Height - 8);
+            DrawFittedNumber(graphics, label, inner, text, 72f);
         }
 
         var handle = bitmap.GetHicon();
@@ -201,6 +200,36 @@ public static class Icons
         {
             DestroyIcon(handle);
         }
+    }
+
+    /// <summary>
+    /// Escribe un número centrado y lo más grande posible DENTRO del hueco, sin que se corte
+    /// ni una cifra. Antes el tamaño de letra se elegía a ojo según los dígitos y el «100»
+    /// se quedaba sin el último cero en el icono del área de notificación.
+    /// </summary>
+    private static void DrawFittedNumber(Graphics graphics, string label, RectangleF box, Brush brush, float maxPixels)
+    {
+        // Sin los márgenes que GDI+ añade por su cuenta: son los que se comían la cifra.
+        using var format = new StringFormat(StringFormat.GenericTypographic)
+        {
+            Alignment = StringAlignment.Center,
+            LineAlignment = StringAlignment.Center,
+            FormatFlags = StringFormatFlags.NoWrap | StringFormatFlags.NoClip
+        };
+        var pixels = maxPixels;
+        while (pixels > 8f)
+        {
+            using var probe = new Font("Segoe UI", pixels, FontStyle.Bold, GraphicsUnit.Pixel);
+            var measured = graphics.MeasureString(label, probe, new SizeF(10000f, 10000f), format);
+            if (measured.Width <= box.Width && measured.Height <= box.Height)
+            {
+                graphics.DrawString(label, probe, brush, box, format);
+                return;
+            }
+            pixels -= 2f;
+        }
+        using var smallest = new Font("Segoe UI", 8f, FontStyle.Bold, GraphicsUnit.Pixel);
+        graphics.DrawString(label, smallest, brush, box, format);
     }
 
     private static GraphicsPath RoundedRect(Rectangle bounds, int radius)
@@ -240,7 +269,6 @@ public static class Icons
                 graphics.FillPath(background, shape);
 
             using var white = new SolidBrush(Color.White);
-            using var format = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
 
             if (paused)
             {
@@ -249,11 +277,10 @@ public static class Icons
             }
             else
             {
-                // Cifras enormes: 1 dígito a 54 px, 2 a 44 px y 3 a 32 px sobre 64 px de alto.
+                // Cifras lo más grandes que quepan ENTERAS: el tamaño se mide, no se adivina
+                // por el número de dígitos (así «100» ya no pierde el último cero).
                 var label = clamped.ToString();
-                var pixels = label.Length >= 3 ? 32f : label.Length == 2 ? 44f : 54f;
-                using var font = new Font("Segoe UI", pixels, FontStyle.Bold, GraphicsUnit.Pixel);
-                graphics.DrawString(label, font, white, new RectangleF(0, -4, box, box - 6), format);
+                DrawFittedNumber(graphics, label, new RectangleF(3, 1, box - 6, box - 15), white, 54f);
 
                 // Franja de progreso en la base: se entiende de un vistazo aun sin leer el número.
                 using var trackBrush = new SolidBrush(Color.FromArgb(90, 0, 0, 0));

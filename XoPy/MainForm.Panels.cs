@@ -1499,7 +1499,13 @@ public sealed partial class MainForm
             // Con filas solo se cubre el alto de la cabecera (debajo está el fondo de la lista
             // y, si hace falta, la barra de verdad, que no se debe ocultar). Con la lista
             // vacía se cubre entera, porque el control sigue dibujando el canal del pulgar.
-            var cover = width + 4;
+            // El ancho que se tapa es TODO lo que sobra a la derecha de la última columna,
+            // no solo el de la barra: si la lista se ensancha de golpe (al plegar la columna
+            // de listas, por ejemplo) ese hueco puede ser de cientos de píxeles y es justo
+            // el cuadrado blanco que salía en la esquina de la cabecera.
+            var columns = 0;
+            for (var index = 0; index < _list.Columns.Count; index++) columns += _list.Columns[index].Width;
+            var cover = Math.Max(width + 4, _list.ClientSize.Width - columns);
             var headerHeight = _list.Items.Count > 0
                 ? Math.Max(1, _list.Items[0].Bounds.Top)
                 : _list.ClientSize.Height;
