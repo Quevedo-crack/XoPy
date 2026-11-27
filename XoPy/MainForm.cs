@@ -1807,7 +1807,30 @@ public sealed partial class MainForm : Form
     {
         var report = new List<string>();
         var ok = true;
+        var finished = false;
         var folder = Path.Combine(Path.GetTempPath(), "xopy-colatest");
+
+        // Red de seguridad: si algún paso se queda colgado (un escaneo de carpeta esperando
+        // al hilo de la interfaz, por ejemplo), a los 45 s se guarda lo conseguido hasta ese
+        // momento y se sale con error. Antes la prueba moría sin dejar informe y no había
+        // manera de saber en qué línea se había parado.
+        var watchdog = new Thread(() =>
+        {
+            Thread.Sleep(45000);
+            if (finished) return;
+            try
+            {
+                var partial = report.ToList();
+                partial.Add("error=la prueba se quedó colgada");
+                partial.Add("resultado=FALLO");
+                File.WriteAllLines(reportPath, partial);
+            }
+            catch { }
+            Environment.Exit(1);
+        })
+        { IsBackground = true };
+        watchdog.Start();
+
         try
         {
             Directory.CreateDirectory(folder);
@@ -1840,7 +1863,7 @@ public sealed partial class MainForm : Form
             _destination.Text = _settings.Destination;
 
             var paths = Enumerable.Range(1, 3).Select(i => Path.Combine(folder, $"archivo{i}.bin")).ToList();
-            AddPathsAsync(paths, askDestination: false).GetAwaiter().GetResult();
+            WaitForQueueTask(AddPathsAsync(paths, askDestination: false));
 
             var initial = _items.Where(item => item.Kind == ItemKind.File).Select(item => item.Name).ToList();
             report.Add("inicial=" + string.Join(",", initial));
@@ -1884,8 +1907,8 @@ public sealed partial class MainForm : Form
             Directory.CreateDirectory(pesada);
             File.WriteAllBytes(Path.Combine(pesada, "grande.bin"), new byte[9 * 1024]);
             ClearList();
-            AddPathsAsync(new[] { pesada, Path.Combine(folder, "archivo1.bin") }, askDestination: false)
-                .GetAwaiter().GetResult();
+            WaitForQueueTask(AddPathsAsync(new[] { pesada, Path.Combine(folder, "archivo1.bin") },
+                askDestination: false));
             SortAllFilesBySize(invert: true);
             var conCarpeta = _list.Items.Cast<ListViewItem>()
                 .Select(row => (row.Tag as TransferItem)?.Name ?? "?")
@@ -1894,8 +1917,9 @@ public sealed partial class MainForm : Form
             if (conCarpeta.FirstOrDefault() != "grande.bin")
             { report.Add("error=el archivo grande de dentro de una carpeta no quedó el primero"); ok = false; }
             ClearList();
-            AddPathsAsync(Enumerable.Range(1, 3).Select(i => Path.Combine(folder, $"archivo{i}.bin")).ToList(),
-                askDestination: false).GetAwaiter().GetResult();
+            WaitForQueueTask(AddPathsAsync(
+                Enumerable.Range(1, 3).Select(i => Path.Combine(folder, $"archivo{i}.bin")).ToList(),
+                askDestination: false));
 
             // ── Regresión del informe: archivos de RAÍCES DISTINTAS en una lista plana ──
             // Cada uno debe conservar su ruta al reordenar (el destino no cambia) y tiene que
@@ -1908,10 +1932,10 @@ public sealed partial class MainForm : Form
             File.WriteAllBytes(Path.Combine(rootA, "a2.bin"), new byte[2048]);
             File.WriteAllBytes(Path.Combine(rootB, "b1.bin"), new byte[2048]);
             ClearList();
-            AddPathsAsync(new[]
+            WaitForQueueTask(AddPathsAsync(new[]
             {
                 Path.Combine(rootA, "a1.bin"), Path.Combine(rootA, "a2.bin"), Path.Combine(rootB, "b1.bin")
-            }, askDestination: false).GetAwaiter().GetResult();
+            }, askDestination: false));
 
             var mixed = _list.Items.Cast<ListViewItem>().Select(row => row.Tag as TransferItem).OfType<TransferItem>().ToList();
             report.Add("planas=" + string.Join(",", mixed.Select(item => item.Name)));
@@ -1962,10 +1986,10 @@ public sealed partial class MainForm : Form
             // El informe decía que reordenar «no funcionaba de ninguna forma»: se comprueban
             // los mismos botones que pulsa el usuario, dos veces, y con archivos de otra raíz.
             ClearList();
-            AddPathsAsync(new[]
+            WaitForQueueTask(AddPathsAsync(new[]
             {
                 Path.Combine(rootA, "a1.bin"), Path.Combine(rootB, "b1.bin"), Path.Combine(rootA, "a2.bin")
-            }, askDestination: false).GetAwaiter().GetResult();
+            }, askDestination: false));
             var rowsNow = _list.Items.Cast<ListViewItem>().Select(row => row.Tag as TransferItem)
                 .OfType<TransferItem>().ToList();
             var last = rowsNow.LastOrDefault();
@@ -1998,8 +2022,8 @@ public sealed partial class MainForm : Form
             // quitar una fila y añadir otra sin tocar la copia en curso (el motor trabaja
             // sobre su propia instantánea).
             ClearList();
-            AddPathsAsync(new[] { Path.Combine(rootA, "a1.bin"), Path.Combine(rootA, "a2.bin") },
-                askDestination: false).GetAwaiter().GetResult();
+            WaitForQueueTask(AddPathsAsync(new[] { Path.Combine(rootA, "a1.bin"), Path.Combine(rootA, "a2.bin") },
+                askDestination: false));
             {
                 var beforeEdit = _items.Count(item => item.Kind == ItemKind.File);
                 var victim = _list.Items.Cast<ListViewItem>().Select(row => row.Tag as TransferItem)
@@ -2010,8 +2034,7 @@ public sealed partial class MainForm : Form
                 if (afterRemove != beforeEdit - 1)
                 { report.Add("error=no se pudo quitar una fila durante la copia"); ok = false; }
 
-                AddPathsAsync(new[] { Path.Combine(rootB, "b1.bin") }, askDestination: false)
-                    .GetAwaiter().GetResult();
+                WaitForQueueTask(AddPathsAsync(new[] { Path.Combine(rootB, "b1.bin") }, askDestination: false));
                 var afterAdd = _items.Count(item => item.Kind == ItemKind.File);
                 report.Add("anadir_copiando=" + afterAdd);
                 if (afterAdd != afterRemove + 1)
@@ -2036,6 +2059,7 @@ public sealed partial class MainForm : Form
             ok = false;
         }
 
+        finished = true;
         report.Add(ok ? "resultado=OK" : "resultado=FALLO");
         try { File.WriteAllLines(reportPath, report); } catch { }
         return ok;
@@ -2067,7 +2091,7 @@ public sealed partial class MainForm : Form
             // Archivos sueltos: es lo que hace el usuario al arrastrarlos, y evita depender
             // de que el escaneo de una carpeta haya terminado en este contexto sin ventana.
             var files = Directory.GetFiles(source, "*.bin");
-            AddPathsAsync(files, askDestination: false).GetAwaiter().GetResult();
+            WaitForQueueTask(AddPathsAsync(files, askDestination: false));
 
             StartTransfer(OperationType.Copy);
             WaitForEngineIdle(60000);
@@ -2127,7 +2151,7 @@ public sealed partial class MainForm : Form
             _settings.Destination = dest3;
             _destination.Text = dest3;
             ClearList();
-            AddPathsAsync(Directory.GetFiles(source2, "*.bin"), askDestination: false).GetAwaiter().GetResult();
+            WaitForQueueTask(AddPathsAsync(Directory.GetFiles(source2, "*.bin"), askDestination: false));
             StartTransfer(OperationType.Copy);
             WaitForEngineIdle(60000);
             var copiadosC = Directory.Exists(dest3) ? Directory.GetFiles(dest3, "*.bin", SearchOption.AllDirectories).Length : 0;
@@ -2195,6 +2219,24 @@ public sealed partial class MainForm : Form
     }
 
     /// <summary>Espera a que el motor termine (o al tiempo límite) sin bloquear el bombeo de mensajes.</summary>
+    /// <summary>
+    /// Espera a una tarea de la lista SIN congelar la ventana. Añadir una carpeta lanza un
+    /// escaneo en segundo plano que, al terminar, necesita volver al hilo de la interfaz;
+    /// si aquí se bloquease ese hilo con GetResult(), el escaneo no podría continuar nunca
+    /// y la prueba se quedaba colgada hasta que el CI la mataba (sin dejar informe).
+    /// </summary>
+    private static void WaitForQueueTask(Task task, int milliseconds = 20000)
+    {
+        var deadline = Environment.TickCount64 + milliseconds;
+        while (!task.IsCompleted && Environment.TickCount64 < deadline)
+        {
+            Application.DoEvents();
+            Thread.Sleep(10);
+        }
+        if (!task.IsCompleted) throw new TimeoutException("El análisis de la lista no terminó a tiempo.");
+        task.GetAwaiter().GetResult();
+    }
+
     private void WaitForEngineIdle(int milliseconds)
     {
         var deadline = Environment.TickCount64 + milliseconds;
