@@ -1736,7 +1736,21 @@ public sealed partial class MainForm : Form
         // ventana normal (el tamaño que tenía la última vez, si cabe en la pantalla) y
         // maximiza quien quiera, cuando quiera.
         WindowState = FormWindowState.Normal;
-        if (!_compactView && _settings.WindowWidth > 400 && _settings.WindowHeight > 300)
+        if (_compactView)
+        {
+            // VISTA REDUCIDA AL ARRANCAR: el alto tiene que ser EXACTAMENTE el de lo que se
+            // ve (barra + cabecera). ApplyCompactView solo encogía la ventana cuando el
+            // usuario pulsaba el botón («persist»), así que al abrir el programa la ventana
+            // conservaba su alto grande y quedaba media pantalla negra debajo: ese es el
+            // hueco que el usuario señala en cada captura.
+            var compactHeight = CompactWindowHeight();
+            var compactWidth = Math.Max(560, Math.Min(
+                _settings.WindowWidth > 400 ? _settings.WindowWidth : Width, workingArea.Width));
+            MinimumSize = new Size(560, compactHeight);
+            try { Size = new Size(compactWidth, compactHeight); }
+            catch { }
+        }
+        else if (_settings.WindowWidth > 400 && _settings.WindowHeight > 300)
         {
             var width = Math.Min(_settings.WindowWidth, workingArea.Width);
             var height = Math.Min(_settings.WindowHeight, workingArea.Height);
@@ -2178,6 +2192,10 @@ public sealed partial class MainForm : Form
                 case "compact":
                     // La ventana pequeña, tal cual la ve el usuario al abrir XoPy.
                     ApplyCompactView(true, persist: false);
+                    // Y con su alto real: si la ventana se queda con el alto grande, la
+                    // foto enseña el hueco negro que precisamente hay que vigilar.
+                    try { Bounds = new Rectangle(Left, Top, Math.Max(Width, 560), CompactWindowHeight()); }
+                    catch { }
                     Application.DoEvents();
                     Update();
                     SaveWindowPng(target);
