@@ -2175,6 +2175,14 @@ public sealed partial class MainForm : Form
                     CaptureDialogPng(() => new OptionsDialog(_settings, _palette), target);
                     break;
 
+                case "compact":
+                    // La ventana pequeña, tal cual la ve el usuario al abrir XoPy.
+                    ApplyCompactView(true, persist: false);
+                    Application.DoEvents();
+                    Update();
+                    SaveWindowPng(target);
+                    break;
+
                 case "advanced":
                     // Regresión del informe: «Opciones avanzadas» lanzaba
                     // «No se puede agregar 'Button' a 'TabControl'». Se abre de verdad y se
@@ -2675,8 +2683,11 @@ public sealed partial class MainForm : Form
                 _ => false
             };
             // En modo captura nunca se usa la vista reducida: las imágenes de documentación
-            // tienen que enseñar la ventana completa, con sus pestañas.
-            if (_startupRequest.Screenshot) compactOnStart = false;
+            // tienen que enseñar la ventana completa, con sus pestañas. La excepción es
+            // «--screenshot-compact», que existe justamente para fotografiar la ventana
+            // pequeña con la que XoPy arranca.
+            if (_startupRequest.Screenshot)
+                compactOnStart = string.Equals(_startupRequest.ScreenshotMode, "compact", StringComparison.Ordinal);
             ApplyCompactView(compactOnStart, persist: false);
             Program.Log("MF3. ApplyCompactView done");
 

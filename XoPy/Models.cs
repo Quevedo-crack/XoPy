@@ -393,6 +393,13 @@ public sealed class StartupRequest
                     request.ScreenshotMode = "advanced";
                     if (i + 1 < args.Length) request.ScreenshotPath = Normalize(args[++i]);
                     break;
+                // Foto de la VISTA REDUCIDA, que es con la que ahora arranca XoPy: así cada
+                // compilación enseña exactamente lo que ve el usuario al abrir el programa.
+                case "--screenshot-compact":
+                    request.Screenshot = true;
+                    request.ScreenshotMode = "compact";
+                    if (i + 1 < args.Length) request.ScreenshotPath = Normalize(args[++i]);
+                    break;
                 case "--screenshot-options":
                 case "--screenshot-conflict":
                 case "--screenshot-tabs":
