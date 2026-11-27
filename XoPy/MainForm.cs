@@ -2218,7 +2218,6 @@ public sealed partial class MainForm : Form
         return ok;
     }
 
-    /// <summary>Espera a que el motor termine (o al tiempo límite) sin bloquear el bombeo de mensajes.</summary>
     /// <summary>
     /// Espera a una tarea de la lista SIN congelar la ventana. Añadir una carpeta lanza un
     /// escaneo en segundo plano que, al terminar, necesita volver al hilo de la interfaz;
@@ -2237,6 +2236,7 @@ public sealed partial class MainForm : Form
         task.GetAwaiter().GetResult();
     }
 
+    /// <summary>Espera a que el motor termine (o al tiempo límite) sin bloquear el bombeo de mensajes.</summary>
     private void WaitForEngineIdle(int milliseconds)
     {
         var deadline = Environment.TickCount64 + milliseconds;
