@@ -379,7 +379,15 @@ public sealed class StartupRequest
                     if (i + 1 < args.Length && Enum.TryParse<VerifyAlgorithm>(args[++i], true, out var algorithm))
                         request.VerifyAlgorithm = algorithm;
                     break;
+                // «--screenshot» a secas es la foto de la VENTANA PRINCIPAL (la del README).
+                // Estaba pegada al mismo bloque que «--screenshot-advanced», así que la
+                // captura de la ventana salía siendo el cuadro de Preferencias: por eso
+                // xopy-preview.png, xopy-advanced.png y xopy-verify.png eran la misma imagen.
                 case "--screenshot":
+                    request.Screenshot = true;
+                    request.ScreenshotMode = "window";
+                    if (i + 1 < args.Length) request.ScreenshotPath = Normalize(args[++i]);
+                    break;
                 case "--screenshot-advanced":
                     request.Screenshot = true;
                     request.ScreenshotMode = "advanced";
