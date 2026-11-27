@@ -1,6 +1,6 @@
   Determining projects to restore...
-  Restored D:\a\XoPy\XoPy\XoPy\XoPy.csproj (in 31 ms).
-D:\a\XoPy\XoPy\XoPy\MainForm.cs(2616,9): warning WFDEV004: 'Form.Closed' is obsolete: 'Form.OnClosing, Form.OnClosed and the corresponding events are obsolete. Use Form.OnFormClosing, Form.OnFormClosed, Form.FormClosing and Form.FormClosed instead.' (https://aka.ms/winforms-warnings/WFDEV004) [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
+  Restored D:\a\XoPy\XoPy\XoPy\XoPy.csproj (in 32 ms).
+D:\a\XoPy\XoPy\XoPy\MainForm.cs(2719,9): warning WFDEV004: 'Form.Closed' is obsolete: 'Form.OnClosing, Form.OnClosed and the corresponding events are obsolete. Use Form.OnFormClosing, Form.OnFormClosed, Form.FormClosing and Form.FormClosed instead.' (https://aka.ms/winforms-warnings/WFDEV004) [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
 D:\a\XoPy\XoPy\XoPy\MainForm.cs(74,18): warning CS0414: The field 'MainForm._startHidden' is assigned but its value is never used [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
 D:\a\XoPy\XoPy\XoPy\MainForm.cs(131,18): warning CS0414: The field 'MainForm._loadingUi' is assigned but its value is never used [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
 D:\a\XoPy\XoPy\XoPy\MainForm.cs(127,18): warning CS0414: The field 'MainForm._wasRunning' is assigned but its value is never used [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
@@ -9,7 +9,7 @@ CSC : warning WFO0003: Remove high DPI settings from D:\a\XoPy\XoPy\XoPy\app.man
 
 Build succeeded.
 
-D:\a\XoPy\XoPy\XoPy\MainForm.cs(2616,9): warning WFDEV004: 'Form.Closed' is obsolete: 'Form.OnClosing, Form.OnClosed and the corresponding events are obsolete. Use Form.OnFormClosing, Form.OnFormClosed, Form.FormClosing and Form.FormClosed instead.' (https://aka.ms/winforms-warnings/WFDEV004) [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
+D:\a\XoPy\XoPy\XoPy\MainForm.cs(2719,9): warning WFDEV004: 'Form.Closed' is obsolete: 'Form.OnClosing, Form.OnClosed and the corresponding events are obsolete. Use Form.OnFormClosing, Form.OnFormClosed, Form.FormClosing and Form.FormClosed instead.' (https://aka.ms/winforms-warnings/WFDEV004) [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
 D:\a\XoPy\XoPy\XoPy\MainForm.cs(74,18): warning CS0414: The field 'MainForm._startHidden' is assigned but its value is never used [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
 D:\a\XoPy\XoPy\XoPy\MainForm.cs(131,18): warning CS0414: The field 'MainForm._loadingUi' is assigned but its value is never used [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
 D:\a\XoPy\XoPy\XoPy\MainForm.cs(127,18): warning CS0414: The field 'MainForm._wasRunning' is assigned but its value is never used [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
@@ -17,7 +17,7 @@ CSC : warning WFO0003: Remove high DPI settings from D:\a\XoPy\XoPy\XoPy\app.man
     5 Warning(s)
     0 Error(s)
 
-Time Elapsed 00:00:05.13
+Time Elapsed 00:00:04.43
 FILE: carpeta (1 bytes)
 FILE: dest-rbcopy (1 bytes)
 FILE: dest3 (1 bytes)
@@ -29,27 +29,27 @@ FILE: jerarquia (1 bytes)
 FILE: misma (1 bytes)
 FILE: perf (1 bytes)
 FILE: perf-destino (1 bytes)
-FILE: advanced.png (36233 bytes)
-FILE: cola.txt (692 bytes)
-FILE: conflict.png (16147 bytes)
+FILE: advanced.png (36507 bytes)
+FILE: compacta.png (13991 bytes)
+FILE: conflict.png (15985 bytes)
 FILE: conflictotest.txt (70 bytes)
 FILE: copiatest.txt (83 bytes)
 FILE: exitcode.txt (24 bytes)
 FILE: grande.bin (300000 bytes)
-FILE: history.png (29598 bytes)
+FILE: history.png (29340 bytes)
 FILE: informe.pdf (10242 bytes)
 FILE: jerarquiatest.txt (111 bytes)
 FILE: menu-context.png (7422 bytes)
-FILE: menu-menu.png (25960 bytes)
+FILE: menu-menu.png (26075 bytes)
 FILE: mismacarpeta.txt (59 bytes)
 FILE: movetest.txt (88 bytes)
-FILE: options.png (57237 bytes)
+FILE: options.png (57438 bytes)
 FILE: perf.txt (174 bytes)
 FILE: rbcopy.bin (200002 bytes)
 FILE: reanudartest.txt (41 bytes)
 FILE: robocopytest.txt (49 bytes)
-FILE: shot.png (36233 bytes)
-FILE: verify.png (36233 bytes)
+FILE: shot.png (38289 bytes)
+FILE: verify.png (31254 bytes)
 FILE: video.mp4 (20482 bytes)
 --- C:\xopytest\exitcode.txt
 exitcode=0 exited=True
@@ -79,30 +79,10 @@ checksums=1
 final=True
 temporal=0
 hash_igual=True
---- C:\xopytest\cola.txt
-inicial=archivo1.bin,archivo2.bin,archivo3.bin
-lista_tras_mover=archivo2.bin,archivo1.bin,archivo3.bin
-visual_tras_mover=archivo2.bin,archivo1.bin,archivo3.bin
-tras_mover=archivo2.bin,archivo1.bin,archivo3.bin
-tras_ordenar=archivo3.bin,archivo2.bin,archivo1.bin
-planas=a1.bin,a2.bin,b1.bin
-tras_mover_cruzado=b1.bin,a1.bin,a2.bin
-copia_mixta=OK
-archivos_copiados=3
-boton_arriba=a1.bin,b1.bin,a2.bin -> a1.bin,b1.bin,a2.bin
-error=el boton subir no movio nada
-boton_abajo=a1.bin,b1.bin,a2.bin
-error=el boton bajar no movio nada
-quitar_copiando=2->1
-anadir_copiando=2
-quitados=2
-arbol=OK: reordenar, ordenar y quitar de la lista funcionan y no borran archivos.
-resultado=FALLO
 --- C:\xopytest\robocopytest.txt
 robocopy_copiado=True
 robocopy_hash_igual=True
 --- startup.log (últimas 80 líneas)
-MF1. BuildUi done
 MF2. LoadSettingsIntoUi
 MF2. LoadSettingsIntoUi done
 MF3. ApplyCompactView
@@ -138,6 +118,7 @@ EnsureWindowVisible arranque
 MF-FormClosing: Cancel=False Reason=ApplicationExitCall
 1. Inicio Main
 2. ApplicationConfiguration.Initialize
+2b. Modo oscuro del sistema
 3. SetUnhandledExceptionMode
 4. ThreadException handler
 5. UnhandledException handler
@@ -183,11 +164,11 @@ MF14. ApplyCopierReplacement done
 MF15. InstallShellHookIfNeeded start
 MF15. InstallShellHookIfNeeded done
 --- transfer.log (últimas 120 líneas)
-2026-11-27 00:05:39.140  Sustitución real: se activa el arranque de XoPy con Windows para que Ctrl+V siga pasando por XoPy tras reiniciar.
-2026-11-27 00:05:39.148  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
-2026-11-27 00:05:39.156  Arranque: destinos extra=[] guardados=[]
-2026-11-27 00:05:39.246  Inicio: 1 elementos, destinos=C:\xopytest\misma, verificar=False (Sha256), reanudar=False
-2026-11-27 00:05:39.277  Copia nativa: C:\xopytest\misma\original.txt -> C:\xopytest\misma\original (1).txt
-2026-11-27 00:05:39.279  Fin: 3002 bytes en 0.0s, errores=0
-2026-11-27 00:05:40.124  Cierre de la ventana: motivo=ApplicationExitCall, salir_pedido=True, bandeja=True, copiando=False
-2026-11-27 00:05:53.812  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
+2026-11-27 22:33:10.230  Sustitución real: se activa el arranque de XoPy con Windows para que Ctrl+V siga pasando por XoPy tras reiniciar.
+2026-11-27 22:33:10.238  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
+2026-11-27 22:33:10.248  Arranque: destinos extra=[] guardados=[]
+2026-11-27 22:33:10.340  Inicio: 1 elementos, destinos=C:\xopytest\misma, verificar=False (Sha256), reanudar=False
+2026-11-27 22:33:10.368  Copia nativa: C:\xopytest\misma\original.txt -> C:\xopytest\misma\original (1).txt
+2026-11-27 22:33:10.370  Fin: 3002 bytes en 0.0s, errores=0
+2026-11-27 22:33:11.210  Cierre de la ventana: motivo=ApplicationExitCall, salir_pedido=True, bandeja=True, copiando=False
+2026-11-27 22:33:24.666  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
