@@ -151,6 +151,19 @@ el otro gestor de copias de este mismo autor, y resuelve de paso lo que allí fa
 - En la barra de copia se puede alternar entre modo secuencial y multihilo, también durante una transferencia; un archivo se puede pausar/reanudar individualmente desde el menú contextual de la lista. La lista admite reordenado por arrastre; las carpetas se muestran contraídas al añadirse y se pueden desplegar con la flecha o desde el menú. La columna de trabajos también empieza plegada y puede expandirse.
 - El instalador limpia las antiguas claves del menú contextual antes de iniciar la aplicación.
 
+## Novedades de la versión 2.6.4
+
+**Los siete fallos de la 2.6.3, uno por uno.**
+
+- **Se acabó el falso «Carpeta de destino no válida».** La ruta se limpia antes de juzgarla (comillas de «Copiar como ruta de acceso», espacios o puntos al final, barras repetidas, %VARIABLES%) y, si la carpeta ya existe, no se vuelve a crear. Cuando de verdad hay un problema, el aviso dice la ruta exacta y qué carácter sobra.
+- **El icono del área de notificación es el PORCENTAJE de la copia.** Al terminar vuelve el icono de XoPy. Con varias copias a la vez, el icono lleva una chapita con cuántas son y el texto del ratón las enseña todas con su porcentaje; van desapareciendo según terminan.
+- **Menú «Ordenar» limpio**: nueve opciones, ninguna repetida, y la primera es **«Archivos más grandes primero»**, que ordena archivo por archivo (no por carpetas) y es el orden en el que se copia de verdad, aunque los archivos estén dentro de carpetas.
+- **Con la lista oculta no queda ninguna franja clara**, y la línea «Total» muestra **cuántos archivos van copiados de cuántos** — también en la ventana reducida.
+- **«Acceso denegado (error 5)» explicado y resuelto.** XoPy comprueba si puede escribir en el destino ANTES de empezar, distingue si el problema está al leer el origen o al escribir en el destino y, cuando la causa es el **Acceso controlado a carpetas** de Seguridad de Windows (lo que bloquea el Escritorio y Documentos), ofrece permitir XoPy con un botón. También está en Herramientas → «Permitir XoPy en el acceso controlado a carpetas…».
+- **En el Explorador queda solo «Pegar»**, con el icono de XoPy y sin «(XoPy)» entre paréntesis.
+- **El informe se guarda donde quieras**: el cuadro de guardar empieza en una carpeta en la que de verdad se pueda escribir (se acabó el aviso de Windows «¿Desea guardar en Documents?»), y si falla, se explica por qué y se ofrece otra carpeta o la carpeta de XoPy. El archivo se escribe entero o no se escribe: nunca más un informe de 0 bytes.
+- **Ningún botón vuelve a salir cortado**: todos se miden con el tamaño de letra real de Windows (125 %, 150 %…), igual que las franjas de la ventana.
+
 ## Novedades de la versión 2.6.3
 
 **Los doce fallos que apareciste probando la 2.6.2, uno por uno.**

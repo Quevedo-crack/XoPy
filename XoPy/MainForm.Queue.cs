@@ -1721,6 +1721,46 @@ public sealed partial class MainForm
         }
     }
 
+    /// <summary>
+    /// Mete a XoPy en la lista blanca de la protección contra ransomware de Windows. Es
+    /// LA causa del «Acceso denegado (error 5)» al copiar al Escritorio, a Documentos o a
+    /// Imágenes en los equipos que la tienen activada: los permisos de la carpeta están
+    /// bien, pero Windows corta la escritura de todo programa que no esté en esa lista.
+    /// </summary>
+    private void AllowControlledFolderAccess()
+    {
+        var active = CopyEngine.ControlledFolderAccessEnabled();
+        var desktop = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+        var estado = active
+            ? "El «Acceso controlado a carpetas» está ACTIVADO en este equipo."
+            : "El «Acceso controlado a carpetas» parece APAGADO. Si aun así XoPy no puede escribir en " +
+              "tus carpetas, prueba igualmente: no cuesta nada y deja a XoPy permitido para siempre.";
+        var prueba = CopyEngine.CanWriteInFolder(desktop)
+            ? "Ahora mismo XoPy SÍ puede escribir en tu Escritorio."
+            : "Ahora mismo XoPy NO puede escribir en tu Escritorio.";
+
+        var choice = PromptDialog.Ask(this, _palette, "Permitir XoPy en Seguridad de Windows",
+            "Se añadirá XoPy.exe a la lista de programas permitidos del «Acceso controlado a carpetas». " +
+            "Windows pedirá confirmación de administrador.",
+            estado + "\n" + prueba + "\n\nEquivale a hacerlo a mano en: Seguridad de Windows → " +
+            "Protección contra virus y amenazas → Protección contra ransomware → " +
+            "Permitir una aplicación a través del Acceso controlado a carpetas.",
+            new[] { "Permitir XoPy", "Cancelar" });
+        if (choice != 0) return;
+
+        if (CopyEngine.TryAllowInControlledFolderAccess(out var message))
+        {
+            var ahora = CopyEngine.CanWriteInFolder(desktop)
+                ? " Comprobado: XoPy ya puede escribir en el Escritorio."
+                : " Aviso: el Escritorio sigue sin admitir escritura; puede que la causa sea otra (antivirus o permisos de la carpeta).";
+            SetStatus(message + ahora);
+        }
+        else
+        {
+            ShowError(message);
+        }
+    }
+
     private void RestartElevated()
     {
         try
@@ -1874,6 +1914,13 @@ public sealed partial class MainForm
             {
                 try
                 {
+                    // LIMPIEZA PRIMERO, JUICIO DESPUÉS. El aviso «Carpeta de destino no
+                    // válida» saltaba con rutas perfectamente buenas: bastaba con que
+                    // trajeran comillas («Copiar como ruta de acceso» del Explorador), un
+                    // espacio o un punto al final, barras repetidas o un %VARIABLE% sin
+                    // resolver para que Path.GetFullPath contestara «parámetro no válido».
+                    var cleaned = PathTools.CleanFolder(destination);
+                    if (cleaned.Length > 0) destination = cleaned;
                     destination = Path.GetFullPath(destination);
                     if (operation is OperationType.Copy or OperationType.Move &&
                         FindNestedSourceOverlap(destination, basis) is { } overlappingSource && !overlapConfirmed)
@@ -1893,17 +1940,29 @@ public sealed partial class MainForm
                         }
                         overlapConfirmed = true;
                     }
-                    if (operation != OperationType.Test) Directory.CreateDirectory(destination);
-                    if (!Directory.Exists(destination)) throw new DirectoryNotFoundException("La carpeta de destino no existe: " + destination);
+                    // Si la carpeta YA EXISTE no se vuelve a crear: Directory.CreateDirectory
+                    // sobre una carpeta protegida (acceso controlado a carpetas, carpeta de
+                    // red con permisos justos) puede fallar y disparaba el aviso «Carpeta de
+                    // destino no válida» aunque el destino fuese correcto.
+                    if (!Directory.Exists(destination))
+                    {
+                        if (operation != OperationType.Test) Directory.CreateDirectory(destination);
+                        if (!Directory.Exists(destination)) throw new DirectoryNotFoundException("La carpeta de destino no existe: " + destination);
+                    }
                     break;
                 }
                 catch (Exception ex)
                 {
+                    // El aviso dice la RUTA EXACTA y, si hay un carácter prohibido, cuál es:
+                    // «no es válida» a secas no dejaba ni saber qué mirar.
+                    var culprit = PathTools.FirstForbiddenChar(destination);
+                    var reason = culprit is null
+                        ? CopyEngine.Describe(ex, null, destination)
+                        : $"El nombre lleva el carácter «{culprit}», que Windows no admite en rutas.";
                     var choice = PromptDialog.Ask(this, _palette,
                         "Carpeta de destino no válida",
-                        "No se pudo usar la carpeta de destino:\n" + CopyEngine.Describe(ex) +
-                        "\n\n¿Qué quieres hacer?",
-                        null,
+                        "No se pudo usar esta carpeta de destino:\n" + destination,
+                        reason + "\n\n¿Qué quieres hacer?",
                         // Sin «usar carpeta predeterminada»: Descargas nunca se propone sola.
                         new[] { "Elegir otra carpeta…", "Crear la carpeta", "Cancelar" });
                     if (choice == 2) return;
@@ -1929,6 +1988,45 @@ public sealed partial class MainForm
             _destination.Text = destination;
             _settings.Destination = destination;
             _store.Save(_settings);
+
+            // COMPROBACIÓN DE ESCRITURA ANTES DE EMPEZAR. Si Windows no deja escribir en el
+            // destino (acceso controlado a carpetas, carpeta del sistema, unidad en solo
+            // lectura), antes se descubría archivo por archivo: doscientos «Acceso denegado
+            // (error 5)» seguidos. Ahora se avisa UNA vez, se explica la causa y se ofrece
+            // arreglarlo o elegir otra carpeta.
+            if (operation != OperationType.Test && !CopyEngine.CanWriteInFolder(destination))
+            {
+                var hint = CopyEngine.ProtectedFolderHint(destination) ??
+                           "Comprueba que la unidad no esté llena ni en solo lectura y que tengas permiso de escritura.";
+                var guarded = CopyEngine.ControlledFolderAccessEnabled();
+                var buttons = guarded
+                    ? new[] { "Permitir XoPy y reintentar", "Elegir otra carpeta…", "Copiar de todas formas", "Cancelar" }
+                    : new[] { "Elegir otra carpeta…", "Copiar de todas formas", "Cancelar" };
+                var answer = PromptDialog.Ask(this, _palette, "Windows no deja escribir en el destino",
+                    "No se puede crear ningún archivo en:\n" + destination, hint, buttons);
+                var pick = guarded ? answer : answer + 1;   // misma numeración con o sin el primer botón
+                if (pick == 3) return;
+                if (pick == 0)
+                {
+                    if (CopyEngine.TryAllowInControlledFolderAccess(out var message)) SetStatus(message);
+                    else { ShowError(message); return; }
+                    if (!CopyEngine.CanWriteInFolder(destination))
+                    {
+                        ShowError("Sigue sin poder escribirse en " + destination + ". Elige otra carpeta de destino.");
+                        return;
+                    }
+                }
+                else if (pick == 1)
+                {
+                    _pickDestination.Description = "Elige otra carpeta de destino";
+                    if (_pickDestination.ShowDialog(this) != DialogResult.OK) return;
+                    destination = PathTools.CleanFolder(_pickDestination.SelectedPath);
+                    try { Directory.CreateDirectory(destination); } catch { }
+                    _destination.Text = destination;
+                    _settings.Destination = destination;
+                    _store.Save(_settings);
+                }
+            }
         }
 
         var additionalDestinations = ExtraDestinations(operation);
@@ -2578,17 +2676,31 @@ public sealed partial class MainForm
         // (doscientos archivos con el mismo «acceso denegado»), contestar doscientas veces
         // no es una opción. Marcando la casilla, la respuesta vale para todos los que
         // fallen después.
-        var choice = PromptDialog.Ask(this, _palette, "Error de transferencia",
+        // Si el fallo es la protección contra ransomware de Windows, el cuadro ofrece
+        // ARREGLARLO ahí mismo: permitir XoPy y reintentar. Antes solo quedaba omitir
+        // archivo por archivo sin saber por qué fallaban todos.
+        var guarded = prompt.Message.Contains("Acceso controlado", StringComparison.OrdinalIgnoreCase);
+        var buttons = guarded
+            ? new[] { "Permitir XoPy y reintentar", "Reintentar", "Omitir", "Omitir todos", "Detener" }
+            : new[] { "Reintentar", "Omitir", "Omitir todos", "Detener" };
+        var answer = PromptDialog.Ask(this, _palette, "Error de transferencia",
             "No se pudo transferir \"" + Path.GetFileName(prompt.FilePath) + "\".",
             prompt.Message + $"\n\nIntento {prompt.Attempt}. Archivo: {prompt.FilePath}",
-            new[] { "Reintentar", "Omitir", "Omitir todos", "Detener" },
+            buttons,
             "Hacer lo mismo con el resto de archivos que fallen", out var applyToAll);
-        if (applyToAll && choice == 1) return ErrorChoice.SkipAll;
+        var choice = guarded ? answer : answer + 1;
+        if (choice == 0)
+        {
+            if (CopyEngine.TryAllowInControlledFolderAccess(out var message)) SetStatus(message);
+            else ShowError(message);
+            return ErrorChoice.Retry;
+        }
+        if (applyToAll && choice == 2) return ErrorChoice.SkipAll;
         return choice switch
         {
-            0 => ErrorChoice.Retry,
-            1 => ErrorChoice.Skip,
-            2 => ErrorChoice.SkipAll,
+            1 => ErrorChoice.Retry,
+            2 => ErrorChoice.Skip,
+            3 => ErrorChoice.SkipAll,
             _ => ErrorChoice.Abort
         };
     }
@@ -2636,10 +2748,17 @@ public sealed partial class MainForm
                     ? "Transferencia completada con archivos omitidos."
                     : "Transferencia completada correctamente.");
 
-        var icon = Icons.ProgressIcon(100, _settings.DarkTheme, false, failed > 0, failed == 0);
+        // Si quedan copias esperando turno, el icono NO vuelve al de XoPy todavía: enseña
+        // el 100 % de la que acaba de terminar con la chapa de las que siguen. El icono
+        // normal vuelve cuando termina la última (TimerTick → RestoreBaseTrayIcon).
+        var pending = PendingJobPercents();
+        var icon = Icons.ProgressIcon(100, _settings.DarkTheme, false, failed > 0, failed == 0, 1 + pending.Count);
         ReplaceTrayIcon(icon);
-        _tray.Text = failed > 0 ? $"XoPy — {Format.Plural(failed, "error", "errores")}" : "XoPy — terminado (100 %)";
+        SetTrayText(pending.Count > 0
+            ? $"XoPy — terminada; quedan {Format.Plural(pending.Count, "copia", "copias")}"
+            : failed > 0 ? $"XoPy — {Format.Plural(failed, "error", "errores")}" : "XoPy — terminado (100 %)");
         _trayPercent = -1;
+        _trayJobs = 0;
         _completedAt = DateTime.Now;
         Text = failed > 0 ? "XoPy — completado con errores" : "XoPy — completado";
 
@@ -2978,19 +3097,65 @@ public sealed partial class MainForm
             : $"XoPy — {percent:0.0} % ({speed})";
     }
 
+    /// <summary>
+    /// EL ICONO DE LA BANDEJA ES EL PORCENTAJE. Mientras se copia, junto al reloj se ve el
+    /// número de la copia en marcha; si hay más copias esperando turno, el icono lleva una
+    /// chapita con cuántas son y el texto al pasar el ratón las enseña TODAS con su
+    /// porcentaje. Según van terminando desaparecen de la lista, y cuando acaba la última
+    /// vuelve el icono normal de XoPy (lo hace TimerTick con RestoreBaseTrayIcon).
+    /// </summary>
     private void UpdateTrayState()
     {
         var percent = (int)Math.Clamp(Math.Round(EnginePercent()), 0, 100);
         var paused = _engine.IsPaused;
         var error = RunningItems().Any(item => item.State == ItemState.Failed);
-        if (percent == _trayPercent && paused == _trayPaused && error == _trayError) return;
+        var others = PendingJobPercents();
+        var jobs = 1 + others.Count;
+        if (percent == _trayPercent && paused == _trayPaused && error == _trayError && jobs == _trayJobs) return;
 
         _trayPercent = percent;
         _trayPaused = paused;
         _trayError = error;
+        _trayJobs = jobs;
 
-        ReplaceTrayIcon(Icons.ProgressIcon(percent, _settings.DarkTheme, paused, error, percent >= 100));
-        _tray.Text = $"XoPy — {percent} %" + (paused ? " · en pausa" : string.Empty);
+        ReplaceTrayIcon(Icons.ProgressIcon(percent, _settings.DarkTheme, paused, error, percent >= 100, jobs));
+        var text = jobs > 1
+            ? $"XoPy — {jobs} copias: {percent} %, " + string.Join(", ", others.Select(value => value + " %"))
+            : $"XoPy — {percent} %" + (paused ? " · en pausa" : string.Empty);
+        SetTrayText(text);
+    }
+
+    /// <summary>
+    /// Porcentaje de cada lista que espera turno (las «otras copias activas»). Una lista a
+    /// medias enseña lo que lleva copiado, no un cero.
+    /// </summary>
+    private List<int> PendingJobPercents()
+    {
+        var result = new List<int>();
+        foreach (var list in _lists)
+        {
+            if (!list.Queued || list.Items.Count == 0) continue;
+            var files = list.Items.Where(item => item.Kind != ItemKind.Folder).ToList();
+            if (files.Count == 0) continue;
+            var total = files.Sum(item => Math.Max(0, item.SizeBytes));
+            var done = files.Sum(item => Math.Max(0, Math.Min(item.TransferredBytes, item.SizeBytes)));
+            result.Add(total > 0 ? (int)Math.Clamp(Math.Round(done * 100d / total), 0, 100) : 0);
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// El texto del icono de la bandeja no admite más de 63 caracteres: pasarse de ahí
+    /// tumba el programa con una excepción. Se recorta siempre antes de asignarlo.
+    /// </summary>
+    private void SetTrayText(string text)
+    {
+        try
+        {
+            if (text.Length > 62) text = text[..59] + "…";
+            _tray.Text = text;
+        }
+        catch { }
     }
 
     private void ReplaceTrayIcon(Icon icon)
@@ -3012,6 +3177,7 @@ public sealed partial class MainForm
             _tray.Icon = _baseIcon ?? Icons.AppIcon();
             _tray.Text = TrayBaseText;
             _trayPercent = -1;
+            _trayJobs = 0;
         }
         catch { }
     }
@@ -3833,6 +3999,13 @@ public sealed partial class MainForm
         _lastSortField = QueueSortField.AllSize;
         _lastSortInverted = invert;
 
+        // LAS CARPETAS SE ABREN. Una carpeta PLEGADA es una sola fila, así que la lista
+        // vuelve a juntar todos sus archivos (GatherBlock) y deshacía justo lo que se
+        // acaba de ordenar: por eso «los más grandes primero» no se notaba ni en la lista
+        // ni en el orden real de la copia. Con las carpetas abiertas, el orden por tamaño
+        // de archivo se respeta de principio a fin.
+        foreach (var folder in _items.Where(item => item.Kind == ItemKind.Folder)) folder.IsExpanded = true;
+
         _visualOrder.Clear();
         _visualOrder.AddRange(files.Select(item => item.Id));
         // Las carpetas van al principio de su nivel para que el árbol siga teniendo sentido.
@@ -3841,8 +4014,34 @@ public sealed partial class MainForm
 
         RebuildRows();
         UpdateFooter();
-        SetStatus($"Todos los archivos ordenados por tamaño {(invert ? "(mayor → menor)" : "(menor → mayor)")}, " +
-                  "mezclando carpetas. Cada uno conserva su origen y su carpeta de destino.");
+        var mayor = Format.Bytes(files[0].SizeBytes);
+        SetStatus(invert
+            ? $"Primero los archivos más grandes (el mayor ocupa {mayor}). Se copiarán en ese orden, vengan de la carpeta que vengan."
+            : "Primero los archivos más pequeños. Se copiarán en ese orden, vengan de la carpeta que vengan.");
+    }
+
+    /// <summary>
+    /// Le da la vuelta al orden que haya puesto ahora mismo. Evita tener que repetir cada
+    /// criterio dos veces en el menú («A → Z» y «Z → A», «mayor → menor» y al revés…),
+    /// que era la mitad de las opciones repetidas que molestaban al usuario.
+    /// </summary>
+    private void InvertCurrentSort()
+    {
+        if (_items.Count < 2) { SetStatus("La lista está vacía."); return; }
+        if (_lastSortField is null)
+        {
+            // Sin orden previo (lista colocada a mano): se le da la vuelta tal cual.
+            var reversed = VisualItems();
+            reversed.Reverse();
+            _visualOrder.Clear();
+            _visualOrder.AddRange(reversed.Select(item => item.Id));
+            RebuildRows();
+            UpdateFooter();
+            SetStatus("Lista del revés.");
+            return;
+        }
+        if (_lastSortField == QueueSortField.AllSize) SortAllFilesBySize(!_lastSortInverted);
+        else SortQueue(_lastSortField.Value, !_lastSortInverted);
     }
 
     private QueueSortField? _lastSortField;

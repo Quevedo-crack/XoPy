@@ -421,7 +421,7 @@ public sealed class CopyEngine
         catch (Exception ex)
         {
             item.State = ItemState.Failed;
-            item.Error = Describe(ex);
+            item.Error = Describe(ex, item.SourcePath, item.DestinationPath);
             Interlocked.Increment(ref _errors);
             FileLog.Write($"ERROR {item.SourcePath}: {ex}");
         }
@@ -759,11 +759,24 @@ public sealed class CopyEngine
                 var win32 = ex.HResult & 0xFFFF;
 
                 // ACCESO DENEGADO (5): casi siempre es el archivo de destino con el atributo
-                // de solo lectura, oculto o de sistema. Se quitan esos atributos y se prueba
-                // UNA vez más. Si vuelve a fallar, esperar no arregla nada.
+                // de solo lectura, oculto o de sistema, o un trozo de copia anterior
+                // («.archivo.xopy-part») que se quedó con esos mismos atributos y que
+                // Windows ya no deja sobrescribir. Se limpia todo eso y se prueba UNA vez
+                // más. Si vuelve a fallar, esperar no arregla nada.
                 if (win32 == 5 && attempt == 1)
                 {
                     ClearReadOnly(target);
+                    try
+                    {
+                        var leftover = Path.Combine(Path.GetDirectoryName(target) ?? string.Empty,
+                            "." + Path.GetFileName(target) + ".xopy-part");
+                        if (File.Exists(leftover))
+                        {
+                            ClearReadOnly(leftover);
+                            TryDeleteFile(leftover);
+                        }
+                    }
+                    catch { }
                     continue;
                 }
 
@@ -779,7 +792,7 @@ public sealed class CopyEngine
                     await Task.Delay(250 * attempt, token).ConfigureAwait(false);
                     continue;
                 }
-                var choice = DecideError(source, ex, attempt, options);
+                var choice = DecideError(source, ex, attempt, options, target: target);
                 if (choice == ErrorChoice.Retry)
                 {
                     if (!hopeless && attempt <= Math.Max(1, options.RetryCount))
@@ -790,7 +803,7 @@ public sealed class CopyEngine
 
                     // Incluso con reintento automático, no abandonar el archivo en silencio:
                     // agotados los reintentos, pedir al usuario la decisión final.
-                    choice = DecideError(source, ex, attempt, options, forcePrompt: true);
+                    choice = DecideError(source, ex, attempt, options, forcePrompt: true, target: target);
                     if (choice == ErrorChoice.Retry)
                     {
                         attempt = 0;
@@ -799,11 +812,11 @@ public sealed class CopyEngine
                 }
                 if (choice == ErrorChoice.Abort)
                 {
-                    item.Error = Describe(ex);
+                    item.Error = Describe(ex, source, target);
                     _cts?.Cancel();
                     throw;
                 }
-                item.Error = Describe(ex);
+                item.Error = Describe(ex, source, target);
                 item.State = choice is ErrorChoice.Skip or ErrorChoice.SkipAll ? ItemState.Skipped : ItemState.Failed;
                 if (choice == ErrorChoice.SkipAll) _stickyError = ErrorChoice.SkipAll;
                 return;
@@ -1427,7 +1440,8 @@ public sealed class CopyEngine
         }
     }
 
-    private ErrorChoice DecideError(string file, Exception ex, int attempt, EngineOptions options, bool forcePrompt = false)
+    private ErrorChoice DecideError(string file, Exception ex, int attempt, EngineOptions options, bool forcePrompt = false,
+        string? target = null)
     {
         // «OMITIR TODOS» POR DELANTE DE TODO. Antes se miraba después de la política de
         // errores: con «Reintentar automáticamente» puesto, cada archivo que fallaba volvía
@@ -1453,7 +1467,7 @@ public sealed class CopyEngine
         lock (_promptGate)
         {
             if (_stickyError == ErrorChoice.SkipAll) return ErrorChoice.Skip;
-            var choice = resolver(new ErrorPrompt(file, Describe(ex), attempt));
+            var choice = resolver(new ErrorPrompt(file, Describe(ex, file, target), attempt));
             if (choice == ErrorChoice.SkipAll) { _stickyError = ErrorChoice.SkipAll; return ErrorChoice.Skip; }
             if (choice == ErrorChoice.Abort) _stickyError = ErrorChoice.Abort;
             return choice;
@@ -1632,6 +1646,214 @@ public sealed class CopyEngine
             if (!File.Exists(candidate) && !Directory.Exists(candidate)) return candidate;
         }
         return path;
+    }
+
+    // ---------------------------------------------------------------- permisos de Windows
+
+    /// <summary>
+    /// ¿Se puede escribir DE VERDAD en esta carpeta? No vale mirar los permisos: con el
+    /// «Acceso controlado a carpetas» de Windows los permisos están bien y la escritura
+    /// se bloquea igual. Se comprueba creando un archivo diminuto que se borra solo.
+    /// </summary>
+    public static bool CanWriteInFolder(string folder)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder)) return false;
+            var probe = Path.Combine(folder, ".xopy-prueba-" + Guid.NewGuid().ToString("N")[..8] + ".tmp");
+            using var stream = new FileStream(probe, FileMode.CreateNew, FileAccess.Write, FileShare.None, 512,
+                FileOptions.DeleteOnClose);
+            stream.WriteByte(0);
+            return true;
+        }
+        catch { return false; }
+    }
+
+    /// <summary>
+    /// ¿Está activado el «Acceso controlado a carpetas» (protección contra ransomware de
+    /// Seguridad de Windows)? Cuando lo está, NINGÚN programa que no esté en su lista
+    /// puede escribir en el Escritorio, Documentos, Imágenes, Vídeos ni Música, y Windows
+    /// contesta siempre «Acceso denegado (error 5)» sin decir por qué.
+    /// </summary>
+    public static bool ControlledFolderAccessEnabled()
+    {
+        var keys = new[]
+        {
+            @"SOFTWARE\Microsoft\Windows Defender\Windows Defender Exploit Guard\Controlled Folder Access",
+            @"SOFTWARE\Policies\Microsoft\Windows Defender\Windows Defender Exploit Guard\Controlled Folder Access"
+        };
+        foreach (var key in keys)
+        {
+            try
+            {
+                using var registry = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(key);
+                if (registry?.GetValue("EnableControlledFolderAccess") is int value && value != 0) return true;
+            }
+            catch { }
+        }
+        return false;
+    }
+
+    private static bool IsInside(string folder, Environment.SpecialFolder special)
+    {
+        try
+        {
+            var root = Environment.GetFolderPath(special);
+            if (string.IsNullOrEmpty(root)) return false;
+            root = Path.GetFullPath(root).TrimEnd('\\');
+            return folder.Equals(root, StringComparison.OrdinalIgnoreCase) ||
+                   folder.StartsWith(root + "\\", StringComparison.OrdinalIgnoreCase);
+        }
+        catch { return false; }
+    }
+
+    /// <summary>
+    /// Explicación concreta de por qué Windows no deja escribir en una carpeta, o null si
+    /// no hay nada especial que contar. Es la diferencia entre «acceso denegado» a secas y
+    /// saber qué tocar para arreglarlo.
+    /// </summary>
+    public static string? ProtectedFolderHint(string folder)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(folder)) return null;
+            var full = Path.GetFullPath(folder).TrimEnd('\\');
+
+            var personal = IsInside(full, Environment.SpecialFolder.Desktop)
+                           || IsInside(full, Environment.SpecialFolder.MyDocuments)
+                           || IsInside(full, Environment.SpecialFolder.MyPictures)
+                           || IsInside(full, Environment.SpecialFolder.MyVideos)
+                           || IsInside(full, Environment.SpecialFolder.MyMusic)
+                           || IsInside(full, Environment.SpecialFolder.Favorites);
+            if (personal && ControlledFolderAccessEnabled())
+                return "CAUSA MÁS PROBABLE: el «Acceso controlado a carpetas» de Seguridad de Windows " +
+                       "(protección contra ransomware) está ACTIVADO. Bloquea a cualquier programa que no esté " +
+                       "en su lista blanca cuando escribe en el Escritorio, Documentos, Imágenes, Vídeos o Música, " +
+                       "y responde siempre «acceso denegado». Solución: en XoPy, menú Herramientas → " +
+                       "«Permitir XoPy en el acceso controlado a carpetas», o a mano en Seguridad de Windows → " +
+                       "Protección contra virus y amenazas → Protección contra ransomware → " +
+                       "Permitir una aplicación a través del Acceso controlado a carpetas → XoPy.exe.";
+
+            if (IsInside(full, Environment.SpecialFolder.Windows) ||
+                IsInside(full, Environment.SpecialFolder.ProgramFiles) ||
+                IsInside(full, Environment.SpecialFolder.ProgramFilesX86))
+                return "Es una carpeta protegida del sistema (Windows o Archivos de programa): hace falta " +
+                       "ejecutar XoPy como administrador (Herramientas → Reiniciar XoPy como administrador) " +
+                       "o copiar a otra carpeta.";
+
+            if (personal)
+                return "Es una de tus carpetas personales y Windows está denegando la escritura. " +
+                       "Suele ser el antivirus o la protección contra ransomware; también puede ser que la " +
+                       "carpeta esté sincronizada con OneDrive y sin conexión.";
+        }
+        catch { }
+        return null;
+    }
+
+    /// <summary>
+    /// Mensaje completo para un «acceso denegado» sabiendo de dónde a dónde se copiaba:
+    /// dice si el problema está al LEER el origen o al ESCRIBIR en el destino, que es lo
+    /// único que de verdad ayuda a arreglarlo.
+    /// </summary>
+    public static string DescribeAccessDenied(string? source, string? target)
+    {
+        var text = new StringBuilder();
+        var sourceReadable = true;
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(source) && File.Exists(source))
+            {
+                try
+                {
+                    using var probe = new FileStream(source, FileMode.Open, FileAccess.Read,
+                        FileShare.ReadWrite | FileShare.Delete);
+                }
+                catch { sourceReadable = false; }
+            }
+        }
+        catch { }
+
+        var folder = string.Empty;
+        try { folder = Path.GetDirectoryName(target ?? string.Empty) ?? string.Empty; }
+        catch { }
+        var folderWritable = string.IsNullOrEmpty(folder) || CanWriteInFolder(folder);
+
+        if (!sourceReadable)
+        {
+            text.Append("Acceso denegado (error 5) AL LEER EL ARCHIVO DE ORIGEN. Windows no deja abrirlo con tu usuario: ");
+            text.Append("puede ser de otro usuario o de una instalación antigua. Prueba a reiniciar XoPy como administrador ");
+            text.Append("(Herramientas → Reiniciar XoPy como administrador) o activa «Copiar archivos bloqueados» en Opciones.");
+        }
+        else if (!folderWritable)
+        {
+            text.Append("Acceso denegado (error 5) AL ESCRIBIR EN LA CARPETA DE DESTINO:\n");
+            text.Append(folder);
+            var hint = ProtectedFolderHint(folder);
+            text.Append("\n\n");
+            text.Append(hint ?? "Comprueba que la unidad no esté llena ni en solo lectura y que tengas permiso de escritura en esa carpeta.");
+        }
+        else
+        {
+            text.Append("Acceso denegado (error 5). Se ha reintentado automáticamente. ");
+            text.Append("El archivo de destino puede estar abierto en otro programa, protegido por el antivirus ");
+            text.Append("o marcado como de solo lectura. Si el archivo de origen está bloqueado, activa ");
+            text.Append("«Copiar archivos bloqueados» en Opciones.");
+            var hint = ProtectedFolderHint(folder);
+            if (hint is not null) text.Append("\n\n").Append(hint);
+        }
+        return text.ToString();
+    }
+
+    /// <summary>
+    /// Mete a XoPy en la lista blanca del «Acceso controlado a carpetas». Necesita permisos
+    /// de administrador: Windows pedirá confirmación.
+    /// </summary>
+    public static bool TryAllowInControlledFolderAccess(out string message)
+    {
+        try
+        {
+            var exe = Environment.ProcessPath ?? Process.GetCurrentProcess().MainModule?.FileName;
+            if (string.IsNullOrWhiteSpace(exe))
+            {
+                message = "No se pudo averiguar la ruta de XoPy.exe.";
+                return false;
+            }
+
+            var command = "Add-MpPreference -ControlledFolderAccessAllowedApplications '" + exe.Replace("'", "''") + "'";
+            var info = new ProcessStartInfo("powershell.exe",
+                "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command \"" + command + "\"")
+            {
+                UseShellExecute = true,
+                Verb = "runas",
+                WindowStyle = ProcessWindowStyle.Hidden
+            };
+            using var process = Process.Start(info);
+            process?.WaitForExit(30000);
+            var ok = process is { ExitCode: 0 };
+            message = ok
+                ? "XoPy ya está permitido en el Acceso controlado a carpetas. Vuelve a intentar la copia."
+                : "Windows no aceptó la orden (¿se canceló el aviso de administrador?). " +
+                  "Puedes hacerlo a mano en Seguridad de Windows → Protección contra ransomware.";
+            FileLog.Write("Acceso controlado a carpetas: permitir XoPy -> " + (ok ? "correcto" : "fallido"));
+            return ok;
+        }
+        catch (Exception ex)
+        {
+            message = "No se pudo cambiar el Acceso controlado a carpetas: " + ex.Message;
+            return false;
+        }
+    }
+
+    /// <summary>Como <see cref="Describe(Exception)"/>, pero sabiendo el origen y el destino.</summary>
+    public static string Describe(Exception ex, string? source, string? target)
+    {
+        var code = ex.HResult & 0xFFFF;
+        if (ex is UnauthorizedAccessException || code == 5) return DescribeAccessDenied(source, target);
+        if (code == 87 || code == 123)
+            return "La ruta de destino no es válida:\n" + (target ?? "(sin destino)") +
+                   "\nRevisa que no tenga caracteres prohibidos (: * ? \" < > |), que no acabe en espacio o en punto " +
+                   "y que la unidad esté conectada.";
+        return Describe(ex);
     }
 
     public static string Describe(Exception ex)

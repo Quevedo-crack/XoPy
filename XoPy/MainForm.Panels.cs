@@ -97,13 +97,13 @@ public sealed partial class MainForm
             Margin = new Padding(0)
         };
         var change = Ui.ToolButton("Cambiar…", Icons.Folder, _palette);
-        change.Size = new Size(112, 30);
+        Ui.Fit(change, 112, 30);
         change.Click += (_, _) => BrowseDestination();
         var open = Ui.ToolButton("Abrir", Icons.Open, _palette);
-        open.Size = new Size(96, 30);
+        Ui.Fit(open, 96, 30);
         open.Click += (_, _) => OpenFolder(_destination.Text.Trim());
         var save = Ui.ToolButton("Añadir a favoritos", Icons.Star, _palette);
-        save.Size = new Size(148, 30);
+        Ui.Fit(save, 148, 30);
         save.Click += (_, _) => AddFavorite();
         actions.Controls.AddRange(new Control[] { change, open, save });
 
@@ -342,7 +342,7 @@ public sealed partial class MainForm
             Margin = new Padding(0, 0, 8, 0)
         };
         var pickScript = Ui.ToolButton("Examinar…", Icons.Folder, _palette);
-        pickScript.Size = new Size(96, 28);
+        Ui.Fit(pickScript, 96, 28);
         pickScript.Click += (_, _) => PickCompletionScript();
         scriptPanel.Controls.Add(_optScript, 0, 0);
         scriptPanel.Controls.Add(pickScript, 1, 0);
@@ -377,10 +377,10 @@ public sealed partial class MainForm
             Margin = new Padding(0, 4, 0, 0)
         };
         var addExtra = Ui.ToolButton("Añadir destino…", Icons.FolderAdd, _palette);
-        addExtra.Size = new Size(144, 26);
+        Ui.Fit(addExtra, 144, 26);
         addExtra.Click += (_, _) => AddExtraDestination();
         var removeExtra = Ui.ToolButton("Quitar", Icons.Remove, _palette);
-        removeExtra.Size = new Size(84, 26);
+        Ui.Fit(removeExtra, 84, 26);
         removeExtra.Click += (_, _) => RemoveExtraDestination();
         extraButtons.Controls.AddRange(new Control[] { addExtra, removeExtra });
         extraPanel.Controls.Add(_extraDestinations, 0, 0);
@@ -402,10 +402,10 @@ public sealed partial class MainForm
             Margin = new Padding(0, 8, 0, 0)
         };
         var all = Ui.ToolButton("Todas las preferencias…", Icons.Settings, _palette, _palette.Accent);
-        all.Size = new Size(196, 34);
+        Ui.Fit(all, 196, 34);
         all.Click += (_, _) => ShowOptions();
         var save = Ui.ToolButton("Guardar", Icons.Save, _palette);
-        save.Size = new Size(104, 34);
+        Ui.Fit(save, 104, 34);
         save.Click += (_, _) => SaveQuickOptions();
         buttons.Controls.AddRange(new Control[] { all, save });
         AddWideRow(grid, buttons, 46);
@@ -834,22 +834,29 @@ public sealed partial class MainForm
         var extras = _settings.ExtraDestinations.Count;
         _hdrTargetPath.Text = extras > 0 ? $"{destination}  (+{extras})" : destination;
 
+        // CUÁNTOS ARCHIVOS VAN. Va en la línea «Total», que se ve en los dos modos: en la
+        // ventana reducida la lista está escondida y el pie no existe, así que este era el
+        // único sitio donde mirar cuánto queda por copiar.
+        var doneFiles = leaves.Count(item => item.State is ItemState.Completed or ItemState.Skipped);
+        var counter = leaves.Count > 0 ? $"{doneFiles} de {Format.Files(leaves.Count)}" : string.Empty;
         if (running && _engine.IsPaused)
         {
-            _hdrTargetInfo.Text = "En pausa · 0 B/s";
+            _hdrTargetInfo.Text = counter.Length > 0 ? counter + "  ·  en pausa" : "En pausa · 0 B/s";
         }
         else if (running)
         {
             var speed = _engine.SpeedBytesPerSecond;
             var remaining = _engine.Remaining;
             _hdrTargetInfo.Text = speed > 0
-                ? $"{Format.Speed(speed)}  ·  {Format.Duration(_engine.ElapsedIncludingPauses)}  ·  quedan {Format.Duration(remaining)}"
-                : "Calculando la velocidad…";
+                ? $"{counter}  ·  {Format.Speed(speed)}  ·  quedan {Format.Duration(remaining)}"
+                : counter + "  ·  calculando…";
         }
         else
         {
-            // Sin velocidad que mostrar no se repite el número de archivos: ya está en el pie.
-            _hdrTargetInfo.Text = string.Empty;
+            // Parado: se sigue viendo cuántos hay y cuántos están ya copiados.
+            _hdrTargetInfo.Text = counter.Length > 0 && doneFiles > 0
+                ? counter + " copiados"
+                : counter;
         }
 
         // SEGUNDA LÍNEA = EL TOTAL de la copia, con su barra justo debajo.
@@ -974,16 +981,16 @@ public sealed partial class MainForm
             BackColor = _palette.Surface
         };
         var refresh = Ui.ToolButton("Actualizar", Icons.Refresh, _palette);
-        refresh.Size = new Size(112, 32);
+        Ui.Fit(refresh, 112, 32);
         refresh.Click += (_, _) => RefreshLog();
         var open = Ui.ToolButton("Abrir el archivo de registro", Icons.Open, _palette);
-        open.Size = new Size(196, 32);
+        Ui.Fit(open, 196, 32);
         open.Click += (_, _) => OpenLogFile();
         // INFORME PARA MANDAR. Un solo archivo de texto con TODO lo que hace falta para
         // diagnosticar un fallo sin estar delante del ordenador: versión, Windows, discos,
         // ajustes, últimas transferencias, errores y el registro técnico completo.
         var export = Ui.ToolButton("Guardar informe para enviar…", Icons.Save, _palette);
-        export.Size = new Size(226, 32);
+        Ui.Fit(export, 226, 32);
         export.Click += (_, _) => ExportDiagnosticReport();
         actions.Controls.AddRange(new Control[] { refresh, open, export });
 
@@ -1043,34 +1050,137 @@ public sealed partial class MainForm
     {
         try
         {
-            var folder = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
-            if (!Directory.Exists(folder)) folder = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-            var target = Path.Combine(folder, $"XoPy-informe-{DateTime.Now:yyyyMMdd-HHmm}.txt");
+            // EL INFORME SE ESCRIBE ANTES DE PREGUNTAR DÓNDE. Así, pase lo que pase con la
+            // carpeta elegida, el texto ya existe y nunca se guarda un archivo de 0 bytes
+            // (al usuario le salió uno vacío porque la escritura se cortó a medias).
+            var contents = BuildDiagnosticReport();
+
+            // La carpeta inicial es la PRIMERA en la que de verdad se puede escribir. Si se
+            // le ofrece el Escritorio y Windows lo tiene protegido (acceso controlado a
+            // carpetas, carpeta de empresa, OneDrive sin permiso), el cuadro de guardar del
+            // sistema suelta su propio aviso «No tiene permisos para guardar en esta
+            // ubicación. ¿Desea guardar en Documents?», que es el que veía el usuario.
+            var folder = FirstWritableFolder(
+                Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
+                Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                _store.DataFolder,
+                Path.GetTempPath());
+            var name = $"XoPy-informe-{DateTime.Now:yyyyMMdd-HHmm}.txt";
+            var target = Path.Combine(folder, name);
 
             using (var save = new SaveFileDialog
                    {
-                       Title = "Guardar el informe de XoPy",
-                       Filter = "Informe de texto (*.txt)|*.txt",
-                       FileName = Path.GetFileName(target),
+                       Title = "Guardar el informe de XoPy (elige la carpeta que quieras)",
+                       Filter = "Informe de texto (*.txt)|*.txt|Todos los archivos (*.*)|*.*",
+                       FileName = name,
                        InitialDirectory = folder,
-                       OverwritePrompt = true
+                       OverwritePrompt = true,
+                       // Sin comprobaciones del cuadro del sistema: la carpeta la elige el
+                       // usuario y los permisos los comprobamos nosotros al escribir, con un
+                       // mensaje que explica qué pasa y ofrece otra carpeta.
+                       CheckPathExists = true,
+                       RestoreDirectory = true,
+                       AddExtension = true,
+                       DefaultExt = "txt"
                    })
             {
                 if (save.ShowDialog(this) != DialogResult.OK) return;
                 target = save.FileName;
             }
 
-            File.WriteAllText(target, BuildDiagnosticReport(), new UTF8Encoding(true));
-            FileLog.Write("Informe guardado en " + target);
-            SetStatus("Informe guardado: " + target);
-            try { Process.Start(new ProcessStartInfo("explorer.exe", "/select,\"" + target + "\"") { UseShellExecute = true }); }
-            catch { }
+            while (true)
+            {
+                if (TryWriteReport(target, contents, out var error))
+                {
+                    FileLog.Write("Informe guardado en " + target);
+                    SetStatus("Informe guardado: " + target);
+                    try { Process.Start(new ProcessStartInfo("explorer.exe", "/select,\"" + target + "\"") { UseShellExecute = true }); }
+                    catch { }
+                    return;
+                }
+
+                // No se pudo escribir ahí: se explica POR QUÉ y se ofrece una salida, en vez
+                // del aviso seco de Windows. La copia de seguridad siempre funciona porque
+                // va a la carpeta de datos del propio programa.
+                var fallbackFolder = Path.Combine(_store.DataFolder, "informes");
+                var fallback = Path.Combine(fallbackFolder, Path.GetFileName(target));
+                var choice = PromptDialog.Ask(this, _palette, "No se pudo guardar ahí",
+                    "Windows no deja escribir en esa carpeta:\n" + target,
+                    error + "\n\n" + AccessHint(Path.GetDirectoryName(target) ?? string.Empty) +
+                    "\n\nPuedes elegir otra carpeta o guardarlo en la carpeta de XoPy:\n" + fallbackFolder,
+                    new[] { "Elegir otra carpeta…", "Guardar en la carpeta de XoPy", "Cancelar" });
+                if (choice == 2) return;
+                if (choice == 1)
+                {
+                    Directory.CreateDirectory(fallbackFolder);
+                    target = fallback;
+                    continue;
+                }
+
+                using var again = new SaveFileDialog
+                {
+                    Title = "Guardar el informe de XoPy",
+                    Filter = "Informe de texto (*.txt)|*.txt|Todos los archivos (*.*)|*.*",
+                    FileName = Path.GetFileName(target),
+                    OverwritePrompt = true,
+                    RestoreDirectory = true,
+                    AddExtension = true,
+                    DefaultExt = "txt"
+                };
+                if (again.ShowDialog(this) != DialogResult.OK) return;
+                target = again.FileName;
+            }
         }
         catch (Exception ex)
         {
             ShowError("No se pudo guardar el informe: " + ex.Message);
         }
     }
+
+    /// <summary>
+    /// Escribe el informe COMPLETO o no deja nada: primero se vuelca en un archivo
+    /// temporal de la misma carpeta y después se renombra. Si la escritura se corta a
+    /// medias (permisos, disco lleno, antivirus), el usuario no se queda con un archivo
+    /// de 0 bytes creyendo que tiene el informe.
+    /// </summary>
+    private static bool TryWriteReport(string target, string contents, out string error)
+    {
+        error = string.Empty;
+        var temp = target + ".tmp";
+        try
+        {
+            var folder = Path.GetDirectoryName(target);
+            if (!string.IsNullOrEmpty(folder)) Directory.CreateDirectory(folder);
+            File.WriteAllText(temp, contents, new UTF8Encoding(true));
+            if (new FileInfo(temp).Length <= 0) throw new IOException("El archivo se quedó vacío.");
+            if (File.Exists(target)) File.Delete(target);
+            File.Move(temp, target);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            error = CopyEngine.Describe(ex);
+            try { if (File.Exists(temp)) File.Delete(temp); } catch { }
+            return false;
+        }
+    }
+
+    /// <summary>Primera carpeta de la lista en la que este usuario puede escribir de verdad.</summary>
+    private static string FirstWritableFolder(params string[] candidates)
+    {
+        foreach (var candidate in candidates)
+        {
+            if (string.IsNullOrWhiteSpace(candidate)) continue;
+            if (CopyEngine.CanWriteInFolder(candidate)) return candidate;
+        }
+        return Path.GetTempPath();
+    }
+
+    /// <summary>Pista concreta cuando Windows no deja escribir en una carpeta.</summary>
+    private static string AccessHint(string folder)
+        => CopyEngine.ProtectedFolderHint(folder) ??
+           "Comprueba que la carpeta exista, que la unidad no esté llena ni en solo lectura y que tengas permiso de escritura.";
 
     private string BuildDiagnosticReport()
     {
@@ -1102,6 +1212,30 @@ public sealed partial class MainForm
         Line("Sustituye al copiador", _settings.ReplaceWindowsCopier);
         Line("Cerrar al terminar", _settings.CloseWhenDone);
         Line("Minimizar a la bandeja", _settings.MinimizeToTray);
+        text.AppendLine();
+
+        text.AppendLine("---------------- PERMISOS DE ESCRITURA ----------------");
+        Line("Acceso controlado", CopyEngine.ControlledFolderAccessEnabled() ? "ACTIVADO (protección contra ransomware)" : "apagado");
+        foreach (var special in new[]
+                 {
+                     Environment.SpecialFolder.Desktop, Environment.SpecialFolder.MyDocuments,
+                     Environment.SpecialFolder.MyPictures, Environment.SpecialFolder.UserProfile
+                 })
+        {
+            try
+            {
+                var path = Environment.GetFolderPath(special);
+                text.AppendLine($"  {(CopyEngine.CanWriteInFolder(path) ? "escribe  " : "DENEGADO ")}{path}");
+            }
+            catch { }
+        }
+        try
+        {
+            var current = _destination?.Text?.Trim() ?? string.Empty;
+            if (current.Length > 0)
+                text.AppendLine($"  {(CopyEngine.CanWriteInFolder(current) ? "escribe  " : "DENEGADO ")}{current}  (destino actual)");
+        }
+        catch { }
         text.AppendLine();
 
         text.AppendLine("---------------- DISCOS ----------------");

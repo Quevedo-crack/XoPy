@@ -147,6 +147,8 @@ public sealed partial class MainForm : Form
     private CopyEngineKind? _engineOverride;
     private bool _trayPaused;
     private bool _trayError;
+    /// <summary>Cuántas copias había en marcha la última vez que se pintó el icono de la bandeja.</summary>
+    private int _trayJobs;
     private DateTime _completedAt = DateTime.MinValue;
     private OperationType _lastOperation = OperationType.Copy;
     private string _lastDestination = string.Empty;
@@ -280,6 +282,18 @@ public sealed partial class MainForm : Form
     private const int RowContentMin = 110;
 
     /// <summary>
+    /// Cuánto hay que agrandar las medidas fijas. Todas las alturas de arriba están
+    /// escritas en píxeles «al 100 %», pero las letras y los iconos los agranda Windows
+    /// cuando el usuario pone el tamaño del texto al 125 % o al 150 %: sin este factor,
+    /// la barra de 48 px seguía midiendo 48 con botones de 60 y el texto salía cortado
+    /// («Actualiz», «Abrir el archivo de»), y la ventana reducida se quedaba corta.
+    /// </summary>
+    private float UiScale => DeviceDpi > 0 ? DeviceDpi / 96f : 1f;
+
+    /// <summary>Convierte una medida «al 100 %» en píxeles reales de esta pantalla.</summary>
+    private int Px(int logical) => (int)Math.Round(logical * UiScale);
+
+    /// <summary>
     /// Reparte el alto de la ventana a mano. Hacía falta: con la fila del contenido en
     /// «porcentaje», TableLayoutPanel le daba el alto que PEDÍA la pestaña más grande
     /// (la de Estado) y se lo quitaba a las demás franjas — por eso desaparecía la barra de
@@ -289,13 +303,13 @@ public sealed partial class MainForm : Form
     {
         if (_rootLayout is null || _rootLayout.RowStyles.Count < 6) return;
 
-        var menu = _settings.ShowMenuBar ? RowMenuHeight : 0;
-        var tabs = _compactView ? 0 : RowTabsHeight;
-        var footer = _compactView ? RowFooterCompact : RowFooterNormal;
+        var menu = _settings.ShowMenuBar ? Px(RowMenuHeight) : 0;
+        var tabs = _compactView ? 0 : Px(RowTabsHeight);
+        var footer = _compactView ? RowFooterCompact : Px(RowFooterNormal);
         var available = _rootLayout.ClientSize.Height;
         if (available <= 0) available = ClientSize.Height;
-        var content = available - menu - RowToolbarHeight - RowHeaderHeight - tabs - footer;
-        if (content < RowContentMin) content = RowContentMin;
+        var content = available - menu - Px(RowToolbarHeight) - Px(RowHeaderHeight) - tabs - footer;
+        if (content < Px(RowContentMin)) content = Px(RowContentMin);
         // LISTA OCULTA: la franja del contenido se va a cero de verdad. Antes la vista
         // reducida seguía reservando sitio para la lista, así que el botón decía «Ocultar»
         // y la lista no se iba a ninguna parte.
@@ -313,8 +327,8 @@ public sealed partial class MainForm : Form
 
         _rootLayout.SuspendLayout();
         Set(0, menu);
-        Set(1, RowToolbarHeight);
-        Set(2, RowHeaderHeight);
+        Set(1, Px(RowToolbarHeight));
+        Set(2, Px(RowHeaderHeight));
         Set(3, tabs);
         Set(4, content);
         Set(5, footer);
@@ -343,13 +357,13 @@ public sealed partial class MainForm : Form
             // cosas repetidas que señaló el usuario.
             if (_footerLayout is not null && _footerLayout.RowStyles.Count >= 4)
             {
-                _footerLayout.RowStyles[0].Height = compact ? 0 : 17;
-                _footerLayout.RowStyles[1].Height = compact ? 0 : 35;
+                _footerLayout.RowStyles[0].Height = compact ? 0 : Px(17);
+                _footerLayout.RowStyles[1].Height = compact ? 0 : Px(35);
                 _footerLayout.RowStyles[2].Height = 0;
                 // En reducido la línea de estado se va del todo: «Transferencia en pausa» ya
                 // se ve en el botón (que pasa a decir «Reanudar») y en la cabecera, y esa
                 // franja era el hueco desperdiciado de la ventana pequeña.
-                _footerLayout.RowStyles[3].Height = compact ? 0 : 28;
+                _footerLayout.RowStyles[3].Height = compact ? 0 : Px(28);
                 if (_footerLayout.Parent is not null) _footerLayout.Visible = !compact;
                 if (_currentLabel is not null) _currentLabel.Visible = !compact;
                 if (_footerGraph is not null) _footerGraph.Visible = !compact;
@@ -362,14 +376,19 @@ public sealed partial class MainForm : Form
             {
                 // Las dos líneas con sus dos barras se ven igual en reducido: en ese modo
                 // son lo único que queda, así que tienen que estar completas.
-                _transferHeader.RowStyles[0].Height = 24;
-                _transferHeader.RowStyles[1].Height = 12;
-                _transferHeader.RowStyles[2].Height = 24;
-                _transferHeader.RowStyles[3].Height = 16;
+                _transferHeader.RowStyles[0].Height = Px(24);
+                _transferHeader.RowStyles[1].Height = Px(12);
+                _transferHeader.RowStyles[2].Height = Px(24);
+                _transferHeader.RowStyles[3].Height = Px(16);
             }
             if (compact && _tabIndex != 0) SelectTab(0);
-            // La lista (con sus pestañas y el panel de trabajos) se esconde entera.
+            // La lista (con sus pestañas y el panel de trabajos) se esconde ENTERA, y con
+            // ella la propia lista: la barra de desplazamiento de un ListView es una
+            // ventana de Windows que se queda pintada si solo se encoge su contenedor, y
+            // eso es la «franja blanca» que quedaba debajo al ocultar la lista.
             if (_contentGrid is not null) _contentGrid.Visible = !compact;
+            if (_tabsHost is not null) _tabsHost.Visible = !compact;
+            if (_list is not null) _list.Visible = !compact;
             UpdateToolbarForCompact(compact);
             if (_compactButton is not null)
             {
@@ -389,6 +408,10 @@ public sealed partial class MainForm : Form
             }
             _rootLayout.ResumeLayout(true);
             LayoutRootRows();
+            // Repintado completo: sin esto Windows deja a medias lo que había donde estaba
+            // la lista (ese resto claro que se veía al reducir la ventana).
+            try { _rootLayout.Invalidate(true); Invalidate(true); Update(); }
+            catch { }
         }
 
         // La ventana NUNCA se ajusta sola: se recortaba. Como en TeraCopy, es redimensionable
@@ -458,7 +481,7 @@ public sealed partial class MainForm : Form
     /// </summary>
     private int CompactWindowHeight()
     {
-        var client = (_settings.ShowMenuBar ? RowMenuHeight : 0) + RowToolbarHeight + RowHeaderHeight + 4;
+        var client = (_settings.ShowMenuBar ? Px(RowMenuHeight) : 0) + Px(RowToolbarHeight) + Px(RowHeaderHeight) + 4;
         return client + (Height - ClientSize.Height is var chrome && chrome > 0 && chrome < 120
             ? chrome
             : SystemInformation.FrameBorderSize.Height * 2 + SystemInformation.CaptionHeight);
@@ -525,24 +548,11 @@ public sealed partial class MainForm : Form
         queue.DropDownItems.Add(MenuItem("Llevar al principio  (Alt+Inicio)", (_, _) => MoveSelectedToEdge(top: true)));
         queue.DropDownItems.Add(MenuItem("Llevar al final  (Alt+Fin)", (_, _) => MoveSelectedToEdge(top: false)));
         queue.DropDownItems.Add(new ToolStripSeparator());
-        // Un solo submenú «Ordenar» en vez de ocho líneas sueltas: así el menú Cola queda
-        // corto y ordenado, como el menú contextual de TeraCopy.
+        // UN SOLO sitio donde se escriben las opciones de ordenar (ver FillSortItems): el
+        // menú Cola y el botón «Ordenar» de la lista enseñaban dos listas distintas, con
+        // entradas repetidas y casi iguales entre sí.
         var sortMenu = SubMenu("Ordenar");
-        sortMenu.DropDownItems.Add(MenuItem("Nombre (A → Z)", (_, _) => SortQueue(QueueSortField.Name)));
-        sortMenu.DropDownItems.Add(MenuItem("Nombre (Z → A)", (_, _) => SortQueue(QueueSortField.Name, invert: true)));
-        sortMenu.DropDownItems.Add(new ToolStripSeparator());
-        sortMenu.DropDownItems.Add(MenuItem("Tamaño, dentro de cada carpeta", (_, _) => SortQueue(QueueSortField.Size)));
-        sortMenu.DropDownItems.Add(MenuItem("Tamaño total de la carpeta", (_, _) => SortQueue(QueueSortField.FolderSize, invert: true)));
-        sortMenu.DropDownItems.Add(MenuItem("TODOS los archivos por tamaño (menor → mayor)", (_, _) => SortAllFilesBySize(false)));
-        sortMenu.DropDownItems.Add(MenuItem("TODOS los archivos por tamaño (mayor → menor)", (_, _) => SortAllFilesBySize(true)));
-        sortMenu.DropDownItems.Add(new ToolStripSeparator());
-        sortMenu.DropDownItems.Add(MenuItem("Fecha de modificación (más antiguos primero)", (_, _) => SortQueue(QueueSortField.Modified)));
-        sortMenu.DropDownItems.Add(MenuItem("Fecha de modificación (más nuevos primero)", (_, _) => SortQueue(QueueSortField.Modified, invert: true)));
-        sortMenu.DropDownItems.Add(new ToolStripSeparator());
-        sortMenu.DropDownItems.Add(MenuItem("Tipo de archivo", (_, _) => SortQueue(QueueSortField.Type)));
-        sortMenu.DropDownItems.Add(MenuItem("Carpeta de destino", (_, _) => SortQueue(QueueSortField.Destination)));
-        sortMenu.DropDownItems.Add(MenuItem("Ruta de origen", (_, _) => SortQueue(QueueSortField.Source)));
-        sortMenu.DropDownItems.Add(MenuItem("Estado", (_, _) => SortQueue(QueueSortField.State)));
+        FillSortItems(sortMenu.DropDownItems);
         queue.DropDownItems.Add(sortMenu);
 
         var viewMenu = SubMenu("Ver lista");
@@ -563,7 +573,11 @@ public sealed partial class MainForm : Form
         tools.DropDownItems.Add(MenuItem("Preferencias…", (_, _) => ShowOptions()));
         tools.DropDownItems.Add(MenuItem("Integración con el Explorador…", (_, _) => ShowExplorerIntegration()));
         tools.DropDownItems.Add(MenuItem("Abrir el registro de transferencias", (_, _) => OpenLogFile()));
+        tools.DropDownItems.Add(MenuItem("Guardar informe para enviar…", (_, _) => ExportDiagnosticReport()));
         tools.DropDownItems.Add(MenuItem("Reiniciar XoPy como administrador", (_, _) => RestartElevated()));
+        // La protección contra ransomware de Windows («Acceso controlado a carpetas») es la
+        // causa del «Acceso denegado (error 5)» al copiar al Escritorio o a Documentos.
+        tools.DropDownItems.Add(MenuItem("Permitir XoPy en el acceso controlado a carpetas…", (_, _) => AllowControlledFolderAccess()));
         tools.DropDownItems.Add(new ToolStripSeparator());
         tools.DropDownItems.Add(MenuItem("Historial de transferencias…", (_, _) => ShowHistory()));
 
@@ -624,7 +638,7 @@ public sealed partial class MainForm : Form
         _multiThreadButton = BarButton(MultiThreadLabel(), Icons.Lightning,
             (_, _) => ToggleMultiThread());
         _multiThreadButton.AutoSize = false;
-        _multiThreadButton.Size = new Size(MultiThreadButtonWidth, 36);
+        _multiThreadButton.Size = new Size(BarLabelWidth(MultiThreadButtonWidth, "Multihilo · 16", "Multihilo: no"), 36);
         _multiThreadButton.ToolTipText = MultiThreadTooltip();
 
         // «Verificar» y el resto de opciones viven en Preferencias: aquí solo lo esencial.
@@ -632,7 +646,7 @@ public sealed partial class MainForm : Form
         // cuando la lista está escondida y tiene que verse desde el otro lado de la sala.
         _compactButton = BarButton("Ocultar lista", Icons.ChevronDown, (_, _) => ToggleCompactView());
         _compactButton.AutoSize = false;
-        _compactButton.Size = new Size(ListToggleButtonWidth, 36);
+        _compactButton.Size = new Size(BarLabelWidth(ListToggleButtonWidth, "Ocultar lista", "Mostrar lista"), 36);
         _compactButton.Margin = new Padding(2, 0, 4, 0);
         _compactButton.ToolTipText = "Ocultar la lista de archivos y dejar solo los controles y el progreso";
         // Único acceso a Preferencias (el menú «⋯» tenía la misma opción y sobraba).
@@ -701,6 +715,25 @@ public sealed partial class MainForm : Form
 
     /// <summary>Ancho fijo del botón que oculta y muestra la lista.</summary>
     private const int ListToggleButtonWidth = 124;
+
+    /// <summary>
+    /// Ancho de un botón de la barra cuyo texto CAMBIA (multihilo, ocultar/mostrar lista):
+    /// se mide el más largo de los textos posibles, para que el botón no baile al cambiar
+    /// y para que con la letra de Windows al 125 % siga cabiendo entero. Los anchos fijos
+    /// de antes cortaban el texto en cuanto se agrandaba la letra del sistema.
+    /// </summary>
+    private static int BarLabelWidth(int minimum, params string[] labels)
+    {
+        var width = minimum;
+        try
+        {
+            using var font = new Font("Segoe UI", 8.75f, FontStyle.Bold);
+            foreach (var label in labels)
+                width = Math.Max(width, TextRenderer.MeasureText(label, font).Width + 46);
+        }
+        catch { }
+        return width;
+    }
 
     private ToolStripButton BarButton(string text, string glyph, EventHandler click, bool accent = false, bool iconOnly = false)
     {
@@ -986,7 +1019,7 @@ public sealed partial class MainForm : Form
             Padding = new Padding(0, 6, 0, 0)
         };
         var historyButton = Ui.ToolButton("Historial", Icons.History, _palette);
-        historyButton.Size = new Size(112, 30);
+        Ui.Fit(historyButton, 112, 30);
         historyButton.Margin = new Padding(0);
         historyButton.Click += (_, _) => ShowHistory();
         buttons.Controls.Add(historyButton);
@@ -1091,7 +1124,8 @@ public sealed partial class MainForm : Form
         };
         row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 84));
         row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 214));
+        // 320 px (antes 214): aquí cabe ahora «123 de 2.345 archivos · 102 MB/s · quedan…».
+        row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 320));
         row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 56));
 
         // Píldora redondeada con el estado, como en TeraCopy.
@@ -1144,37 +1178,41 @@ public sealed partial class MainForm : Form
     {
         var menu = new ContextMenuStrip { ShowImageMargin = false };
         Ui.StyleMenu(menu, _palette);
+        FillSortItems(menu.Items);
+        menu.Show(anchor, new Point(0, anchor.Height));
+    }
+
+    /// <summary>
+    /// LAS OPCIONES DE ORDENAR, EN UN SOLO SITIO. Antes había dos listas distintas (el
+    /// menú Cola y el botón «Ordenar» de la lista) con entradas repetidas y otras que
+    /// hacían casi lo mismo con nombres diferentes: «Tamaño, dentro de cada carpeta»,
+    /// «Tamaño de TODOS los archivos», «Tamaño de carpeta por el total de su contenido»…
+    /// Ahora son nueve líneas claras y cada una hace algo distinto. La primera es la que
+    /// pedía el usuario: los archivos MÁS GRANDES primero, uno a uno, sin importar de qué
+    /// carpeta salgan, que es lo que marca el orden real de la copia.
+    /// </summary>
+    private void FillSortItems(ToolStripItemCollection items)
+    {
         void Add(string text, Action action)
         {
             var item = new ToolStripMenuItem(text);
             item.Click += (_, _) => action();
-            menu.Items.Add(item);
+            items.Add(item);
         }
-        void Separator() => menu.Items.Add(new ToolStripSeparator());
+        void Separator() => items.Add(new ToolStripSeparator());
 
+        Add("Archivos más grandes primero", () => SortAllFilesBySize(invert: true));
+        Add("Archivos más pequeños primero", () => SortAllFilesBySize(invert: false));
+        Add("Tamaño total de cada carpeta (las mayores primero)", () => SortQueue(QueueSortField.FolderSize, invert: true));
+        Separator();
         Add("Nombre (A → Z)", () => SortQueue(QueueSortField.Name));
-        Add("Nombre (Z → A)", () => SortQueue(QueueSortField.Name, invert: true));
-        Separator();
-        // TAMAÑO
-        Add("Tamaño (menor → mayor)", () => SortQueue(QueueSortField.Size));
-        Add("Tamaño (mayor → menor)", () => SortQueue(QueueSortField.Size, invert: true));
-        Add("Tamaño de carpeta, por el total de su contenido", () => SortQueue(QueueSortField.FolderSize, invert: true));
-        Add("Tamaño de TODOS los archivos (menor → mayor)", () => SortAllFilesBySize(false));
-        Add("Tamaño de TODOS los archivos (mayor → menor)", () => SortAllFilesBySize(true));
-        Separator();
-        // FECHA DE MODIFICACIÓN
-        Add("Fecha de modificación (más antiguos primero)", () => SortQueue(QueueSortField.Modified));
         Add("Fecha de modificación (más nuevos primero)", () => SortQueue(QueueSortField.Modified, invert: true));
-        Separator();
-        // DESTINO Y ORIGEN
-        Add("Carpeta de destino (A → Z)", () => SortQueue(QueueSortField.Destination));
-        Add("Carpeta de destino (Z → A)", () => SortQueue(QueueSortField.Destination, invert: true));
-        Add("Ruta de origen (A → Z)", () => SortQueue(QueueSortField.Source));
-        Add("Ruta de origen (Z → A)", () => SortQueue(QueueSortField.Source, invert: true));
-        Separator();
-        Add("Tipo de archivo (A → Z)", () => SortQueue(QueueSortField.Type));
+        Add("Tipo de archivo", () => SortQueue(QueueSortField.Type));
+        Add("Carpeta de destino", () => SortQueue(QueueSortField.Destination));
+        Add("Carpeta de origen", () => SortQueue(QueueSortField.Source));
         Add("Estado de la copia", () => SortQueue(QueueSortField.State));
-        menu.Show(anchor, new Point(0, anchor.Height));
+        Separator();
+        Add("Invertir el orden actual", InvertCurrentSort);
     }
 
     private Control BuildFooter()
@@ -1537,13 +1575,10 @@ public sealed partial class MainForm : Form
         _listMenu.Items.Add("Quitar de la lista (Supr)", null, (_, _) => RemoveSelected());
         _listMenu.Items.Add("Reintentar los fallidos", null, (_, _) => RetryFailed());
         _listMenu.Items.Add(new ToolStripSeparator());
-        // Ordenar desde el propio menú del botón derecho, como en FlashCopyPro.
+        // Ordenar desde el propio menú del botón derecho, con LAS MISMAS opciones que el
+        // menú Cola y el botón «Ordenar» de la lista (ver FillSortItems).
         var sortItem = new ToolStripMenuItem("Ordenar la lista");
-        sortItem.DropDownItems.Add("Nombre (A → Z)", null, (_, _) => SortQueue(QueueSortField.Name));
-        sortItem.DropDownItems.Add("Tamaño (mayor → menor)", null, (_, _) => SortQueue(QueueSortField.Size, invert: true));
-        sortItem.DropDownItems.Add("Fecha de modificación (más nuevos primero)", null, (_, _) => SortQueue(QueueSortField.Modified, invert: true));
-        sortItem.DropDownItems.Add("Carpeta de destino (A → Z)", null, (_, _) => SortQueue(QueueSortField.Destination));
-        sortItem.DropDownItems.Add("Ruta de origen (A → Z)", null, (_, _) => SortQueue(QueueSortField.Source));
+        FillSortItems(sortItem.DropDownItems);
         _listMenu.Items.Add(sortItem);
         _fullPathMenuItem = new ToolStripMenuItem("Mostrar la ruta completa")
         {
@@ -1786,6 +1821,19 @@ public sealed partial class MainForm : Form
             // que haría el usuario: mostrar la lista.
             ApplyCompactView(false, persist: false);
 
+            // ── Rutas de destino que antes daban «Carpeta de destino no válida» ───────
+            var sucia = "  \"" + folder + "\\destino \"  ";
+            var limpia = PathTools.CleanFolder(sucia);
+            report.Add("ruta_limpia=" + limpia);
+            if (!string.Equals(limpia, Path.Combine(folder, "destino"), StringComparison.OrdinalIgnoreCase))
+            { report.Add("error=no se limpiaron las comillas ni el espacio final del destino"); ok = false; }
+            if (!string.Equals(PathTools.CleanFolder("C:/fotos//2025"), @"C:\fotos\2025", StringComparison.OrdinalIgnoreCase))
+            { report.Add("error=no se normalizaron las barras del destino"); ok = false; }
+            if (PathTools.FirstForbiddenChar(@"C:\fotos|raras") is null)
+            { report.Add("error=no se detectó un carácter prohibido en la ruta"); ok = false; }
+            if (PathTools.FirstForbiddenChar(@"C:\fotos\2025") is not null)
+            { report.Add("error=se dio por mala una ruta correcta"); ok = false; }
+
             EnsureDefaultList();
             _settings.Destination = Path.Combine(folder, "destino");
             Directory.CreateDirectory(_settings.Destination);
@@ -1826,6 +1874,28 @@ public sealed partial class MainForm : Form
             // «Mayor → menor» debe dejar arriba el archivo más grande (archivo3).
             if (afterSort.Count > 0 && afterSort[0] != "archivo3.bin")
             { report.Add("error=el orden por tamano no puso primero al mayor"); ok = false; }
+
+            // ── «Los más grandes primero» CRUZANDO CARPETAS ──────────────────────────
+            // Un archivo grande metido en una carpeta tiene que adelantar a los sueltos más
+            // pequeños. Antes no pasaba: al estar la carpeta plegada, la lista volvía a
+            // juntar su contenido y deshacía el orden por tamaño (y la copia iba igual de
+            // mal ordenada que la lista).
+            var pesada = Path.Combine(folder, "pesada");
+            Directory.CreateDirectory(pesada);
+            File.WriteAllBytes(Path.Combine(pesada, "grande.bin"), new byte[9 * 1024]);
+            ClearList();
+            AddPathsAsync(new[] { pesada, Path.Combine(folder, "archivo1.bin") }, askDestination: false)
+                .GetAwaiter().GetResult();
+            SortAllFilesBySize(invert: true);
+            var conCarpeta = _list.Items.Cast<ListViewItem>()
+                .Select(row => (row.Tag as TransferItem)?.Name ?? "?")
+                .Where(name => name.EndsWith(".bin", StringComparison.OrdinalIgnoreCase)).ToList();
+            report.Add("tamano_cruzando_carpetas=" + string.Join(",", conCarpeta));
+            if (conCarpeta.FirstOrDefault() != "grande.bin")
+            { report.Add("error=el archivo grande de dentro de una carpeta no quedó el primero"); ok = false; }
+            ClearList();
+            AddPathsAsync(Enumerable.Range(1, 3).Select(i => Path.Combine(folder, $"archivo{i}.bin")).ToList(),
+                askDestination: false).GetAwaiter().GetResult();
 
             // ── Regresión del informe: archivos de RAÍCES DISTINTAS en una lista plana ──
             // Cada uno debe conservar su ruta al reordenar (el destino no cambia) y tiene que

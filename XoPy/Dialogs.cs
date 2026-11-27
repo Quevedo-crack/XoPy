@@ -51,8 +51,23 @@ internal sealed class PromptDialog : Form
         ShowInTaskbar = false;
         AutoSize = true;
         AutoSizeMode = AutoSizeMode.GrowAndShrink;
-        MinimumSize = new Size(640, 0);
-        MaximumSize = new Size(640, 1400);
+
+        // EL CUADRO SE HACE TAN ANCHO COMO PIDAN SUS BOTONES. Con 640 px fijos, cuatro
+        // botones con texto largo («Elegir otra carpeta…», «Guardar en la carpeta de
+        // XoPy») no cabían y se veían cortados; con el tamaño de letra de Windows al
+        // 125 % se cortaban hasta los de dos palabras.
+        var buttonsWidth = 0;
+        try
+        {
+            using var probe = new Font("Segoe UI", 9f);
+            foreach (var caption in buttons)
+                buttonsWidth += Math.Max(112, TextRenderer.MeasureText(caption, probe).Width + 32) + 8;
+        }
+        catch { buttonsWidth = 480; }
+        var width = Math.Clamp(buttonsWidth + 56, 640, 1100);
+        var inner = width - 80;
+        MinimumSize = new Size(width, 0);
+        MaximumSize = new Size(width, 1400);
 
         var layout = new TableLayoutPanel
         {
@@ -60,7 +75,7 @@ internal sealed class PromptDialog : Form
             ColumnCount = 1,
             BackColor = palette.Canvas,
             Padding = new Padding(20, 18, 20, 14),
-            Width = 620,
+            Width = width - 20,
             AutoSize = true,
             AutoSizeMode = AutoSizeMode.GrowAndShrink,
             RowCount = 5
@@ -80,7 +95,7 @@ internal sealed class PromptDialog : Form
         {
             Text = message,
             AutoSize = true,
-            MaximumSize = new Size(560, 0),
+            MaximumSize = new Size(inner, 0),
             ForeColor = palette.Text,
             Margin = new Padding(0, 0, 0, 8)
         };
@@ -93,9 +108,9 @@ internal sealed class PromptDialog : Form
         var detailHeight = 76;
         try
         {
-            var measured = TextRenderer.MeasureText(detailText, detailFont, new Size(548, 0),
+            var measured = TextRenderer.MeasureText(detailText, detailFont, new Size(inner - 12, 0),
                 TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix);
-            detailHeight = Math.Clamp(measured.Height + 16, 48, 260);
+            detailHeight = Math.Clamp(measured.Height + 16, 48, 300);
         }
         catch { }
         var detailBox = new TextBox
@@ -106,7 +121,7 @@ internal sealed class PromptDialog : Form
             WordWrap = true,
             ScrollBars = ScrollBars.Vertical,
             Dock = DockStyle.None,
-            Size = new Size(560, detailHeight),
+            Size = new Size(inner, detailHeight),
             TabStop = false,
             BorderStyle = BorderStyle.FixedSingle,
             BackColor = palette.SurfaceAlt,
@@ -582,7 +597,7 @@ internal sealed class OptionsDialog : Form
         columns.Controls.Add(rightScroll, 1, 0);
 
         var advanced = Ui.DialogButton("Opciones avanzadas…", _palette);
-        advanced.Size = new Size(180, 30);
+        Ui.Fit(advanced, 180, 30);
         advanced.Anchor = AnchorStyles.Left | AnchorStyles.Bottom;
         advanced.Margin = new Padding(0, 8, 0, 0);
         advanced.Click += (_, _) => ShowAdvanced();
@@ -634,7 +649,7 @@ internal sealed class OptionsDialog : Form
         // un TabControl solo admite TabPage y añadirle un Button lanzaba
         // «No se puede agregar 'Button' a 'TabControl'» al pulsar Opciones avanzadas.
         var back = Ui.DialogButton("← Volver a las opciones", _palette);
-        back.Size = new Size(210, 30);
+        Ui.Fit(back, 210, 30);
         back.Margin = new Padding(0, 0, 8, 0);
         back.Click += (_, _) => CloseAdvanced();
         _advancedBack = back;
@@ -825,7 +840,7 @@ internal sealed class OptionsDialog : Form
             BackColor = _palette.Canvas
         };
         var addExtra = Ui.DialogButton("Añadir destino…", _palette);
-        addExtra.Size = new Size(140, 28);
+        Ui.Fit(addExtra, 140, 28);
         addExtra.Click += (_, _) =>
         {
             using var dialog = new FolderBrowserDialog { Description = "Destino adicional" };
@@ -836,7 +851,7 @@ internal sealed class OptionsDialog : Form
                 _extraDestinations.Items.Add(path);
         };
         var removeExtra = Ui.DialogButton("Quitar", _palette);
-        removeExtra.Size = new Size(90, 28);
+        Ui.Fit(removeExtra, 90, 28);
         removeExtra.Click += (_, _) =>
         {
             if (_extraDestinations.SelectedIndex >= 0) _extraDestinations.Items.RemoveAt(_extraDestinations.SelectedIndex);
@@ -944,7 +959,7 @@ internal sealed class OptionsDialog : Form
             Padding = new Padding(10, 0, 0, 0)
         };
         var add = Ui.DialogButton("Añadir carpeta", _palette);
-        add.Size = new Size(140, 30);
+        Ui.Fit(add, 140, 30);
         add.Margin = new Padding(0, 0, 0, 6);
         add.Click += (_, _) =>
         {
@@ -953,7 +968,7 @@ internal sealed class OptionsDialog : Form
                 _favorites.Items.Add(dialog.SelectedPath);
         };
         var remove = Ui.DialogButton("Quitar", _palette);
-        remove.Size = new Size(140, 30);
+        Ui.Fit(remove, 140, 30);
         remove.Margin = new Padding(0);
         remove.Click += (_, _) =>
         {

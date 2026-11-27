@@ -276,9 +276,9 @@ public:
         }
         // ------------------------------------------------------------------------------
 
-        // Sin archivos en el portapapeles no hay nada que pegar. Antes se comprobaba igual,
-        // pero como la entrada se llamaba solo «Pegar» el usuario no sabía si la copia la
-        // iba a hacer XoPy o el propio Windows. Ahora se llama «Pegar con XoPy» y lleva icono.
+        // Sin archivos en el portapapeles no hay nada que pegar. La entrada se llama
+        // «Pegar» a secas y se reconoce POR EL ICONO de XoPy: el «(XoPy)» entre paréntesis
+        // que llevaba antes sobraba y afeaba el menú del Explorador.
         if (!IsClipboardFormatAvailable(CF_HDROP)) return MAKE_HRESULT(SEVERITY_SUCCESS, 0, 0);
 
         // SI XOPY ES EL GESTOR DE COPIAS PREDETERMINADO, el «Pegar» de Windows se quita del
@@ -296,8 +296,12 @@ public:
                 DeleteMenu(menu, static_cast<UINT>(nativePaste), MF_BYPOSITION);
             }
         }
+        // El texto es «Pegar», sin paréntesis ni coletillas: lo que distingue a esta
+        // entrada es el icono de XoPy que se le pone justo debajo. Cuando XoPy NO es el
+        // copiador predeterminado, el «Pegar» de Windows sigue en el menú, así que la
+        // entrada se llama «Pegar con XoPy» para que no haya dos «Pegar» iguales.
         if (!InsertMenuW(menu, insertAt, MF_BYPOSITION | MF_STRING, first + kCmdPaste,
-                         replaceNative ? L"Pegar  (XoPy)" : L"Pegar con XoPy"))
+                         replaceNative ? L"Pegar" : L"Pegar con XoPy"))
             return HRESULT_FROM_WIN32(GetLastError());
         // Icono de la aplicación junto al texto (si se puede cargar; si no, el texto basta).
         wchar_t iconPath[MAX_PATH] = {};

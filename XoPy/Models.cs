@@ -473,6 +473,90 @@ public sealed class StartupRequest
     }
 }
 
+/// <summary>
+/// Arreglos de rutas escritas a mano o pegadas. Una carpeta de destino perfectamente
+/// válida se daba por «no válida» solo porque traía comillas de un «Copiar como ruta de
+/// acceso» del Explorador, un espacio al final, barras de Linux o un %VARIABLE% sin
+/// resolver. Aquí se limpia todo eso ANTES de decidir si la ruta sirve o no.
+/// </summary>
+public static class PathTools
+{
+    /// <summary>Caracteres que Windows no admite en un nombre de archivo o carpeta.</summary>
+    private static readonly char[] Forbidden = { '<', '>', '"', '|', '?', '*' };
+
+    /// <summary>
+    /// Deja la ruta como Windows la quiere, sin cambiar a qué carpeta apunta: quita
+    /// comillas y espacios sobrantes, resuelve %VARIABLES%, cambia / por \, junta las
+    /// barras repetidas y quita los puntos y espacios del final de cada tramo (Windows
+    /// los rechaza con «nombre no válido», error 123).
+    /// </summary>
+    public static string CleanFolder(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return string.Empty;
+        var text = value.Trim();
+
+        // «Copiar como ruta de acceso» del Explorador entrega la ruta ENTRE COMILLAS.
+        while (text.Length > 1 && text[0] == '"' && text[^1] == '"') text = text[1..^1].Trim();
+        text = text.Trim('\u200b', '\u202a', '\u202c', '\ufeff');
+
+        try { if (text.Contains('%')) text = Environment.ExpandEnvironmentVariables(text); }
+        catch { }
+
+        text = text.Replace('/', '\\');
+
+        // Barras repetidas en medio (C:\fotos\\2025) fuera; el \\servidor\recurso del
+        // principio se respeta.
+        var prefix = text.StartsWith(@"\\", StringComparison.Ordinal) ? @"\\" : string.Empty;
+        var body = prefix.Length > 0 ? text[2..] : text;
+        while (body.Contains(@"\\", StringComparison.Ordinal)) body = body.Replace(@"\\", @"\");
+
+        // Puntos y espacios al final de cada tramo: Windows no los admite.
+        var parts = body.Split('\\');
+        for (var i = 0; i < parts.Length; i++)
+        {
+            if (i == 0 && parts[i].EndsWith(':')) continue;   // la letra de unidad se deja igual
+            parts[i] = parts[i].TrimEnd(' ', '.');
+        }
+        body = string.Join('\\', parts);
+        text = prefix + body;
+
+        // «D:» a secas es la carpeta actual de esa unidad, no su raíz: se deja explícito.
+        if (text.Length == 2 && char.IsLetter(text[0]) && text[1] == ':') text += "\\";
+        if (text.Length > 3) text = text.TrimEnd('\\');
+        return text;
+    }
+
+    /// <summary>
+    /// Primer carácter prohibido de la ruta (sin contar los dos puntos de la unidad), o
+    /// null si no hay ninguno. Sirve para decir QUÉ sobra en vez de «ruta no válida».
+    /// </summary>
+    public static char? FirstForbiddenChar(string path)
+    {
+        if (string.IsNullOrEmpty(path)) return null;
+        var start = path.Length > 1 && path[1] == ':' ? 2 : 0;
+        for (var i = start; i < path.Length; i++)
+        {
+            var c = path[i];
+            if (c == ':' || Array.IndexOf(Forbidden, c) >= 0) return c;
+            if (c < 32) return ' ';
+        }
+        return null;
+    }
+
+    /// <summary>¿Esta ruta se puede usar como carpeta de destino sin que Windows proteste?</summary>
+    public static bool LooksUsable(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return false;
+        if (FirstForbiddenChar(path) is not null) return false;
+        try
+        {
+            _ = Path.GetFullPath(path);
+            return true;
+        }
+        catch { return false; }
+    }
+}
+
 public static class Format
 {
     /// <summary>«1 archivo» / «4 archivos». Se acabaron los «archivo(s)» de la interfaz.</summary>

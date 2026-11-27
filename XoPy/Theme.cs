@@ -244,7 +244,8 @@ public static class Icons
         return path;
     }
 
-    public static Icon ProgressIcon(int percent, bool dark, bool paused = false, bool error = false, bool completed = false)
+    public static Icon ProgressIcon(int percent, bool dark, bool paused = false, bool error = false, bool completed = false,
+        int jobs = 1)
     {
         var clamped = Math.Clamp(percent, 0, 100);
         // Icono del área de notificación (junto al reloj). Windows lo enseña a 16 px: el
@@ -288,6 +289,19 @@ public static class Icons
                 var width = (int)Math.Round((box - 12) * clamped / 100.0);
                 if (width > 0) graphics.FillRectangle(white, 6, box - 11, width, 6);
             }
+
+            // VARIAS COPIAS A LA VEZ: una chapita en la esquina con cuántas quedan. El
+            // número grande es el de la que está copiando ahora mismo; la chapa avisa de
+            // que detrás vienen más, y va bajando según terminan.
+            if (jobs > 1)
+            {
+                var badge = new Rectangle(box - 30, 0, 30, 28);
+                using (var badgeBrush = new SolidBrush(Color.FromArgb(28, 28, 28)))
+                using (var shape = RoundedRect(badge, 10))
+                    graphics.FillPath(badgeBrush, shape);
+                DrawFittedNumber(graphics, jobs > 9 ? "9+" : jobs.ToString(),
+                    new RectangleF(badge.X + 2, badge.Y + 1, badge.Width - 4, badge.Height - 3), white, 24f);
+            }
             _ = dark;
         }
 
@@ -309,11 +323,71 @@ public static class Icons
 
 public static class Ui
 {
+    /// <summary>
+    /// Da al botón el ancho que PIDE SU TEXTO. Los tamaños fijos en píxeles («112 × 32»)
+    /// se escribieron midiendo con el texto al 100 %; con el tamaño de letra de Windows al
+    /// 125 % o 150 % la misma frase ocupa un cuarto más y el botón la cortaba: «Actualiz»,
+    /// «Abrir el archivo de», «Elegir otra»… Aquí se mide el texto de verdad (con la letra
+    /// del botón, que ya viene escalada por Windows) y se suma el icono y el relleno.
+    /// El ancho pedido se respeta como MÍNIMO, nunca como máximo.
+    /// </summary>
+    public static Button Fit(Button button, int minWidth = 0, int minHeight = 0)
+    {
+        if (button is null) return button!;
+        try
+        {
+            var font = button.Font ?? SystemFonts.DefaultFont;
+            var measured = TextRenderer.MeasureText(button.Text ?? string.Empty, font,
+                new Size(int.MaxValue, int.MaxValue), TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine);
+            var iconWidth = button.Image?.Width ?? 0;
+            // Relleno a los lados + separación entre icono y texto + un par de píxeles de
+            // holgura para que nunca quede la última letra pegada al borde.
+            var extra = button.Padding.Horizontal + (iconWidth > 0 ? iconWidth + 12 : 0) + 24;
+            var width = Math.Max(minWidth, measured.Width + extra);
+            var height = Math.Max(Math.Max(minHeight, button.Height), Math.Max(font.Height + 14, (button.Image?.Height ?? 0) + 12));
+            button.AutoSize = false;
+            button.Size = new Size(width, height);
+            button.AutoEllipsis = false;
+        }
+        catch { }
+        return button;
+    }
+
+    /// <summary>
+    /// Recorre una ventana y ENSANCHA los botones cuyo texto no cabe. Solo toca los que
+    /// están dentro de un FlowLayoutPanel (que recoloca solo a sus vecinos), así que no
+    /// puede descolocar una rejilla. Es la red de seguridad para los botones que se
+    /// quedaron con un tamaño fijo en cualquier rincón del programa.
+    /// </summary>
+    public static void FitButtons(Control root)
+    {
+        if (root is null) return;
+        try { FitButtonsCore(root, 0); }
+        catch { }
+    }
+
+    private static void FitButtonsCore(Control control, int depth)
+    {
+        if (depth > 40) return;
+        if (control is Button button && !button.AutoSize && button.Parent is FlowLayoutPanel && button.Text.Length > 0)
+        {
+            var font = button.Font ?? SystemFonts.DefaultFont;
+            var measured = TextRenderer.MeasureText(button.Text, font,
+                new Size(int.MaxValue, int.MaxValue), TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine);
+            var needed = measured.Width + button.Padding.Horizontal +
+                         ((button.Image?.Width ?? 0) > 0 ? button.Image!.Width + 12 : 0) + 24;
+            if (needed > button.Width) button.Width = needed;
+            var minHeight = Math.Max(font.Height + 14, (button.Image?.Height ?? 0) + 12);
+            if (minHeight > button.Height) button.Height = minHeight;
+        }
+        foreach (Control child in control.Controls) FitButtonsCore(child, depth + 1);
+    }
+
     public static Button ToolButton(string text, string glyph, Palette palette, Color? accent = null)
     {
         var background = accent ?? palette.Raised;
         var foreground = accent.HasValue ? Color.White : palette.Text;
-        return new Button
+        var button = new Button
         {
             Text = text,
             Image = Icons.Glyph(glyph, foreground, 18),
@@ -331,6 +405,9 @@ public static class Ui
             Padding = new Padding(7, 0, 7, 0),
             FlatAppearance = { BorderSize = 0, MouseOverBackColor = Lighten(background, 14), MouseDownBackColor = Lighten(background, 26) }
         };
+        // Ancho según el texto desde el primer momento (ver Fit): quien quiera uno mayor
+        // vuelve a llamar a Ui.Fit con su mínimo.
+        return Fit(button, 112, 38);
     }
 
     public static Button IconButton(string glyph, Palette palette, string tooltip = "")
@@ -364,6 +441,8 @@ public static class Ui
         {
             Text = text,
             AutoSize = false,
+            // El tamaño real se calcula abajo con Fit(): 112 px fijos cortaban «Elegir otra
+            // carpeta…» y «Crear la carpeta» en cuanto Windows usaba letra más grande.
             Size = new Size(112, 32),
             BackColor = background,
             ForeColor = palette.Text,
@@ -378,7 +457,7 @@ public static class Ui
             FlatAppearance = { BorderSize = 1, MouseOverBackColor = Lighten(background, 16) }
         };
         button.FlatAppearance.BorderColor = palette.Border;
-        return button;
+        return Fit(button, 112, 32);
     }
 
     /// <summary>
@@ -498,6 +577,9 @@ public static class Ui
         if (root is null || palette is null) return;
         try { Apply(root, palette, 0); }
         catch { }
+        // De paso, los botones cuyo texto no cabe se ensanchan: es el último sitio por el
+        // que pasan TODAS las ventanas, así que ninguna se queda con «Actualiz» a medias.
+        FitButtons(root);
     }
 
     private static bool IsSystemBackground(Color color) =>
