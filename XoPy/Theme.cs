@@ -662,6 +662,30 @@ internal static class NativeTheme
     [System.Runtime.InteropServices.DllImport("uxtheme.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
     internal static extern int SetWindowTheme(IntPtr hwnd, string appName, string? idList);
 
+    // Las tres funciones del modo oscuro de Windows no tienen nombre: se exportan solo por
+    // número de orden. Son las que usan el Explorador y el Bloc de notas para que las
+    // barras de desplazamiento y los menús que pinta el sistema salgan oscuros.
+    [System.Runtime.InteropServices.DllImport("uxtheme.dll", EntryPoint = "#135", SetLastError = true)]
+    private static extern int SetPreferredAppMode(int mode);
+
+    [System.Runtime.InteropServices.DllImport("uxtheme.dll", EntryPoint = "#136")]
+    private static extern void FlushMenuThemes();
+
+    /// <summary>
+    /// Pide a Windows el modo oscuro para esta aplicación. Hay que llamarla ANTES de crear
+    /// ninguna ventana. Si la versión de Windows no tiene estas funciones, no pasa nada:
+    /// todo sigue como estaba.
+    /// </summary>
+    internal static void PreferDarkMode()
+    {
+        try
+        {
+            SetPreferredAppMode(2);   // 2 = ForceDark
+            FlushMenuThemes();
+        }
+        catch { }
+    }
+
     [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Auto)]
     private static extern IntPtr SendMessage(IntPtr hwnd, int message, IntPtr wParam, IntPtr lParam);
 

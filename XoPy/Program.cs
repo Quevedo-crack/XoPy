@@ -38,6 +38,23 @@ internal static class Program
             Log("2. ApplicationConfiguration.Initialize");
             ApplicationConfiguration.Initialize();
 
+            // MODO OSCURO DE WINDOWS PARA LAS PARTES QUE PINTA EL SISTEMA. Las barras de
+            // desplazamiento, los menús nativos y los bordes internos los dibuja Windows,
+            // y salen BLANCOS mientras la aplicación no diga que prefiere el modo oscuro.
+            // Es la franja blanca que asomaba a la derecha de las opciones avanzadas.
+            // La función no tiene nombre público (solo número de orden), así que puede no
+            // existir en Windows antiguos: por eso va envuelta en su try.
+            // Solo si el usuario tiene puesto el tema oscuro (el de fábrica): con el tema
+            // claro, unas barras negras quedarían igual de mal que las blancas de ahora.
+            Log("2b. Modo oscuro del sistema");
+            try
+            {
+                var darkTheme = true;
+                try { darkTheme = new SettingsStore().Load().DarkTheme; } catch { }
+                if (darkTheme) NativeTheme.PreferDarkMode();
+            }
+            catch { }
+
             Log("3. SetUnhandledExceptionMode");
             Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
 
