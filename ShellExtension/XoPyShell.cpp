@@ -100,10 +100,23 @@ static int FindNativePaste(HMENU menu)
     return -1;
 }
 
+// Entrecomillado SEGÚN LAS REGLAS DE WINDOWS. Una carpeta que acaba en barra («E:\») se
+// entregaba como «"E:\"»: esa barra final escapa la comilla de cierre, así que el programa
+// recibía un único argumento con TODA la línea pegada dentro («E:" --lista C:\...tmp») y
+// contestaba «Carpeta de destino no válida». Las barras que van justo antes de una comilla
+// —incluida la de cierre— hay que doblarlas.
 static std::wstring Quote(const std::wstring& value)
 {
     std::wstring out = L"\"";
-    for (wchar_t c : value) { if (c == L'\"') out += L'\\'; out += c; }
+    size_t slashes = 0;
+    for (wchar_t c : value)
+    {
+        if (c == L'\\') { slashes++; out += c; continue; }
+        if (c == L'\"') { out.append(slashes + 1, L'\\'); out += c; }
+        else out += c;
+        slashes = 0;
+    }
+    out.append(slashes, L'\\');
     out += L'\"';
     return out;
 }

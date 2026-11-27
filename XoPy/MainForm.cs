@@ -389,6 +389,9 @@ public sealed partial class MainForm : Form
             if (_contentGrid is not null) _contentGrid.Visible = !compact;
             if (_tabsHost is not null) _tabsHost.Visible = !compact;
             if (_list is not null) _list.Visible = !compact;
+            // Mientras la lista está escondida no se repasa (sería trabajo invisible): al
+            // volver a enseñarla hay que ponerla al día de una vez.
+            if (!compact && _uiReady) { try { SyncRows(); } catch { } }
             UpdateToolbarForCompact(compact);
             if (_compactButton is not null)
             {
@@ -430,9 +433,20 @@ public sealed partial class MainForm : Form
                 _expandedWasMaximized = WindowState == FormWindowState.Maximized;
                 _expandedBounds = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
 
-                // Maximizada se queda maximizada: encogerla a una banda la habría mandado a
-                // otra parte de la pantalla. La lista desaparece igual, que es lo que se pide.
-                if (WindowState == FormWindowState.Normal)
+                // MAXIMIZADA NO SE QUEDA MAXIMIZADA. Con la lista escondida, una ventana a
+                // pantalla completa deja debajo de la cabecera un enorme rectángulo vacío
+                // (lo que el usuario señaló en la captura): la vista reducida es una banda
+                // y punto. Se sale de maximizado conservando el ancho que tenía.
+                if (WindowState == FormWindowState.Maximized)
+                {
+                    var wide = Math.Max(560, RestoreBounds.Width > 0 ? RestoreBounds.Width : Width);
+                    var left = RestoreBounds.Width > 0 ? RestoreBounds.X : Left;
+                    var top = RestoreBounds.Height > 0 ? RestoreBounds.Y : Top;
+                    MinimumSize = new Size(560, CompactWindowHeight());
+                    WindowState = FormWindowState.Normal;
+                    Bounds = new Rectangle(left, top, wide, CompactWindowHeight());
+                }
+                else if (WindowState == FormWindowState.Normal)
                 {
                     // La altura es EXACTAMENTE la de lo que se sigue viendo (menú, barra y
                     // cabecera de progreso). Ni un píxel más: el alto mínimo de 300 que
@@ -578,6 +592,9 @@ public sealed partial class MainForm : Form
         // La protección contra ransomware de Windows («Acceso controlado a carpetas») es la
         // causa del «Acceso denegado (error 5)» al copiar al Escritorio o a Documentos.
         tools.DropDownItems.Add(MenuItem("Permitir XoPy en el acceso controlado a carpetas…", (_, _) => AllowControlledFolderAccess()));
+        // El Explorador guarda en memoria la DLL del menú: tras actualizar XoPy sigue
+        // enseñando el texto de la versión anterior hasta que se reinicia.
+        tools.DropDownItems.Add(MenuItem("Refrescar el menú del Explorador…", (_, _) => RepairExplorerMenu()));
         tools.DropDownItems.Add(new ToolStripSeparator());
         tools.DropDownItems.Add(MenuItem("Historial de transferencias…", (_, _) => ShowHistory()));
 
@@ -1856,6 +1873,19 @@ public sealed partial class MainForm : Form
             { report.Add("error=no se detectó un carácter prohibido en la ruta"); ok = false; }
             if (PathTools.FirstForbiddenChar(@"C:\fotos\2025") is not null)
             { report.Add("error=se dio por mala una ruta correcta"); ok = false; }
+
+            // ── Línea de comandos ROTA POR LAS COMILLAS ───────────────────────────────
+            // Pegar en la raíz de un disco mandaba «--to "E:\"»: la barra final escapa la
+            // comilla de cierre y Windows entrega un único argumento con todo pegado
+            // («E:" --lista C:\...\xopXXXX.tmp»). Salía «Carpeta de destino no válida» con
+            // la orden entera dentro. Se comprueba que XoPy la desenreda.
+            var listaFalsa = Path.Combine(folder, "lista-prueba.txt");
+            File.WriteAllLines(listaFalsa, new[] { Path.Combine(folder, "archivo1.bin") });
+            var rescatada = StartupRequest.Parse(new[] { "--copy", "--to", "E:\" --lista " + listaFalsa });
+            report.Add($"rescate_comillas={rescatada.Destination}|archivos={rescatada.Paths.Count}");
+            if (!string.Equals(rescatada.Destination, "E:\\", StringComparison.OrdinalIgnoreCase)
+                || rescatada.Paths.Count != 1)
+            { report.Add("error=no se rescató la carpeta de una línea de comandos mal entrecomillada"); ok = false; }
 
             EnsureDefaultList();
             _settings.Destination = Path.Combine(folder, "destino");

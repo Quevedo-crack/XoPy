@@ -316,6 +316,7 @@ public sealed class StartupRequest
     public static StartupRequest Parse(string[] args)
     {
         var request = new StartupRequest();
+        args = Repair(args);
         for (var i = 0; i < args.Length; i++)
         {
             var arg = args[i];
@@ -461,7 +462,49 @@ public sealed class StartupRequest
     {
         var text = value.Trim();
         if (text.Length > 1 && text.StartsWith('"') && text.EndsWith('"')) text = text[1..^1];
+        // «E:» sin barra es «la carpeta actual de E:», no la raíz. Se completa.
+        if (text.Length == 2 && text[1] == ':' && char.IsLetter(text[0])) text += "\\";
         return text;
+    }
+
+    /// <summary>
+    /// RESCATE DE UNA LÍNEA DE COMANDOS MAL ENTRECOMILLADA. Al pegar en la raíz de un disco,
+    /// la extensión del Explorador mandaba la carpeta como «"E:\"»: la barra final escapa la
+    /// comilla de cierre y Windows entrega TODO lo que viene detrás metido en el mismo
+    /// argumento («E:" --lista C:\...\xopXXXX.tmp»). El resultado era el aviso «Carpeta de
+    /// destino no válida» con la línea de comandos entera dentro. La extensión ya no lo hace,
+    /// pero una versión antigua suya puede seguir instalada en el Explorador hasta que se
+    /// reinicie: aquí se deshace el estropicio y la orden funciona igual.
+    /// </summary>
+    private static string[] Repair(string[] args)
+    {
+        var repaired = new List<string>(args.Length);
+        foreach (var arg in args)
+        {
+            var cut = arg.IndexOf("\" --", StringComparison.Ordinal);
+            if (cut < 0) { repaired.Add(arg); continue; }
+            repaired.Add(arg[..cut]);
+            repaired.AddRange(Tokenize(arg[(cut + 1)..]));
+        }
+        return repaired.ToArray();
+    }
+
+    /// <summary>Parte una línea de comandos en argumentos, respetando las comillas.</summary>
+    private static IEnumerable<string> Tokenize(string line)
+    {
+        var current = new System.Text.StringBuilder();
+        var quoted = false;
+        foreach (var c in line)
+        {
+            if (c == '"') { quoted = !quoted; continue; }
+            if (!quoted && char.IsWhiteSpace(c))
+            {
+                if (current.Length > 0) { yield return current.ToString(); current.Clear(); }
+                continue;
+            }
+            current.Append(c);
+        }
+        if (current.Length > 0) yield return current.ToString();
     }
 
     public string ToJson() => System.Text.Json.JsonSerializer.Serialize(this);

@@ -151,6 +151,21 @@ el otro gestor de copias de este mismo autor, y resuelve de paso lo que allí fa
 - En la barra de copia se puede alternar entre modo secuencial y multihilo, también durante una transferencia; un archivo se puede pausar/reanudar individualmente desde el menú contextual de la lista. La lista admite reordenado por arrastre; las carpetas se muestran contraídas al añadirse y se pueden desplegar con la flecha o desde el menú. La columna de trabajos también empieza plegada y puede expandirse.
 - El instalador limpia las antiguas claves del menú contextual antes de iniciar la aplicación.
 
+## Novedades de la versión 2.6.5
+
+**Copiar rápido otra vez, y los avisos que faltaban.**
+
+- **Se acabaron los tirones y la velocidad en bytes por segundo.** Cada archivo pedía a Windows un bloque de memoria de 4 MB (y otros dos para los flujos de lectura y escritura), así que copiar una carpeta con miles de archivos pequeños se pasaba el rato recogiendo basura: copiaba un poco, se paraba, copiaba un poco. Ahora el bloque se ajusta al tamaño del archivo y se reutiliza.
+- **La verificación ya no apaga el motor rápido.** Con «verificar al copiar» activado, XoPy dejaba de usar la copia nativa de Windows y escribía cada archivo a mano en un temporal oculto (`.archivo.xopy-part`) que luego renombraba: el triple de trabajo de disco… y justo el temporal que el antivirus, la protección contra ransomware y OneDrive bloquean con «acceso denegado». Ahora copia rápido y verifica después, sobre el archivo ya colocado.
+- **El registro de transferencias ya no abre y cierra el archivo en cada archivo copiado.** Se mantiene abierto y se vuelca una vez por segundo.
+- **La ventana deja de parecer colgada.** Cuando la copia se para a preguntar algo, la cabecera lo dice («Esperando · contesta al aviso») en vez de enseñar el mismo archivo con «0 B/s» y «quedan 00:00». Y con la lista escondida ya no se repasan tres mil filas invisibles tres veces por segundo.
+- **«Acceso denegado (error 5)» con datos, no con sospechas.** El aviso dice si el archivo ya existía en el destino y con qué atributos, si quedaba un resto de una copia anterior y si la carpeta la sincroniza OneDrive. El botón **«Permitir XoPy y reintentar»** aparece siempre que el fallo huela a protección de Windows, no solo cuando se puede leer el registro del sistema.
+- **Pegar en la raíz de un disco («E:\») ya no da «Carpeta de destino no válida».** La barra final se comía la comilla de cierre y XoPy recibía la línea de comandos entera como si fuera la carpeta. Arreglado en la extensión del Explorador y, por si quedara instalada una versión anterior suya, XoPy también sabe deshacer el estropicio.
+- **El menú del Explorador se actualiza de verdad.** El Explorador guarda en memoria la extensión antigua, así que seguía enseñando «Pegar  (XoPy)» después de actualizar. El instalador ofrece reiniciarlo (un parpadeo de la barra de tareas) y hay una opción nueva en **Herramientas → «Refrescar el menú del Explorador…»**.
+- **Con la lista escondida ya no queda media pantalla vacía.** La vista reducida es una banda: si la ventana estaba maximizada, se deja de maximizar; y si la maximizas con la lista escondida, se enseña la lista.
+- **La línea de puntos del árbol no se corta.** Al marcar un archivo, toda la guía —desde su carpeta hasta él, pasando por las subcarpetas— se pinta resaltada, también sobre la fila seleccionada.
+- **Pegar con otra copia en marcha pregunta lo que hay que preguntar:** «añadir a esa lista (mismo destino)», «dejarlos en esta y esperar turno» o «copiar a la vez». Ya no empieza por «reanudar aquella».
+
 ## Novedades de la versión 2.6.4
 
 **Los siete fallos de la 2.6.3, uno por uno.**

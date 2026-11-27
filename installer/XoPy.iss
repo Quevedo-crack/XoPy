@@ -2,8 +2,8 @@
 
 [Setup]
 AppName=XoPy
-AppVersion=2.6.4
-AppVerName=XoPy 2.6.4
+AppVersion=2.6.5
+AppVerName=XoPy 2.6.5
 AppPublisher=Quevedo-crack
 AppPublisherURL=https://github.com/Quevedo-crack/XoPy
 AppSupportURL=https://github.com/Quevedo-crack/XoPy/issues
@@ -14,7 +14,7 @@ DisableProgramGroupPage=yes
 OutputDir=..\installer-output
 OutputBaseFilename=XoPy-Setup-win-x64
 UninstallDisplayIcon={app}\XoPy.exe
-UninstallDisplayName=XoPy 2.6.4
+UninstallDisplayName=XoPy 2.6.5
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
@@ -37,7 +37,7 @@ RestartIfNeededByRun=no
 AlwaysRestart=no
 AppMutex=Local\\XoPy.SingleInstance.5C1A93
 AllowNoIcons=yes
-VersionInfoVersion=2.6.4.0
+VersionInfoVersion=2.6.5.0
 VersionInfoProductName=XoPy
 VersionInfoDescription=Gestor de copias XoPy
 VersionInfoCompany=Quevedo-crack
@@ -167,6 +167,13 @@ begin
   DeleteFile(Dir + '\XoPyShell.dll.probe');
 end;
 
+// ¿El Explorador tenía cargada la DLL vieja? Si es así, el menú del botón derecho sigue
+// enseñando el texto ANTIGUO («Pegar  (XoPy)») hasta que el Explorador se reinicia: el
+// código ya está en su memoria y cambiar el archivo en el disco no lo toca. Es el motivo
+// de que un arreglo del menú no se notara después de actualizar.
+var
+  ShellWasLoaded: Boolean;
+
 procedure ReleaseShellExtensionQuietly();
 var
   DllPath, TempOld: String;
@@ -178,6 +185,8 @@ begin
 
   // 1) Si se puede borrar, el Explorador no la tiene cargada y no hay nada más que hacer.
   if DeleteFile(DllPath) then exit;
+
+  ShellWasLoaded := True;
 
   // 2) Está en uso. Windows NO deja BORRAR un DLL mapeado, pero SÍ deja RENOMBRARLO: se
   //    aparta a la carpeta temporal para que el archivo nuevo se escriba en una ruta libre.
@@ -202,6 +211,21 @@ begin
   Log('XoPyShell.dll sigue bloqueada: se sustituirá en el próximo arranque.');
 end;
 
+// Reinicia el Explorador para que suelte la DLL vieja y cargue la nueva. Se vuelve a
+// lanzar a mano porque, matado con taskkill, Windows no siempre lo levanta solo.
+procedure RestartExplorer();
+var
+  ResultCode: Integer;
+begin
+  Log('Reiniciando el Explorador para cargar la extensión nueva.');
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM explorer.exe /F', '', SW_HIDE,
+       ewWaitUntilTerminated, ResultCode);
+  Sleep(900);
+  if not ShellExec('open', ExpandConstant('{win}\explorer.exe'), '', '', SW_SHOW,
+                   ewNoWait, ResultCode) then
+    Log('No se pudo relanzar el Explorador; Windows lo levantará solo.');
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssInstall then
@@ -212,11 +236,25 @@ begin
   end;
   if CurStep = ssPostInstall then
   begin
-    // NO se lanza explorer.exe: el Explorador NUNCA se ha cerrado, así que lanzarlo abría
-    // una ventana nueva («Este equipo») encima del instalador. Basta con notificar al shell
-    // para que el menú «Pegar con XoPy» aparezca sin reiniciar nada.
+    // Avisar al shell basta para que APAREZCA la entrada nueva...
     SHChangeNotify($8000000, 0, 0, 0);
-    Log('Integración con el Explorador refrescada (sin cerrar ni reiniciar el Explorador).');
+    Log('Integración con el Explorador refrescada.');
+
+    // ...pero NO para cambiar una entrada que ya estaba: el Explorador conserva en memoria
+    // la DLL anterior y seguiría enseñando su texto viejo («Pegar  (XoPy)») hasta cerrar la
+    // sesión. Si la DLL estaba cargada, se ofrece reiniciar el Explorador (tarda un segundo
+    // y no cierra ningún programa, solo la barra de tareas parpadea).
+    if ShellWasLoaded then
+    begin
+      if WizardSilent() then
+        RestartExplorer()
+      else if MsgBox('XoPy ha actualizado el menú del botón derecho del Explorador.' + #13#10#13#10 +
+                     'Para que el cambio se vea ahora mismo hay que reiniciar el Explorador de Windows: ' +
+                     'la barra de tareas parpadea un instante y no se cierra ningún programa. ' +
+                     'Si prefieres no hacerlo, el menú nuevo aparecerá la próxima vez que inicies sesión.' + #13#10#13#10 +
+                     '¿Reinicio el Explorador ahora?', mbConfirmation, MB_YESNO) = IDYES then
+        RestartExplorer();
+    end;
   end;
 end;
 

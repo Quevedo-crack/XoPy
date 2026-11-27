@@ -892,8 +892,15 @@ public sealed partial class MainForm
                 SetText(row.SubItems[4], $"{RowPercent(item):0} %");
                 SetText(row.SubItems[5], item.HashSource ?? string.Empty);
                 SetText(row.SubItems[6], item.HashTarget ?? string.Empty);
-                var tooltip = BuildTooltip(item);
-                if (!string.Equals(row.ToolTipText, tooltip, StringComparison.Ordinal)) row.ToolTipText = tooltip;
+                // El texto del ratón solo se rehace si ESTA fila ha cambiado. Construirlo
+                // para las tres mil filas tres veces por segundo tenía ocupado a tiempo
+                // completo el hilo de la ventana: por eso la cabecera parecía congelada
+                // mientras se copiaban carpetas con muchos archivos.
+                if (dirty.Count > 0 && dirty[^1] == row)
+                {
+                    var tooltip = BuildTooltip(item);
+                    if (!string.Equals(row.ToolTipText, tooltip, StringComparison.Ordinal)) row.ToolTipText = tooltip;
+                }
             }
         }
         finally
@@ -1609,50 +1616,57 @@ public sealed partial class MainForm
         // CASO EN PAUSA. Una copia parada no termina nunca, así que «esperar turno» sería
         // esperar para siempre: se dice con todas las letras y la primera opción reanuda
         // aquella copia antes de poner esta a la cola.
-        if (_engine.IsPaused)
-        {
-            var paused = PromptDialog.Ask(this, _palette, "La otra copia está en pausa",
-                $"«{running}» está EN PAUSA. Mientras siga parada no puede empezar ninguna otra copia.",
-                $"· Reanudar aquella y poner «{mine}» en espera: la de delante sigue donde la dejaste y esta arranca sola en cuanto termine.\n" +
-                "· Añadir a la de delante: los archivos se meten en la lista que está en pausa (seguirá parada hasta que pulses Reanudar).\n" +
-                "· Copiar esta ahora en otra ventana: se abre otro XoPy y copia a la vez, sin tocar la copia en pausa.",
-                new[] { "Reanudar aquella y esperar turno", "Añadir a la de delante", "Copiar esta ahora en otra ventana", "Cancelar" });
+        // LA PREGUNTA ES DÓNDE PONER LOS ARCHIVOS, no qué hacer con la copia de delante.
+        // Daba igual que aquella estuviera en pausa o copiando: lo que quiere quien acaba
+        // de pegar o de arrastrar es meter esto en alguna lista sin terminar. La primera
+        // opción es, por eso, añadirlo a la lista que ya está con su mismo destino; la
+        // segunda, dejarlo en una lista propia que arranca sola al llegarle el turno.
+        var paused = _engine.IsPaused;
+        var target = UnfinishedListName();
+        var detail = $"· Añadir a «{target}»: los archivos se meten en esa lista y van al MISMO destino que ella" +
+                     (paused ? " (sigue en pausa: arrancan en cuanto la reanudes)." : ".") + "\n" +
+                     $"· Dejarlos en «{mine}»: esta lista conserva su propio destino y arranca sola cuando termine la de delante.\n" +
+                     "· Copiar a la vez: se abre otra ventana de XoPy y las dos copias van en paralelo (más lento si es el mismo disco).";
 
-            switch (paused)
-            {
-                case 0:
-                    QueueListForLater(operation);
-                    TogglePause();
-                    break;
-                case 1:
-                    MergeIntoRunningList(operation);
-                    break;
-                case 2:
-                    LaunchSeparateWindow(operation);
-                    break;
-            }
-            return;
-        }
-
-        var choice = PromptDialog.Ask(this, _palette, "Ya hay una copia en marcha",
-            $"«{running}» está copiando ahora mismo. ¿Qué hago con «{mine}»?",
-            "· Esperar turno: esta lista arranca sola en cuanto termine la de delante. Aparece en el panel de trabajos marcada como «Esperando turno».\n" +
-            "· Añadir a la de delante: los archivos se meten en la copia que ya está corriendo.\n" +
-            "· Copiar a la vez: se abre otra ventana de XoPy y las dos copias van en paralelo (más lento si es el mismo disco).",
-            new[] { "Esperar turno", "Añadir a la de delante", "Copiar a la vez", "Cancelar" });
+        var choice = PromptDialog.Ask(this, _palette, "¿Dónde pongo estos archivos?",
+            paused
+                ? $"«{running}» está EN PAUSA y aún le quedan archivos."
+                : $"«{running}» está copiando ahora mismo.",
+            detail,
+            new[] { $"Añadir a «{target}» (mismo destino)", $"Dejarlos en «{mine}» y esperar turno", "Copiar a la vez", "Cancelar" });
 
         switch (choice)
         {
             case 0:
-                QueueListForLater(operation);
+                MergeIntoRunningList(operation);
+                // Añadir a una lista en pausa y dejarla parada sería esconder los archivos:
+                // se reanuda, que es lo que espera quien acaba de pegarlos.
+                if (paused) TogglePause();
                 break;
             case 1:
-                MergeIntoRunningList(operation);
+                QueueListForLater(operation);
                 break;
             case 2:
                 LaunchSeparateWindow(operation);
                 break;
         }
+    }
+
+    /// <summary>
+    /// Nombre de la lista SIN TERMINAR a la que se pueden añadir archivos: la que está
+    /// copiando (o en pausa) y, si no hubiera ninguna, la primera que tenga archivos
+    /// pendientes. Una lista ya terminada nunca se ofrece.
+    /// </summary>
+    private string UnfinishedListName()
+    {
+        if (_runningList is not null) return _runningList.DisplayName;
+        foreach (var list in _lists)
+        {
+            if (list == _activeList) continue;
+            if (list.Items.Any(item => item.Kind != ItemKind.Folder && !IsFinished(item)))
+                return list.DisplayName;
+        }
+        return "la copia en curso";
     }
 
     /// <summary>Deja la lista esperando turno; se lanzará sola al terminar la que va delante.</summary>
@@ -1718,6 +1732,49 @@ public sealed partial class MainForm
         catch (Exception ex)
         {
             SetStatus("No se pudo abrir otra ventana: " + CopyEngine.Describe(ex));
+        }
+    }
+
+    /// <summary>
+    /// REINICIA EL EXPLORADOR PARA REFRESCAR SU MENÚ. El menú del botón derecho lo dibuja
+    /// una DLL que el Explorador se guarda EN MEMORIA: cuando XoPy se actualiza, el archivo
+    /// nuevo está en el disco pero el Explorador sigue enseñando el texto antiguo (por
+    /// ejemplo «Pegar  (XoPy)» en vez de «Pegar») hasta cerrar la sesión. Reiniciar el
+    /// Explorador tarda un segundo y no cierra ningún programa.
+    /// </summary>
+    private void RepairExplorerMenu()
+    {
+        var choice = PromptDialog.Ask(this, _palette, "Refrescar el menú del Explorador",
+            "Se reiniciará el Explorador de Windows para que cargue la versión actual del menú de XoPy.",
+            "Qué pasa al hacerlo:\n" +
+            "· La barra de tareas y el escritorio parpadean un instante.\n" +
+            "· NO se cierra ningún programa ni se pierde nada; las ventanas de carpetas abiertas sí se cierran.\n" +
+            "· Hace falta cuando el menú del botón derecho sigue enseñando el texto de una versión anterior.",
+            new[] { "Reiniciar el Explorador", "Cancelar" });
+        if (choice != 0) return;
+
+        try
+        {
+            // Antes de reiniciar: asegurarse de que las claves apuntan a la DLL de ESTA
+            // instalación (si se movió la carpeta, el Explorador cargaba la de antes).
+            try { ShellIntegration.EnsurePasteExtension(); } catch { }
+            foreach (var process in Process.GetProcessesByName("explorer"))
+            {
+                try { process.Kill(); } catch { }
+            }
+            System.Threading.Thread.Sleep(900);
+            // Windows suele levantarlo solo; si no, se lanza a mano.
+            if (Process.GetProcessesByName("explorer").Length == 0)
+            {
+                var shell = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe");
+                Process.Start(new ProcessStartInfo(shell) { UseShellExecute = true });
+            }
+            SetStatus("Explorador reiniciado: el menú del botón derecho ya es el de esta versión de XoPy.");
+        }
+        catch (Exception ex)
+        {
+            ShowError("No se pudo reiniciar el Explorador: " + CopyEngine.Describe(ex) +
+                      "\n\nPuedes hacerlo a mano desde el Administrador de tareas (Explorador de Windows → Reiniciar).");
         }
     }
 
@@ -2679,7 +2736,13 @@ public sealed partial class MainForm
         // Si el fallo es la protección contra ransomware de Windows, el cuadro ofrece
         // ARREGLARLO ahí mismo: permitir XoPy y reintentar. Antes solo quedaba omitir
         // archivo por archivo sin saber por qué fallaban todos.
-        var guarded = prompt.Message.Contains("Acceso controlado", StringComparison.OrdinalIgnoreCase);
+        // El botón de arreglarlo sale siempre que el fallo huela a protección de Windows:
+        // antes solo aparecía si el texto decía «Acceso controlado», y cuando la detección
+        // por registro fallaba (es habitual sin permisos de administrador) el usuario se
+        // quedaba sin la única opción que resolvía el problema.
+        var guarded = prompt.Message.Contains("Acceso controlado", StringComparison.OrdinalIgnoreCase)
+                      || prompt.Message.Contains("ransomware", StringComparison.OrdinalIgnoreCase)
+                      || prompt.Message.Contains("carpetas personales", StringComparison.OrdinalIgnoreCase);
         var buttons = guarded
             ? new[] { "Permitir XoPy y reintentar", "Reintentar", "Omitir", "Omitir todos", "Detener" }
             : new[] { "Reintentar", "Omitir", "Omitir todos", "Detener" };
@@ -3044,7 +3107,10 @@ public sealed partial class MainForm
     {
         if (_engine.IsRunning)
         {
-            SyncRows();
+            // Con la lista escondida (vista reducida) no hay ninguna fila que mirar: dar
+            // tres repasos por segundo a tres mil filas invisibles era trabajo tirado que
+            // además frenaba la copia.
+            if (!_compactView) SyncRows();
             UpdateTrayState();
             UpdateTitle();
             // Si se está mirando otra lista, la columna de trabajos es lo único que enseña
@@ -4396,6 +4462,16 @@ public sealed partial class MainForm
         // El reparto de franjas (barra, cabecera, pestañas, lista y pie) se recalcula aquí
         // mismo: esperar al temporizador dejaba el pie fuera de sitio durante el arrastre.
         try { LayoutRootRows(); } catch { }
+
+        // MAXIMIZAR CON LA LISTA ESCONDIDA ENSEÑA LA LISTA. Si no, la pantalla se llena de
+        // un rectángulo vacío con una cabecera arriba: la vista reducida es una banda, y
+        // quien maximiza está pidiendo ver el contenido.
+        if (_uiReady && _compactView && WindowState == FormWindowState.Maximized)
+        {
+            try { BeginInvoke(new Action(() => { if (_compactView) ApplyCompactView(false, persist: true); })); }
+            catch { }
+            return;
+        }
         if (WindowState != FormWindowState.Minimized || !_settings.MinimizeToTray || _exitRequested) return;
         // Hide() dentro de OnResize deja el estado de la ventana a medias (Visible=false con
         // WindowState=Minimized) y luego no vuelve al pulsar el icono. Se aplaza al bucle

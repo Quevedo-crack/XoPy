@@ -755,7 +755,14 @@ public sealed partial class MainForm
         if (_hdrCopyState is null) return;
 
         var running = _engine.IsRunning;
-        var stateText = running
+        // LA COPIA PARADA ESPERANDO UNA RESPUESTA SE DICE. Mientras hay un cuadro abierto
+        // (un conflicto o un error) el motor no toca el disco: el archivo en curso se
+        // quedaba clavado con «0 B/s» y «quedan 00:00» y parecía que XoPy se hubiera
+        // colgado. Ahora la píldora lo dice y el renglón explica qué hacer.
+        var waiting = running && _engine.IsWaitingForUser;
+        var stateText = waiting
+            ? "Esperando"
+            : running
             ? _lastOperation switch
             {
                 OperationType.Move => "Moviendo",
@@ -786,6 +793,10 @@ public sealed partial class MainForm
         // En la cabecera «Copiando» solo va el AVANCE (archivos terminados y tiempo que
         // queda). El total de archivos, el tamaño y el porcentaje ya están en el pie y en la
         // barra: repetirlos aquí era el duplicado de la captura 18.
+        else if (waiting)
+        {
+            _hdrCopyInfo.Text = "Contesta al aviso";
+        }
         else if (running && _engine.IsPaused)
         {
             _hdrCopyInfo.Text = "En pausa";
@@ -811,7 +822,8 @@ public sealed partial class MainForm
         _hdrCopyPercent.Text = running && runningLeaf is not null ? $"{fileNow:0.0} %" : "—";
         if (running && runningLeaf is { SizeBytes: > 0 })
             _hdrCopyInfo.Text = $"{Format.Bytes(runningLeaf.TransferredBytes)} de {Format.Bytes(runningLeaf.SizeBytes)}"
-                                + (_engine.IsPaused ? "  ·  en pausa" : string.Empty);
+                                + (_engine.IsPaused ? "  ·  en pausa"
+                                    : waiting ? "  ·  esperando tu respuesta" : string.Empty);
 
         _hdrTargetState.Text = "Total";
         if (_hdrTargetState is PillLabel pillTarget)
@@ -839,7 +851,14 @@ public sealed partial class MainForm
         // único sitio donde mirar cuánto queda por copiar.
         var doneFiles = leaves.Count(item => item.State is ItemState.Completed or ItemState.Skipped);
         var counter = leaves.Count > 0 ? $"{doneFiles} de {Format.Files(leaves.Count)}" : string.Empty;
-        if (running && _engine.IsPaused)
+        if (waiting)
+        {
+            // Ni velocidad ni tiempo restante: los dos serían mentira mientras el motor
+            // está parado esperando a que alguien conteste.
+            _hdrTargetInfo.Text = (counter.Length > 0 ? counter + "  ·  " : string.Empty)
+                                  + "parada: hay un aviso esperando respuesta";
+        }
+        else if (running && _engine.IsPaused)
         {
             _hdrTargetInfo.Text = counter.Length > 0 ? counter + "  ·  en pausa" : "En pausa · 0 B/s";
         }
@@ -1018,6 +1037,9 @@ public sealed partial class MainForm
 
     private static string ReadLogTail()
     {
+        // El registro se escribe con búfer: hay que volcarlo antes de leerlo o faltarían
+        // justo las últimas líneas, que son las interesantes.
+        FileLog.Flush();
         try
         {
             var path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "XoPy", "transfer.log");
@@ -1050,6 +1072,9 @@ public sealed partial class MainForm
     {
         try
         {
+            // El registro se escribe con búfer: se vuelca para que el informe lleve también
+            // las últimas líneas (las del fallo que se quiere contar).
+            FileLog.Flush();
             // EL INFORME SE ESCRIBE ANTES DE PREGUNTAR DÓNDE. Así, pase lo que pase con la
             // carpeta elegida, el texto ya existe y nunca se guarda un archivo de 0 bytes
             // (al usuario le salió uno vacío porque la escritura se cortó a medias).
@@ -1284,6 +1309,7 @@ public sealed partial class MainForm
 
     private void OpenLogFile()
     {
+        FileLog.Flush();
         var path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "XoPy", "transfer.log");
         try
         {
@@ -1622,21 +1648,41 @@ public sealed partial class MainForm
                 // esté reordenada a mano. Cuando la fila seleccionada pertenece a esa rama,
                 // TODA la línea se pinta en el color de acento (lo que pidió el usuario:
                 // ver de un vistazo la ruta completa del archivo marcado).
-                if (item.Depth > 0)
                 {
                     var chain = _highlightChain;
-                    using var plain = new Pen(_palette.Border) { DashStyle = System.Drawing.Drawing2D.DashStyle.Dot };
-                    using var marked = new Pen(_palette.Accent, 1.6f) { DashStyle = System.Drawing.Drawing2D.DashStyle.Dot };
                     var onPath = chain.Count > 0 && chain.Contains(item.Id);
+                    using var plain = new Pen(_palette.Border) { DashStyle = System.Drawing.Drawing2D.DashStyle.Dot };
+                    // Sobre la fila marcada el azul de acento se confunde con el fondo de
+                    // la selección: ahí la línea se pinta en claro para que se siga viendo.
+                    using var marked = new Pen(selected ? Blend(_palette.Accent, Color.White, 0.65)
+                        : _palette.Accent, 1.8f)
+                    { DashStyle = System.Drawing.Drawing2D.DashStyle.Dot };
+                    var guide = onPath ? marked : plain;
+
+                    // Líneas de los niveles de los que CUELGA esta fila.
                     for (var level = 1; level <= item.Depth; level++)
                     {
                         var gx = e.Bounds.Left + 8 + (level - 1) * 18 + 8;
-                        e.Graphics.DrawLine(onPath ? marked : plain, gx, top, gx, top + height);
+                        e.Graphics.DrawLine(guide, gx, top, gx, top + height);
                     }
-                    // Codo: del último nivel al icono de esta fila.
-                    var elbowX = e.Bounds.Left + 8 + (item.Depth - 1) * 18 + 8;
-                    var middle = top + height / 2;
-                    e.Graphics.DrawLine(onPath ? marked : plain, elbowX, middle, elbowX + 12, middle);
+                    if (item.Depth > 0)
+                    {
+                        // Codo: del último nivel al icono de esta fila.
+                        var elbowX = e.Bounds.Left + 8 + (item.Depth - 1) * 18 + 8;
+                        var middle = top + height / 2;
+                        e.Graphics.DrawLine(guide, elbowX, middle, elbowX + 12, middle);
+                    }
+
+                    // LA LÍNEA NO SE CORTA EN LA CARPETA. Una carpeta con contenido abre su
+                    // propio nivel: desde la mitad de su fila baja el tramo que enlaza con
+                    // sus archivos. Sin esto, la línea de puntos empezaba por debajo de la
+                    // carpeta y la ruta del archivo marcado quedaba partida justo donde
+                    // hacía falta seguirla.
+                    if (item.Kind == ItemKind.Folder && ChildCount(item) > 0 && item.IsExpanded)
+                    {
+                        var ownX = e.Bounds.Left + 8 + item.Depth * 18 + 8;
+                        e.Graphics.DrawLine(guide, ownX, top + height / 2, ownX, top + height);
+                    }
                 }
 
                 var hasChildren = item.Kind == ItemKind.Folder && ChildCount(item) > 0;

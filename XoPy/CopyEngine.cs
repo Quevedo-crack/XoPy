@@ -38,30 +38,80 @@ public sealed class EngineOptions
 public static class FileLog
 {
     private static readonly object Gate = new();
+    private static StreamWriter? _writer;
+    private static DateTime _lastFlush = DateTime.MinValue;
+    private static bool _exitHooked;
+
     private static string LogPath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "XoPy", "transfer.log");
 
+    /// <summary>
+    /// EL REGISTRO SE ESCRIBE CON EL ARCHIVO ABIERTO. Antes cada línea abría el archivo,
+    /// consultaba su tamaño, escribía y lo cerraba; como se apunta una línea POR ARCHIVO
+    /// COPIADO, copiar una carpeta de tres mil archivos pequeños suponía diez mil
+    /// operaciones de disco extra —todas dentro del mismo cerrojo, frenando además las
+    /// copias en paralelo—. Ahora se mantiene abierto y se vuelca una vez por segundo.
+    /// </summary>
     public static void Write(string message)
     {
         try
         {
             lock (Gate)
             {
-                var directory = Path.GetDirectoryName(LogPath)!;
-                Directory.CreateDirectory(directory);
-                var info = new FileInfo(LogPath);
-                // 8 MB y se guarda la vuelta anterior: con doscientos errores en una copia
-                // el registro se llenaba y se borraba justo lo que hacía falta para saber
-                // qué había pasado.
-                if (info.Exists && info.Length > 8 * 1024 * 1024)
+                EnsureWriter();
+                if (_writer is null) return;
+                _writer.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}  {message}");
+                if ((DateTime.UtcNow - _lastFlush).TotalMilliseconds > 1000)
                 {
-                    try { File.Copy(LogPath, LogPath + ".1", true); } catch { }
-                    info.Delete();
+                    _writer.Flush();
+                    _lastFlush = DateTime.UtcNow;
                 }
-                File.AppendAllText(LogPath, $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}  {message}{Environment.NewLine}", Encoding.UTF8);
             }
         }
         catch { }
+    }
+
+    /// <summary>Vuelca al disco lo que quede en el búfer (antes de leer el registro).</summary>
+    public static void Flush()
+    {
+        lock (Gate)
+        {
+            try { _writer?.Flush(); } catch { }
+            _lastFlush = DateTime.UtcNow;
+        }
+    }
+
+    private static void EnsureWriter()
+    {
+        // 8 MB y se guarda la vuelta anterior: con doscientos errores en una copia el
+        // registro se llenaba y se borraba justo lo que hacía falta para saber qué pasó.
+        if (_writer is not null)
+        {
+            try
+            {
+                if (_writer.BaseStream.Length > 8 * 1024 * 1024)
+                {
+                    _writer.Flush();
+                    _writer.Dispose();
+                    _writer = null;
+                    try { File.Copy(LogPath, LogPath + ".1", true); } catch { }
+                    try { File.Delete(LogPath); } catch { }
+                }
+            }
+            catch { }
+        }
+        if (_writer is not null) return;
+
+        var directory = Path.GetDirectoryName(LogPath)!;
+        Directory.CreateDirectory(directory);
+        var stream = new FileStream(LogPath, FileMode.Append, FileAccess.Write,
+            FileShare.ReadWrite | FileShare.Delete, 16 * 1024);
+        _writer = new StreamWriter(stream, new UTF8Encoding(false)) { AutoFlush = false };
+        if (!_exitHooked)
+        {
+            _exitHooked = true;
+            try { AppDomain.CurrentDomain.ProcessExit += (_, _) => Flush(); } catch { }
+        }
     }
 
     /// <summary>
@@ -78,6 +128,9 @@ public static class FileLog
         try { if (File.Exists(source)) size = new FileInfo(source).Length.ToString(); } catch { }
         Write($"ERROR {operation} win32={code} ({ex.GetType().Name}) «{ex.Message}»"
               + $" | origen={source} ({size} B) | destino={target} | atributos destino={attributes}");
+        // Un fallo se guarda al momento: si XoPy se cierra justo después, ese renglón es
+        // precisamente el que hace falta.
+        Flush();
     }
 }
 
@@ -110,6 +163,7 @@ public sealed class CopyEngine
     // seguían preguntando. Ahora las preguntas se hacen en fila y, antes de enseñar la
     // siguiente, se vuelve a mirar si el usuario ya dijo «todos».
     private readonly object _promptGate = new();
+    private int _waitingForUser;
     // Velocidad reciente (media móvil). La media desde el principio hacía que un parón o
     // una pausa dejasen el número clavado en «lento» durante minutos.
     private long _speedSampleTicks;
@@ -122,6 +176,13 @@ public sealed class CopyEngine
 
     public bool IsRunning => Volatile.Read(ref _running) != 0;
     public bool IsPaused => _paused;
+
+    /// <summary>
+    /// La copia está parada esperando que el usuario conteste a un cuadro (un conflicto o
+    /// un error). Sin esto, la ventana enseñaba el mismo archivo congelado, «0 B/s» y
+    /// «quedan 00:00», y parecía que XoPy se hubiera colgado.
+    /// </summary>
+    public bool IsWaitingForUser => Volatile.Read(ref _waitingForUser) > 0;
     public int Parallelism => Volatile.Read(ref _parallelism);
 
     private static TaskCompletionSource NewSignal() => new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -898,12 +959,20 @@ public sealed class CopyEngine
         }
 
         // Motor nativo de Windows (CopyFileEx): mucho más rápido y conserva atributos y fechas.
-        if (options.Engine == CopyEngineKind.Native && existing == 0 && !options.VerifyAfterCopy && !options.ComputeHashes)
+        // TAMBIÉN CUANDO SE VERIFICA. Antes, pedir verificación (o el archivo de sumas)
+        // apagaba este camino y cada archivo se escribía a mano en un «.xopy-part» que
+        // después había que renombrar: el triple de trabajo de disco por archivo y, de
+        // propina, un temporal oculto en la carpeta de destino, que es justo lo que el
+        // antivirus, la protección contra ransomware y OneDrive bloquean con «acceso
+        // denegado (error 5)». Ahora se copia rápido y se verifica después, sobre el
+        // archivo ya colocado.
+        if (options.Engine == CopyEngineKind.Native && existing == 0)
         {
             try
             {
                 await NativeCopyAsync(source, target, item, options, token).ConfigureAwait(false);
                 item.TransferredBytes = item.SizeBytes;
+                await FinishFileAsync(source, target, item, options, token).ConfigureAwait(false);
                 FileLog.Write($"Copia nativa: {source} -> {target}");
                 return;
             }
@@ -1027,48 +1096,67 @@ public sealed class CopyEngine
     private async Task WriteFileAsync(string source, string destination, TransferItem item, EngineOptions options,
         CancellationToken token, long offset = 0, bool append = false)
     {
-        await using var input = OpenSourceRead(source, options, options.BufferSize);
+        // EL BÚFER SE AJUSTA AL ARCHIVO Y SE ALQUILA, NO SE FABRICA.
+        // Con el tamaño de fábrica (4 MiB) cada archivo pedía 4 MiB de memoria nueva para
+        // el búfer y otros tantos para cada uno de los dos FileStream: copiar tres mil
+        // archivos pequeños significaba pedir y tirar decenas de gigas de memoria, y el
+        // recolector de basura paraba la copia una y otra vez. Eso es lo que se veía como
+        // «copia un poco, se para, copia un poco» y como una velocidad de bytes por
+        // segundo en carpetas con muchos archivos. Ahora el búfer nunca es mayor que el
+        // propio archivo, se saca de un almacén común y los FileStream no vuelven a
+        // guardar una copia de todo por su cuenta.
+        var length = SafeLength(source);
+        var wanted = length > 0 ? Math.Min(length - offset, options.BufferSize) : options.BufferSize;
+        var size = (int)Math.Clamp(wanted, 64 * 1024, Math.Max(64 * 1024, options.BufferSize));
+        await using var input = OpenSourceRead(source, options, size);
         if (offset > 0) input.Seek(offset, SeekOrigin.Begin);
         await using var output = new FileStream(destination, append ? FileMode.Append : FileMode.Create, FileAccess.Write,
-            FileShare.None, options.BufferSize, FileOptions.Asynchronous | FileOptions.SequentialScan);
+            FileShare.None, 1, FileOptions.Asynchronous | FileOptions.SequentialScan);
 
-        var buffer = new byte[options.BufferSize];
-        var throttle = Stopwatch.StartNew();
-        long copied = offset;
-
-        // Tras una pausa se reinicia la cuenta del límite de velocidad: si se medía desde el
-        // principio, al reanudar tocaba «esperar» todo el tiempo pausado y avanzaba lentísimo.
-        var baseline = offset;
-        var paused = false;
-        while (true)
+        var buffer = System.Buffers.ArrayPool<byte>.Shared.Rent(size);
+        try
         {
-            token.ThrowIfCancellationRequested();
-            var pauseNow = _paused || IsItemPaused(item);
-            if (paused && !pauseNow)
+            var throttle = Stopwatch.StartNew();
+            long copied = offset;
+
+            // Tras una pausa se reinicia la cuenta del límite de velocidad: si se medía desde el
+            // principio, al reanudar tocaba «esperar» todo el tiempo pausado y avanzaba lentísimo.
+            var baseline = offset;
+            var paused = false;
+            while (true)
             {
-                throttle.Restart();
-                baseline = copied;
-            }
-            paused = pauseNow;
-            await WaitWhilePausedAsync(item, token).ConfigureAwait(false);
-            if (_skipCurrent)
-            {
-                _skipCurrent = false;
-                throw new SkipRequestedException();
+                token.ThrowIfCancellationRequested();
+                var pauseNow = _paused || IsItemPaused(item);
+                if (paused && !pauseNow)
+                {
+                    throttle.Restart();
+                    baseline = copied;
+                }
+                paused = pauseNow;
+                await WaitWhilePausedAsync(item, token).ConfigureAwait(false);
+                if (_skipCurrent)
+                {
+                    _skipCurrent = false;
+                    throw new SkipRequestedException();
+                }
+
+                var read = await input.ReadAsync(buffer.AsMemory(0, size), token).ConfigureAwait(false);
+                if (read == 0) break;
+                await output.WriteAsync(buffer.AsMemory(0, read), token).ConfigureAwait(false);
+
+                copied += read;
+                item.TransferredBytes = copied;
+                item.CurrentFile = source;
+                Interlocked.Add(ref _doneBytes, read);
+                await ThrottleAsync(copied - baseline, throttle, options, token).ConfigureAwait(false);
             }
 
-            var read = await input.ReadAsync(buffer.AsMemory(), token).ConfigureAwait(false);
-            if (read == 0) break;
-            await output.WriteAsync(buffer.AsMemory(0, read), token).ConfigureAwait(false);
-
-            copied += read;
-            item.TransferredBytes = copied;
-            item.CurrentFile = source;
-            Interlocked.Add(ref _doneBytes, read);
-            await ThrottleAsync(copied - baseline, throttle, options, token).ConfigureAwait(false);
+            await output.FlushAsync(token).ConfigureAwait(false);
         }
-
-        await output.FlushAsync(token).ConfigureAwait(false);
+        finally
+        {
+            System.Buffers.ArrayPool<byte>.Shared.Return(buffer);
+        }
     }
 
     /// <summary>Abre el origen permitiendo que otro programa lo tenga abierto; si está bloqueado, usa la API de copia de seguridad.</summary>
@@ -1400,8 +1488,14 @@ public sealed class CopyEngine
         {
             var samePathPrompt = ConflictResolver;
             if (samePathPrompt is null) return ConflictChoice.Skip;
-            var samePathChoice = samePathPrompt(new ConflictPrompt(source.FullName, target.FullName,
-                source.Length, target.Length, source.LastWriteTime, target.LastWriteTime));
+            Interlocked.Increment(ref _waitingForUser);
+            ConflictChoice samePathChoice;
+            try
+            {
+                samePathChoice = samePathPrompt(new ConflictPrompt(source.FullName, target.FullName,
+                    source.Length, target.Length, source.LastWriteTime, target.LastWriteTime));
+            }
+            finally { Interlocked.Decrement(ref _waitingForUser); }
             return samePathChoice switch
             {
                 ConflictChoice.Rename or ConflictChoice.RenameAll => ConflictChoice.Rename,
@@ -1429,8 +1523,14 @@ public sealed class CopyEngine
                 lock (_promptGate)
                 {
                     if (_stickyConflict.HasValue) return _stickyConflict.Value;
-                    var choice = resolver(new ConflictPrompt(source.FullName, target.FullName, source.Length, target.Length,
-                        source.LastWriteTime, target.LastWriteTime));
+                    Interlocked.Increment(ref _waitingForUser);
+                    ConflictChoice choice;
+                    try
+                    {
+                        choice = resolver(new ConflictPrompt(source.FullName, target.FullName, source.Length, target.Length,
+                            source.LastWriteTime, target.LastWriteTime));
+                    }
+                    finally { Interlocked.Decrement(ref _waitingForUser); }
                     if (choice == ConflictChoice.OverwriteAll) { _stickyConflict = ConflictChoice.Overwrite; return ConflictChoice.Overwrite; }
                     if (choice == ConflictChoice.SkipAll) { _stickyConflict = ConflictChoice.Skip; return ConflictChoice.Skip; }
                     // «Quedarme con los dos» también se puede aplicar al resto de repetidos.
@@ -1467,7 +1567,10 @@ public sealed class CopyEngine
         lock (_promptGate)
         {
             if (_stickyError == ErrorChoice.SkipAll) return ErrorChoice.Skip;
-            var choice = resolver(new ErrorPrompt(file, Describe(ex, file, target), attempt));
+            Interlocked.Increment(ref _waitingForUser);
+            ErrorChoice choice;
+            try { choice = resolver(new ErrorPrompt(file, Describe(ex, file, target), attempt)); }
+            finally { Interlocked.Decrement(ref _waitingForUser); }
             if (choice == ErrorChoice.SkipAll) { _stickyError = ErrorChoice.SkipAll; return ErrorChoice.Skip; }
             if (choice == ErrorChoice.Abort) _stickyError = ErrorChoice.Abort;
             return choice;
@@ -1801,7 +1904,58 @@ public sealed class CopyEngine
             var hint = ProtectedFolderHint(folder);
             if (hint is not null) text.Append("\n\n").Append(hint);
         }
+
+        // DATOS CONCRETOS, no sospechas. En la carpeta se puede escribir (acabamos de
+        // probarlo) pero ESTE archivo falla: casi siempre es el archivo que ya está ahí con
+        // atributos que Windows no deja sobrescribir, un resto «.xopy-part» de un intento
+        // anterior, o una carpeta sincronizada con OneDrive. Se dice tal cual, para no
+        // tener que adivinarlo.
+        var facts = AccessFacts(source, target, folder);
+        if (facts.Length > 0) text.Append("\n\n").Append(facts);
         return text.ToString();
+    }
+
+    /// <summary>
+    /// Lo que se sabe del destino cuando Windows dice «acceso denegado»: si el archivo ya
+    /// existía y con qué atributos, si quedó un trozo de copia anterior y si la carpeta la
+    /// lleva OneDrive. Es la información que convierte «acceso denegado» en algo que se
+    /// puede arreglar.
+    /// </summary>
+    private static string AccessFacts(string? source, string? target, string folder)
+    {
+        var lines = new List<string>();
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(target) && File.Exists(target))
+            {
+                var attributes = File.GetAttributes(target);
+                var marks = new List<string>();
+                if ((attributes & FileAttributes.ReadOnly) != 0) marks.Add("solo lectura");
+                if ((attributes & FileAttributes.Hidden) != 0) marks.Add("oculto");
+                if ((attributes & FileAttributes.System) != 0) marks.Add("de sistema");
+                if ((attributes & FileAttributes.Offline) != 0) marks.Add("sin descargar (OneDrive)");
+                lines.Add("· El archivo ya existe en el destino" +
+                          (marks.Count > 0 ? " y está marcado como " + string.Join(", ", marks) + "." : "."));
+            }
+
+            var leftover = Path.Combine(folder, "." + Path.GetFileName(target ?? string.Empty) + ".xopy-part");
+            if (File.Exists(leftover))
+                lines.Add("· Hay un resto de una copia anterior en la carpeta (" + Path.GetFileName(leftover) + ").");
+
+            var oneDrive = Environment.GetEnvironmentVariable("OneDrive");
+            if (!string.IsNullOrWhiteSpace(oneDrive) && !string.IsNullOrEmpty(folder) &&
+                folder.StartsWith(oneDrive.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase))
+                lines.Add("· La carpeta de destino la sincroniza OneDrive: pon sus archivos «siempre disponibles» o copia fuera de OneDrive.");
+
+            if (!string.IsNullOrWhiteSpace(source) && File.Exists(source))
+            {
+                var attributes = File.GetAttributes(source);
+                if ((attributes & FileAttributes.ReadOnly) != 0)
+                    lines.Add("· El archivo de origen es de solo lectura, así que la copia nace también de solo lectura.");
+            }
+        }
+        catch { }
+        return lines.Count == 0 ? string.Empty : "Lo que ve XoPy:\n" + string.Join("\n", lines);
     }
 
     /// <summary>
