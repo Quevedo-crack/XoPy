@@ -62,7 +62,7 @@ public sealed partial class MainForm : Form
     private PillLabel _hdrCopyState = null!, _hdrTargetState = null!;
     private Label _hdrCopyPath = null!, _hdrCopyInfo = null!, _hdrCopyPercent = null!;
     private Label _hdrTargetPath = null!, _hdrTargetInfo = null!, _hdrTargetPercent = null!;
-    private ProgressStrip _hdrCopyBar = null!;
+    private ProgressStrip _hdrCopyBar = null!, _hdrFileBar = null!;
     private SpeedGraph _footerGraph = null!;
     private TableLayoutPanel? _footerLayout;
     private TableLayoutPanel? _statusRow;
@@ -267,9 +267,9 @@ public sealed partial class MainForm : Form
     // Alturas fijas de las franjas de la ventana (en píxeles de cliente).
     private const int RowMenuHeight = 24;
     private const int RowToolbarHeight = 48;
-    // Cabecera: dos líneas de 24 px y UNA barra de 18, más 8 de relleno. Ni un píxel de
-    // más: lo que sobraba se veía como una franja vacía encima de la lista.
-    private const int RowHeaderHeight = 74;
+    // Cabecera: línea del archivo (24) + su barra (12) + línea del total (24) + su barra
+    // (16) + 8 de relleno. Ni un píxel de más: lo que sobra se ve como franja vacía.
+    private const int RowHeaderHeight = 84;
     private const int RowTabsHeight = 34;
     // Pie: línea del archivo en curso (17) + gráfico de velocidad (35) + línea de estado
     // (28) + relleno (16). La barra de progreso ya no está aquí.
@@ -358,13 +358,14 @@ public sealed partial class MainForm : Form
                 // cabecera: en reducido se ocultan aquí para no decirlo dos veces.
                 if (_speedLabel is not null) _speedLabel.Visible = !compact;
             }
-            if (_transferHeader is not null && _transferHeader.RowStyles.Count >= 3)
+            if (_transferHeader is not null && _transferHeader.RowStyles.Count >= 4)
             {
-                // Las dos líneas (origen y destino) y la barra del total se ven igual en
-                // reducido: en ese modo son lo único que queda.
+                // Las dos líneas con sus dos barras se ven igual en reducido: en ese modo
+                // son lo único que queda, así que tienen que estar completas.
                 _transferHeader.RowStyles[0].Height = 24;
-                _transferHeader.RowStyles[1].Height = 24;
-                _transferHeader.RowStyles[2].Height = 18;
+                _transferHeader.RowStyles[1].Height = 12;
+                _transferHeader.RowStyles[2].Height = 24;
+                _transferHeader.RowStyles[3].Height = 16;
             }
             if (compact && _tabIndex != 0) SelectTab(0);
             // La lista (con sus pestañas y el panel de trabajos) se esconde entera.
@@ -393,9 +394,9 @@ public sealed partial class MainForm : Form
         // La ventana NUNCA se ajusta sola: se recortaba. Como en TeraCopy, es redimensionable
         // a mano en los dos modos y el tamaño mínimo se calcula para que quepa todo lo visible.
         AutoSize = false;
-        // Con la lista oculta solo quedan barra, cabecera y pie: el mínimo baja para que la
-        // ventana pueda quedarse pequeña de verdad (y no finja estar reducida).
-        MinimumSize = compact ? new Size(620, 300) : new Size(820, 560);
+        // Con la lista oculta solo quedan la barra y la cabecera: el mínimo es ese alto
+        // exacto, para que no quede ni un dedo de ventana vacía por debajo.
+        MinimumSize = compact ? new Size(560, CompactWindowHeight()) : new Size(820, 560);
         if (persist)
         {
             // LA VENTANA NO SE MUEVE DE SITIO. Solo cambia de alto, y crece o encoge hacia
@@ -410,17 +411,17 @@ public sealed partial class MainForm : Form
                 // otra parte de la pantalla. La lista desaparece igual, que es lo que se pide.
                 if (WindowState == FormWindowState.Normal)
                 {
-                    // La altura se calcula sumando lo que sigue siendo visible (menú, barra,
-                    // cabecera de progreso y pie). Sin la lista ya no hace falta reservar su
-                    // hueco: la ventana se queda en una banda de progreso, como FlashCopyPro.
-                    var height = (_settings.ShowMenuBar ? RowMenuHeight : 0)
-                                 + RowToolbarHeight + RowHeaderHeight + RowFooterCompact + 12;
-                    height += SystemInformation.FrameBorderSize.Height * 2 + SystemInformation.CaptionHeight;
+                    // La altura es EXACTAMENTE la de lo que se sigue viendo (menú, barra y
+                    // cabecera de progreso). Ni un píxel más: el alto mínimo de 300 que
+                    // había antes dejaba una franja negra vacía debajo de todo, que es el
+                    // hueco que el usuario señala una y otra vez en la ventana reducida.
+                    var height = CompactWindowHeight();
+                    // El mínimo se ajusta ANTES de mover la ventana: si no, Math.Max con el
+                    // mínimo anterior volvía a estirarla y reaparecía el hueco.
+                    MinimumSize = new Size(560, height);
                     // Una sola asignación de Bounds: cambiar Height y Width por separado
                     // provocaba dos recolocaciones y el típico salto de la ventana.
-                    Bounds = new Rectangle(Left, Top,
-                        Math.Max(Width, MinimumSize.Width),
-                        Math.Max(height, MinimumSize.Height));
+                    Bounds = new Rectangle(Left, Top, Math.Max(Width, 560), height);
                 }
             }
             else if (_expandedBounds.Width > 0)
@@ -449,6 +450,18 @@ public sealed partial class MainForm : Form
                 ? "Lista oculta. Pulsa «Mostrar lista» en la barra para recuperarla."
                 : "Lista visible.");
         }
+    }
+
+    /// <summary>
+    /// Alto EXACTO de la ventana reducida: lo que miden las franjas que se siguen viendo
+    /// más el marco y la barra de título. Sin huecos.
+    /// </summary>
+    private int CompactWindowHeight()
+    {
+        var client = (_settings.ShowMenuBar ? RowMenuHeight : 0) + RowToolbarHeight + RowHeaderHeight + 4;
+        return client + (Height - ClientSize.Height is var chrome && chrome > 0 && chrome < 120
+            ? chrome
+            : SystemInformation.FrameBorderSize.Height * 2 + SystemInformation.CaptionHeight);
     }
 
     /// <summary>Muestra u oculta la barra de menús superior y devuelve el alto a la lista.</summary>
@@ -1040,25 +1053,28 @@ public sealed partial class MainForm : Form
             Margin = new Padding(0, 0, 0, 0)
         };
         _transferHeader = host;
-        // UNA SOLA BARRA, la del TOTAL. Antes había dos (una debajo de «Copiando» y otra
-        // debajo de «Destino») y las dos parecían el total: no había forma de saber cuál
-        // era cuál. El avance del archivo en curso se lee en el número de la primera fila
-        // y en la columna Progreso de la lista.
+        // DOS BARRAS, cada una debajo de su línea y sin lugar a dudas:
+        //   línea 1 «Copiando …»  + barra del ARCHIVO que se está copiando ahora
+        //   línea 2 «Total …»     + barra del TOTAL de la copia
+        // El porcentaje de cada línea es el de SU barra.
+        host.RowCount = 4;
         host.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
+        host.RowStyles.Add(new RowStyle(SizeType.Absolute, 12));
         host.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
-        host.RowStyles.Add(new RowStyle(SizeType.Absolute, 18));
+        host.RowStyles.Add(new RowStyle(SizeType.Absolute, 16));
 
         host.Controls.Add(BuildHeaderLine("Copiando", out _hdrCopyState, out _hdrCopyPath, out _hdrCopyInfo, out _hdrCopyPercent), 0, 0);
-        host.Controls.Add(BuildHeaderLine("Destino", out _hdrTargetState, out _hdrTargetPath, out _hdrTargetInfo, out _hdrTargetPercent), 0, 1);
-        host.Controls.Add(BuildHeaderBar(out _hdrCopyBar), 0, 2);
+        host.Controls.Add(BuildHeaderBar(out _hdrFileBar, 10), 0, 1);
+        host.Controls.Add(BuildHeaderLine("Total", out _hdrTargetState, out _hdrTargetPath, out _hdrTargetInfo, out _hdrTargetPercent), 0, 2);
+        host.Controls.Add(BuildHeaderBar(out _hdrCopyBar, 14), 0, 3);
         return host;
     }
 
-    private Control BuildHeaderBar(out ProgressStrip bar)
+    private Control BuildHeaderBar(out ProgressStrip bar, int height)
     {
-        var host = new Panel { Dock = DockStyle.Fill, BackColor = _palette.Surface, Margin = new Padding(0, 2, 0, 3), Padding = new Padding(0) };
-        // 14 px de alto: las barras de 4 px no se veían y parecían una raya del borde.
-        bar = new ProgressStrip(_palette) { Dock = DockStyle.Fill, Height = 14, MinimumSize = new Size(0, 10) };
+        var host = new Panel { Dock = DockStyle.Fill, BackColor = _palette.Surface, Margin = new Padding(0, 1, 0, 2), Padding = new Padding(0) };
+        // Las barras de 4 px no se veían y parecían una raya del borde.
+        bar = new ProgressStrip(_palette) { Dock = DockStyle.Fill, Height = height, MinimumSize = new Size(0, 8) };
         host.Controls.Add(bar);
         return host;
     }

@@ -801,11 +801,19 @@ public sealed partial class MainForm
         {
             _hdrCopyInfo.Text = string.Empty;
         }
-        _hdrCopyBar.Value = percent;
-        _hdrCopyPercent.Text = leaves.Count == 0 ? "—" : $"{percent:0.0} %";
-        _hdrCopyBar.FillColor = _items.Any(item => item.State == ItemState.Failed) && !running ? _palette.Warning : _palette.Accent;
+        // PRIMERA LÍNEA = EL ARCHIVO EN CURSO. Su número y su barra son los del archivo que
+        // se está copiando ahora mismo, no los del total (el total va en la línea de abajo).
+        var fileNow = runningLeaf is { SizeBytes: > 0 }
+            ? Math.Clamp(runningLeaf.TransferredBytes * 100d / runningLeaf.SizeBytes, 0, 100)
+            : runningLeaf is not null ? 0 : 0;
+        _hdrFileBar.Value = running ? fileNow : 0;
+        _hdrFileBar.FillColor = _palette.AccentSoft;
+        _hdrCopyPercent.Text = running && runningLeaf is not null ? $"{fileNow:0.0} %" : "—";
+        if (running && runningLeaf is { SizeBytes: > 0 })
+            _hdrCopyInfo.Text = $"{Format.Bytes(runningLeaf.TransferredBytes)} de {Format.Bytes(runningLeaf.SizeBytes)}"
+                                + (_engine.IsPaused ? "  ·  en pausa" : string.Empty);
 
-        _hdrTargetState.Text = "Destino";
+        _hdrTargetState.Text = "Total";
         if (_hdrTargetState is PillLabel pillTarget)
             pillTarget.Accent = running && !string.IsNullOrWhiteSpace(_destination.Text) ? _palette.AccentSoft : _palette.Raised;
         // Fila de en medio: la CARPETA REAL de destino del archivo en curso, no la raíz.
@@ -844,12 +852,10 @@ public sealed partial class MainForm
             _hdrTargetInfo.Text = string.Empty;
         }
 
-        var filePercent = runningLeaf is { SizeBytes: > 0 }
-            ? Math.Clamp(runningLeaf.TransferredBytes * 100d / runningLeaf.SizeBytes, 0, 100)
-            : 0;
-        // Solo el número: la barra del archivo en curso desapareció (había dos barras y las
-        // dos parecían el total).
-        _hdrTargetPercent.Text = running ? $"{filePercent:0.0} %" : "—";
+        // SEGUNDA LÍNEA = EL TOTAL de la copia, con su barra justo debajo.
+        _hdrCopyBar.Value = percent;
+        _hdrCopyBar.FillColor = _items.Any(item => item.State == ItemState.Failed) && !running ? _palette.Warning : _palette.Accent;
+        _hdrTargetPercent.Text = leaves.Count == 0 ? "—" : $"{percent:0.0} %";
     }
 
     private void UpdateCategories()
@@ -973,7 +979,13 @@ public sealed partial class MainForm
         var open = Ui.ToolButton("Abrir el archivo de registro", Icons.Open, _palette);
         open.Size = new Size(196, 32);
         open.Click += (_, _) => OpenLogFile();
-        actions.Controls.AddRange(new Control[] { refresh, open });
+        // INFORME PARA MANDAR. Un solo archivo de texto con TODO lo que hace falta para
+        // diagnosticar un fallo sin estar delante del ordenador: versión, Windows, discos,
+        // ajustes, últimas transferencias, errores y el registro técnico completo.
+        var export = Ui.ToolButton("Guardar informe para enviar…", Icons.Save, _palette);
+        export.Size = new Size(226, 32);
+        export.Click += (_, _) => ExportDiagnosticReport();
+        actions.Controls.AddRange(new Control[] { refresh, open, export });
 
         page.Controls.Add(title, 0, 0);
         page.Controls.Add(_logBox, 0, 1);
@@ -1020,6 +1032,120 @@ public sealed partial class MainForm
         {
             return "(no se pudo leer el registro: " + ex.Message + ")";
         }
+    }
+
+    /// <summary>
+    /// Guarda un informe completo en un archivo de texto y abre la carpeta donde queda.
+    /// Es el archivo que el usuario puede adjuntar cuando algo falla: lleva el estado del
+    /// programa y el registro, sin tener que buscar nada en %LOCALAPPDATA%.
+    /// </summary>
+    private void ExportDiagnosticReport()
+    {
+        try
+        {
+            var folder = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+            if (!Directory.Exists(folder)) folder = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+            var target = Path.Combine(folder, $"XoPy-informe-{DateTime.Now:yyyyMMdd-HHmm}.txt");
+
+            using (var save = new SaveFileDialog
+                   {
+                       Title = "Guardar el informe de XoPy",
+                       Filter = "Informe de texto (*.txt)|*.txt",
+                       FileName = Path.GetFileName(target),
+                       InitialDirectory = folder,
+                       OverwritePrompt = true
+                   })
+            {
+                if (save.ShowDialog(this) != DialogResult.OK) return;
+                target = save.FileName;
+            }
+
+            File.WriteAllText(target, BuildDiagnosticReport(), new UTF8Encoding(true));
+            FileLog.Write("Informe guardado en " + target);
+            SetStatus("Informe guardado: " + target);
+            try { Process.Start(new ProcessStartInfo("explorer.exe", "/select,\"" + target + "\"") { UseShellExecute = true }); }
+            catch { }
+        }
+        catch (Exception ex)
+        {
+            ShowError("No se pudo guardar el informe: " + ex.Message);
+        }
+    }
+
+    private string BuildDiagnosticReport()
+    {
+        var text = new StringBuilder();
+        void Line(string label, object? value) => text.AppendLine($"{label,-26}{value}");
+
+        text.AppendLine("================ INFORME DE XoPy ================");
+        Line("Fecha", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+        Line("Versión de XoPy", typeof(MainForm).Assembly.GetName().Version?.ToString() ?? "?");
+        Line("Programa", Application.ExecutablePath);
+        Line("Windows", Environment.OSVersion.VersionString);
+        Line("64 bits", Environment.Is64BitOperatingSystem);
+        Line("Equipo / usuario", Environment.MachineName + " / " + Environment.UserName);
+        Line("Procesadores", Environment.ProcessorCount);
+        Line("Idioma", System.Globalization.CultureInfo.CurrentUICulture.Name);
+        Line("Administrador", IsRunningAsAdmin());
+        text.AppendLine();
+
+        text.AppendLine("---------------- AJUSTES ----------------");
+        Line("Motor", _settings.Engine);
+        Line("Verificación", _settings.Verify);
+        Line("Copia multihilo", _settings.MultiThreadCopy);
+        Line("Hilos", _settings.Parallelism);
+        Line("Búfer (KiB)", _settings.BufferKiB);
+        Line("Reintentos", _settings.RetryCount);
+        Line("Si el archivo existe", _settings.Conflict);
+        Line("Si hay un error", _settings.OnError);
+        Line("Vista reducida", _settings.CompactView);
+        Line("Sustituye al copiador", _settings.ReplaceWindowsCopier);
+        Line("Cerrar al terminar", _settings.CloseWhenDone);
+        Line("Minimizar a la bandeja", _settings.MinimizeToTray);
+        text.AppendLine();
+
+        text.AppendLine("---------------- DISCOS ----------------");
+        try
+        {
+            foreach (var drive in DriveInfo.GetDrives())
+            {
+                if (!drive.IsReady) { text.AppendLine($"{drive.Name}  (no disponible)"); continue; }
+                text.AppendLine($"{drive.Name}  {drive.DriveType}  {drive.DriveFormat}  " +
+                                $"libre {Format.Bytes(drive.AvailableFreeSpace)} de {Format.Bytes(drive.TotalSize)}");
+            }
+        }
+        catch (Exception ex) { text.AppendLine("(no se pudieron leer los discos: " + ex.Message + ")"); }
+        text.AppendLine();
+
+        text.AppendLine("---------------- LISTA ACTUAL ----------------");
+        Line("Elementos", _items.Count);
+        Line("Destino", _destination?.Text ?? "—");
+        var failed = _items.Where(item => item.State == ItemState.Failed).ToList();
+        Line("Con error", failed.Count);
+        foreach (var item in failed.Take(200))
+            text.AppendLine($"  ERROR  {item.SourcePath}  ->  {item.DestinationPath}  :  {item.Error}");
+        if (failed.Count > 200) text.AppendLine($"  (… y {failed.Count - 200} más)");
+        text.AppendLine();
+
+        text.AppendLine("---------------- ÚLTIMAS TRANSFERENCIAS ----------------");
+        if (_history.Count == 0) text.AppendLine("(todavía no hay transferencias)");
+        foreach (var entry in _history.Take(60)) text.AppendLine(entry.Summary);
+        text.AppendLine();
+
+        text.AppendLine("---------------- REGISTRO TÉCNICO ----------------");
+        text.AppendLine(ReadLogTail());
+        return text.ToString();
+    }
+
+    private static bool IsRunningAsAdmin()
+    {
+        try
+        {
+            using var identity = System.Security.Principal.WindowsIdentity.GetCurrent();
+            return new System.Security.Principal.WindowsPrincipal(identity)
+                .IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator);
+        }
+        catch { return false; }
     }
 
     private void OpenLogFile()
@@ -1308,21 +1434,37 @@ public sealed partial class MainForm
             alignment | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
     }
 
+    /// <summary>Mezcla dos colores: 0 = todo <paramref name="a"/>, 1 = todo <paramref name="b"/>.</summary>
+    private static Color Blend(Color a, Color b, double amount)
+    {
+        amount = Math.Clamp(amount, 0, 1);
+        return Color.FromArgb(
+            (int)Math.Round(a.R + (b.R - a.R) * amount),
+            (int)Math.Round(a.G + (b.G - a.G) * amount),
+            (int)Math.Round(a.B + (b.B - a.B) * amount));
+    }
+
     private void ListDrawSubItem(object? sender, DrawListViewSubItemEventArgs e)
     {
         if (e.Item is null) return;
         var selected = e.Item.Selected;
+        // RUTA COMPLETA DEL ARCHIVO MARCADO. Las carpetas de las que cuelga el archivo
+        // seleccionado se pintan con un fondo a medio camino entre la fila normal y la fila
+        // marcada, y con su propia banda (más estrecha) a la izquierda. Así la vista sube
+        // sola desde el archivo hasta la raíz, que es lo que pedía el usuario.
+        var onChain = !selected && e.Item.Tag is TransferItem chainItem && _highlightChain.Contains(chainItem.Id);
+        var stripes = e.ItemIndex % 2 == 0 ? _palette.Surface : _palette.SurfaceAlt;
         var background = selected
             ? _palette.Selection
-            : (e.ItemIndex % 2 == 0 ? _palette.Surface : _palette.SurfaceAlt);
+            : (onChain ? Blend(stripes, _palette.Selection, 0.45) : stripes);
         using (var brush = new SolidBrush(background))
             e.Graphics.FillRectangle(brush, e.Bounds);
         // La fila marcada lleva además una banda de acento a la izquierda del todo: con la
         // lista llena, el cambio de fondo solo no se distinguía bien.
-        if (selected && e.ColumnIndex == 0)
+        if (e.ColumnIndex == 0 && (selected || onChain))
         {
-            using var stripe = new SolidBrush(_palette.Accent);
-            e.Graphics.FillRectangle(stripe, e.Bounds.Left, e.Bounds.Top, 3, e.Bounds.Height);
+            using var stripe = new SolidBrush(selected ? _palette.Accent : Blend(_palette.Accent, stripes, 0.45));
+            e.Graphics.FillRectangle(stripe, e.Bounds.Left, e.Bounds.Top, selected ? 3 : 2, e.Bounds.Height);
         }
 
         if (e.Item.Tag is not TransferItem item) return;
@@ -1596,9 +1738,11 @@ public sealed partial class MainForm
         _updatingColumns = true;
         try
         {
-            // Se reserva el ancho de la barra vertical: si las columnas ocupan el ancho
-            // completo, el ListView activa el desplazamiento horizontal (una barra blanca).
-            var scrollbar = SystemInformation.VerticalScrollBarWidth;
+            // Se reserva el ancho de la barra vertical SOLO SI LA HAY. Reservarlo siempre
+            // dejaba a la derecha de la cabecera un hueco del ancho de la barra que Windows
+            // pinta de blanco: ese es el cuadrado blanco de la esquina que salía en las
+            // capturas, tanto con la lista llena como con dos filas.
+            var scrollbar = NativeTheme.HasVerticalScrollBar(_list) ? SystemInformation.VerticalScrollBarWidth : 0;
             var used = _list.Columns[1].Width + _list.Columns[2].Width + _list.Columns[3].Width
                        + _list.Columns[4].Width + _list.Columns[5].Width + _list.Columns[6].Width;
             var available = _list.ClientSize.Width - used - 4 - scrollbar;

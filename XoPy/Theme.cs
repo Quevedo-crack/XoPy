@@ -665,8 +665,26 @@ internal static class NativeTheme
     [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Auto)]
     private static extern IntPtr SendMessage(IntPtr hwnd, int message, IntPtr wParam, IntPtr lParam);
 
+    [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
+    private static extern int GetWindowLong(IntPtr hwnd, int index);
+
     private const int WM_VSCROLL = 0x0115;
     private const int SB_TOP = 6;
+    private const int GWL_STYLE = -16;
+    private const int WS_VSCROLL = 0x00200000;
+
+    /// <summary>
+    /// ¿El control está enseñando AHORA MISMO su barra vertical? Hace falta saberlo para
+    /// repartir el ancho de las columnas: reservar el hueco de la barra cuando no la hay
+    /// deja a la derecha de la cabecera un cuadradito que Windows pinta de blanco — el
+    /// famoso «cuadrado blanco» de la esquina.
+    /// </summary>
+    internal static bool HasVerticalScrollBar(Control control)
+    {
+        if (control is null || !control.IsHandleCreated) return false;
+        try { return (GetWindowLong(control.Handle, GWL_STYLE) & WS_VSCROLL) != 0; }
+        catch { return false; }
+    }
 
     /// <summary>
     /// Sube del todo un cuadro de texto de varias líneas. Poner el cursor en la posición 0

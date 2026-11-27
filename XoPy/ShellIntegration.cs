@@ -136,6 +136,16 @@ public static class ShellIntegration
             using var handlers = Registry.CurrentUser.CreateSubKey(ClassesRoot + @"\" + context);
             handlers?.SetValue(null, clsid);
         }
+        // MANEJADOR DE ARRASTRAR Y SOLTAR. Es como SuperCopier le quita la copia al
+        // Explorador desde hace más de diez años: Windows construye este menú también
+        // cuando se suelta con el botón izquierdo (y al pegar dentro de una carpeta) y
+        // ejecuta su elemento predeterminado. Al marcarlo nosotros, copia XoPy.
+        foreach (var target in new[] { "Directory", "Drive", "Folder" })
+        {
+            using var handlers = Registry.CurrentUser.CreateSubKey(
+                ClassesRoot + @"\" + target + @"\shellex\DragDropHandlers\XoPyCopier");
+            handlers?.SetValue(null, clsid);
+        }
         try
         {
             using var approved = Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved");
@@ -204,6 +214,15 @@ public static class ShellIntegration
             Registry.CurrentUser.DeleteSubKeyTree(@"Software\Classes\Directory\Background\shellex\ContextMenuHandlers\XoPyPaste", false);
         }
         catch { }
+        foreach (var target in new[] { "Directory", "Drive", "Folder" })
+        {
+            try
+            {
+                Registry.CurrentUser.DeleteSubKeyTree(
+                    ClassesRoot + @"\" + target + @"\shellex\DragDropHandlers\XoPyCopier", false);
+            }
+            catch { }
+        }
     }
 
     /// <summary>Borra las integraciones antiguas y registra la ruta de la aplicación.</summary>
@@ -214,6 +233,16 @@ public static class ShellIntegration
         try { SetDefaultCopierFlag(false); } catch { }
         try { RemoveSendToShortcuts(); } catch { }
         try { Unregister(); } catch { }
+        // Sin integración, XoPy no se mete en los arrastres del Explorador.
+        foreach (var target in new[] { "Directory", "Drive", "Folder" })
+        {
+            try
+            {
+                Registry.CurrentUser.DeleteSubKeyTree(
+                    ClassesRoot + @"\" + target + @"\shellex\DragDropHandlers\XoPyCopier", false);
+            }
+            catch { }
+        }
         try { SHChangeNotify(0x08000000, 0, IntPtr.Zero, IntPtr.Zero); } catch { }
     }
 

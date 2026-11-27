@@ -218,8 +218,11 @@ public sealed class AppSettings
     // Falso: la ventana abre con la lista de archivos visible, como TeraCopy. La vista
     // compacta queda como opción («Ocultar»), no como estado inicial.
     /// <summary>Modo de ventana al abrir: 0 = reducida, 1 = completa, 2 = automático.</summary>
-    public int WindowMode { get; set; } = 1;
-    public bool CompactView { get; set; }
+    /// <summary>0 = solo el progreso (reducida), 1 = completa, 2 = automático. De fábrica
+    /// arranca REDUCIDA: es como el usuario quiere ver XoPy al abrirlo.</summary>
+    public int WindowMode { get; set; } = 0;
+    /// <summary>Arranca con la lista oculta (vista reducida). Encendido de fábrica.</summary>
+    public bool CompactView { get; set; } = true;
     public bool ReplaceWindowsCopier { get; set; } = true;
     public bool AskWhenBusy { get; set; } = true;
 
@@ -408,6 +411,26 @@ public sealed class StartupRequest
                     break;
                 case "--to":
                     if (i + 1 < args.Length) request.Destination = Normalize(args[++i]);
+                    break;
+                // LISTA DE ARCHIVOS EN UN ARCHIVO DE TEXTO (UTF-8, una ruta por línea). La
+                // manda la extensión del Explorador al soltar una carpeta con miles de
+                // archivos: en la línea de comandos no caben y Windows la cortaría.
+                case "--lista":
+                case "--list-file":
+                    if (i + 1 < args.Length)
+                    {
+                        var listPath = Normalize(args[++i]);
+                        try
+                        {
+                            foreach (var line in File.ReadAllLines(listPath))
+                            {
+                                var entry = Normalize(line);
+                                if (entry.Length > 0) request.Paths.Add(entry);
+                            }
+                        }
+                        catch { }
+                        try { File.Delete(listPath); } catch { }
+                    }
                     break;
                 default:
                     if (arg.StartsWith("--to=", StringComparison.OrdinalIgnoreCase)) request.Destination = Normalize(arg[5..]);

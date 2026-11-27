@@ -858,12 +858,19 @@ public sealed partial class MainForm
             TrimFinishedRows();
         }
 
+        // PARPADEO DE LA LISTA MIENTRAS SE COPIA. Antes se repintaba la lista ENTERA cada
+        // 300 ms aunque solo cambiara el porcentaje de un archivo: con la lista llena eso
+        // es un parpadeo continuo. Ahora se apunta qué filas han cambiado de verdad y solo
+        // se repintan esas.
         var changed = false;
+        var dirty = new List<ListViewItem>();
+        ListViewItem? currentRow = null;
         void SetText(ListViewItem.ListViewSubItem subItem, string text)
         {
             if (string.Equals(subItem.Text, text, StringComparison.Ordinal)) return;
             subItem.Text = text;
             changed = true;
+            if (currentRow is not null && (dirty.Count == 0 || dirty[^1] != currentRow)) dirty.Add(currentRow);
         }
 
         _list.BeginUpdate();
@@ -872,6 +879,7 @@ public sealed partial class MainForm
             foreach (ListViewItem row in _list.Items)
             {
                 if (row.Tag is not TransferItem item) continue;
+                currentRow = row;
                 var state = item.StateText;
                 if (item.Kind == ItemKind.Folder && item.State is ItemState.Pending or ItemState.Measuring)
                 {
@@ -890,10 +898,29 @@ public sealed partial class MainForm
         }
         finally
         {
+            currentRow = null;
             _list.EndUpdate();
         }
 
-        if (changed || _engine.IsRunning) _list.Invalidate();
+        // Más de 40 filas cambiadas a la vez: sale más barato un repintado entero que 40
+        // rectángulos sueltos (pasa al empezar y al terminar una copia).
+        if (dirty.Count > 40) _list.Invalidate();
+        else foreach (var row in dirty)
+        {
+            try { _list.Invalidate(row.Bounds); } catch { }
+        }
+        if (!changed && _engine.IsRunning)
+        {
+            // Aunque no cambie ningún texto, la barra de la fila en curso avanza: se
+            // refresca solo esa fila.
+            foreach (ListViewItem row in _list.Items)
+            {
+                if (row.Tag is TransferItem running && running.State == ItemState.Running)
+                {
+                    try { _list.Invalidate(row.Bounds); } catch { }
+                }
+            }
+        }
     }
 
     /// <summary>

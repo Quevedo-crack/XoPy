@@ -320,6 +320,12 @@ internal sealed class OptionsDialog : Form
         // Al cambiar el tamaño del cuadro hay que repartir otra vez: si no, vuelve a
         // asomar el hueco sin pintar al ensanchar la ventana.
         _tabs.SizeChanged += (_, _) => FitTabWidths();
+        // Cada página crea su barra de desplazamiento la PRIMERA vez que se muestra, y
+        // Windows la pinta blanca mientras no se le pida el tema oscuro para ese control.
+        _tabs.SelectedIndexChanged += (_, _) =>
+        {
+            try { BeginInvoke(new Action(() => Ui.DarkScrollbars(this, _palette))); } catch { }
+        };
         // La vista principal es de una sola pantalla (estilo TeraCopy); las pestañas siguen
         // existiendo solo para las opciones avanzadas, que se abren desde un botón.
         _tabs.Visible = false;
@@ -637,6 +643,13 @@ internal sealed class OptionsDialog : Form
             _advancedRow.Controls.Add(back);
             _advancedRow.Controls.SetChildIndex(back, 0);
         }
+
+        // Las pestañas avanzadas NACEN aquí: cuando se abrió la ventana todavía no tenían
+        // identificador de Windows, así que el oscurecido de barras de desplazamiento que
+        // se hace en OnShown no llegó a tocarlas y salía la franja blanca de la derecha.
+        // Se repite ahora, y otra vez cada vez que se cambia de pestaña (cada página crea
+        // su barra la primera vez que se muestra).
+        try { BeginInvoke(new Action(() => Ui.DarkScrollbars(this, _palette))); } catch { }
     }
 
     private void CloseAdvanced()
@@ -1452,6 +1465,10 @@ internal sealed class HistoryDialog : Form
         }
         catch { }
         FillList();
+        // Al aparecer o desaparecer la barra vertical cambia el ancho disponible: se vuelve
+        // a repartir para que la última columna siga llegando al borde.
+        _list.HandleCreated += (_, _) => BeginInvoke(new Action(FitDestinationColumn));
+        _list.ClientSizeChanged += (_, _) => FitDestinationColumn();
 
         var buttons = new FlowLayoutPanel
         {
@@ -1459,7 +1476,7 @@ internal sealed class HistoryDialog : Form
             AutoSize = true,
             FlowDirection = FlowDirection.RightToLeft,
             BackColor = palette.Surface,
-            Padding = new Padding(12, 10, 12, 10)
+            Padding = new Padding(12, 8, 12, 8)
         };
 
         var close = Ui.DialogButton("Cerrar", palette, true);
@@ -1500,7 +1517,9 @@ internal sealed class HistoryDialog : Form
             RowCount = 2
         };
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 58));
+        // 62 px: los botones miden 32 y la fila llevaba 58 con 10 de relleno arriba y abajo,
+        // así que salían cortados por la mitad en la parte de abajo del historial.
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 62));
 
         // Panel con la lista y, encima, el aviso de «sin entradas»: una ventana negra y vacía
         // no dice si está cargando, si falló o si simplemente no hay nada.
@@ -1528,9 +1547,10 @@ internal sealed class HistoryDialog : Form
     private void FitDestinationColumn()
     {
         const int fixedWidth = 122 + 88 + 88 + 84 + 92 + 100;
-        // Se reserva el ancho de la barra vertical: si las columnas llenan el ancho exacto,
-        // el ListView saca además la barra HORIZONTAL, que es la raya blanca de abajo.
-        var reserve = SystemInformation.VerticalScrollBarWidth + 6;
+        // El hueco de la barra vertical se reserva SOLO SI LA BARRA ESTÁ. Reservarlo siempre
+        // dejaba a la derecha de la cabecera un cuadrado del ancho de la barra que Windows
+        // pinta de blanco (y la cabecera es una ventana aparte: no se puede tapar pintando).
+        var reserve = NativeTheme.HasVerticalScrollBar(_list) ? SystemInformation.VerticalScrollBarWidth + 2 : 1;
         var width = Math.Max(140, _list.ClientSize.Width - fixedWidth - reserve);
         if (_list.Columns[2].Width != width) _list.Columns[2].Width = width;
     }

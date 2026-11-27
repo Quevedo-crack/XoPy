@@ -151,6 +151,39 @@ el otro gestor de copias de este mismo autor, y resuelve de paso lo que allí fa
 - En la barra de copia se puede alternar entre modo secuencial y multihilo, también durante una transferencia; un archivo se puede pausar/reanudar individualmente desde el menú contextual de la lista. La lista admite reordenado por arrastre; las carpetas se muestran contraídas al añadirse y se pueden desplegar con la flecha o desde el menú. La columna de trabajos también empieza plegada y puede expandirse.
 - El instalador limpia las antiguas claves del menú contextual antes de iniciar la aplicación.
 
+## Novedades de la versión 2.6.3
+
+**Los doce fallos que apareciste probando la 2.6.2, uno por uno.**
+
+Ventana
+
+- **XoPy abre SIEMPRE en vista reducida.** Era lo pedido desde el principio: se abre pequeño, con los datos justos, y se agranda solo si lo pides. Si ya tenías ajustes guardados, se cambian solos al actualizar.
+- **Se acabó el hueco negro de la vista reducida**: la ventana mide exactamente lo que ocupan la barra, las dos barras de progreso y el pie.
+- **Vuelven las DOS barras de progreso**: arriba la del archivo que se está copiando, abajo la del total, cada una con su rótulo.
+- **Fuera el cuadradito blanco de la esquina superior derecha** de la lista y del historial: solo se reserva sitio para la barra de desplazamiento cuando esa barra existe de verdad.
+- **Los botones del historial ya no salen cortados** y la columna «Destino» se ajusta sola al ancho de la ventana.
+- **Las barras de desplazamiento de las opciones avanzadas ya no salen blancas.**
+- **La lista deja de parpadear mientras copia**: se repintan solo las filas que cambian, no las dos mil.
+- **Al marcar un archivo se resalta su ruta completa hasta la raíz**: la fila y todas sus carpetas padre se tiñen y llevan su banda azul, así se sigue con la vista de dónde sale.
+
+Icono
+
+- **Icono redondo de verdad**, recortado en círculo y con el fondo transparente: igual en el escritorio, en la barra de tareas y en el área de notificación, sin el cuadrado alrededor.
+
+Copia
+
+- **Mover dentro del mismo disco es INSTANTÁNEO.** Antes se copiaban los 3 GB, se comprobaban y luego se borraba el original; ahora se renombra, que es lo que hace Windows. De paso desaparecen los cientos de errores que salían al mover una carpeta grande de un sitio a otro del mismo disco.
+- **Segunda copia sobre archivos que ya están**: los atributos que bloquean (solo lectura, oculto, de sistema) se quitan ANTES de copiar, no después de fallar.
+
+Registro
+
+- **Botón «Guardar informe para enviar…»** en la pestaña Registro: crea un único archivo de texto con la versión, Windows, los discos, los ajustes, los archivos que han fallado, las últimas transferencias y el registro técnico. Es el archivo que hay que adjuntar cuando algo falle.
+- **Cada error se apunta con su código de Windows**, el tamaño del origen y los atributos del destino, y el registro ya no se borra solo a los 2 MB (ahora 8 MB y guarda la vuelta anterior).
+
+Explorador de Windows
+
+- **Copiar y mover arrastrando, como SuperCopier.** XoPy se registra como manejador de arrastrar y soltar: al soltar archivos sobre una carpeta aparecen «Copiar aquí con XoPy» y «Mover aquí con XoPy», y si XoPy es el copiador predeterminado esa es la acción que se hace al soltar con el botón izquierdo. Con miles de archivos la lista viaja en un archivo temporal, así que no hay límite de longitud de la línea de comandos.
+
 ## Novedades de la versión 2.6.2
 
 **Repaso a fondo de los fallos que se arrastraban de versiones anteriores.**

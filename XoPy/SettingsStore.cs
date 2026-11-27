@@ -92,6 +92,18 @@ public sealed class SettingsStore
             migrated = true;
         }
 
+        if (settings.SettingsVersion < 7)
+        {
+            // XoPy ABRE SIEMPRE EN FORMATO REDUCIDO (solo la barra y el progreso), que es
+            // como lo quiere el usuario desde el principio. La lista completa se saca con
+            // el botón «Mostrar lista» o con F9 cuando hace falta.
+            settings.WindowMode = 0;
+            settings.CompactView = true;
+            settings.ShowList = false;
+            settings.SettingsVersion = 7;
+            migrated = true;
+        }
+
         settings.Favorites ??= new List<string>();
         settings.ExtraDestinations ??= new List<string>();
         settings.ExtraDestinations = settings.ExtraDestinations

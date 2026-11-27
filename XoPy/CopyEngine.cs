@@ -50,11 +50,34 @@ public static class FileLog
                 var directory = Path.GetDirectoryName(LogPath)!;
                 Directory.CreateDirectory(directory);
                 var info = new FileInfo(LogPath);
-                if (info.Exists && info.Length > 2 * 1024 * 1024) info.Delete();
-                File.AppendAllText(LogPath, $"{DateTime.Now:yyyy-MM-dd HH:mm:ss}  {message}{Environment.NewLine}", Encoding.UTF8);
+                // 8 MB y se guarda la vuelta anterior: con doscientos errores en una copia
+                // el registro se llenaba y se borraba justo lo que hacía falta para saber
+                // qué había pasado.
+                if (info.Exists && info.Length > 8 * 1024 * 1024)
+                {
+                    try { File.Copy(LogPath, LogPath + ".1", true); } catch { }
+                    info.Delete();
+                }
+                File.AppendAllText(LogPath, $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}  {message}{Environment.NewLine}", Encoding.UTF8);
             }
         }
         catch { }
+    }
+
+    /// <summary>
+    /// Apunta un fallo con TODO lo que hace falta para saber por qué: código de Windows,
+    /// rutas, tamaños y atributos del destino. Es lo que permite leer un informe y decir
+    /// «esto es un archivo de sistema», en vez de adivinar.
+    /// </summary>
+    public static void Failure(string operation, string source, string target, Exception ex)
+    {
+        var code = ex.HResult & 0xFFFF;
+        var attributes = "—";
+        try { if (File.Exists(target)) attributes = File.GetAttributes(target).ToString(); } catch { }
+        var size = "—";
+        try { if (File.Exists(source)) size = new FileInfo(source).Length.ToString(); } catch { }
+        Write($"ERROR {operation} win32={code} ({ex.GetType().Name}) «{ex.Message}»"
+              + $" | origen={source} ({size} B) | destino={target} | atributos destino={attributes}");
     }
 }
 
@@ -572,6 +595,42 @@ public sealed class CopyEngine
         var skipped = 0;
         var failed = 0;
 
+        // ---- MOVER DENTRO DEL MISMO DISCO: SE RENOMBRA, NO SE COPIA -------------------
+        // Mover 3 GB de D:\ a D:\Películas estaba COPIANDO los 3 GB, verificándolos byte a
+        // byte y borrando después el original. Además de tardar una eternidad, cada archivo
+        // pasaba por todo el camino de la copia, que es donde salían los cientos de
+        // «Acceso denegado». Windows sabe mover un archivo dentro del mismo volumen con un
+        // simple renombrado: instantáneo y sin leer ni un byte.
+        if (item.Operation == OperationType.Move && destinations.Count == 1)
+        {
+            var fastTarget = Path.Combine(destinations[0], relative);
+            var fastDirectory = Path.GetDirectoryName(fastTarget);
+            if (!string.IsNullOrEmpty(fastDirectory)
+                && !string.Equals(Path.GetFullPath(fastTarget), source, StringComparison.OrdinalIgnoreCase)
+                && SameVolume(source, fastTarget))
+            {
+                Directory.CreateDirectory(fastDirectory);
+                var resolvedFast = ResolveTarget(source, fastTarget, options, token);
+                if (resolvedFast is null)
+                {
+                    item.State = ItemState.Skipped;
+                    item.TransferredBytes = item.SizeBytes;
+                    Interlocked.Add(ref _doneBytes, Math.Max(0, item.SizeBytes));
+                    return;
+                }
+                if (TryFastMove(source, resolvedFast))
+                {
+                    item.DestinationPath = resolvedFast;
+                    item.TransferredBytes = item.SizeBytes;
+                    Interlocked.Add(ref _doneBytes, Math.Max(0, item.SizeBytes));
+                    if (item.State is ItemState.Failed) item.State = ItemState.Completed;
+                    FileLog.Write($"Movido en el mismo disco (renombrado): {source} -> {resolvedFast}");
+                    return;
+                }
+            }
+        }
+        // ------------------------------------------------------------------------------
+
         foreach (var destination in destinations)
         {
             token.ThrowIfCancellationRequested();
@@ -696,7 +755,7 @@ public sealed class CopyEngine
                     Interlocked.Add(ref _doneBytes, -item.TransferredBytes);
                     item.TransferredBytes = 0;
                 }
-                FileLog.Write($"Intento {attempt} fallido para {source} -> {target}: {ex.Message}");
+                FileLog.Failure($"intento {attempt}", source, target, ex);
                 var win32 = ex.HResult & 0xFFFF;
 
                 // ACCESO DENEGADO (5): casi siempre es el archivo de destino con el atributo
@@ -759,6 +818,16 @@ public sealed class CopyEngine
         var temp = Path.Combine(directory, "." + name + ".xopy-part");
         long sourceLength;
         try { sourceLength = new FileInfo(source).Length; } catch { sourceLength = 0; }
+
+        // SEGUNDA COPIA SOBRE ARCHIVOS QUE YA ESTÁN. Si el destino existe y es de solo
+        // lectura, oculto o de sistema, Windows contesta «Acceso denegado (5)» aunque
+        // sobren permisos; así es como una carpeta de juego devolvía cientos de errores al
+        // copiarla por segunda vez. Antes se limpiaban los atributos DESPUÉS de fallar (y
+        // solo en el reintento); ahora se quitan ANTES, que es cuando no cuesta nada.
+        if (File.Exists(target))
+        {
+            try { ClearReadOnly(target); } catch { }
+        }
 
         long existing = 0;
         if (options.ResumePartials && File.Exists(temp))
@@ -1483,6 +1552,52 @@ public sealed class CopyEngine
     }
 
     /// <summary>
+    /// ¿Origen y destino están en la MISMA unidad? Solo entonces se puede renombrar en vez
+    /// de copiar. Se compara la raíz de la ruta (C:\, D:\, \\servidor\recurso).
+    /// </summary>
+    private static bool SameVolume(string source, string target)
+    {
+        try
+        {
+            var a = Path.GetPathRoot(Path.GetFullPath(source));
+            var b = Path.GetPathRoot(Path.GetFullPath(target));
+            return !string.IsNullOrEmpty(a) && string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+        }
+        catch { return false; }
+    }
+
+    /// <summary>
+    /// Mueve con el renombrado de Windows (instantáneo dentro del mismo disco). Si el
+    /// destino ya existe se le quitan los atributos que lo protegen y se sustituye. Si no
+    /// se puede, devuelve false y se usa el camino normal de copiar y borrar.
+    /// </summary>
+    private static bool TryFastMove(string source, string target)
+    {
+        try
+        {
+            if (File.Exists(target))
+            {
+                ClearReadOnly(target);
+                // MOVEFILE_REPLACE_EXISTING no vale con archivos de solo lectura/ocultos:
+                // se quita el destino antes, ya con los atributos limpios.
+                try { File.Delete(target); } catch { }
+            }
+            ClearReadOnly(source);
+            const int replaceExisting = 0x1;
+            const int writeThrough = 0x8;
+            if (NativeMethods.MoveFileExW(source, target, replaceExisting | writeThrough)) return true;
+            var error = Marshal.GetLastWin32Error();
+            FileLog.Write($"El renombrado rápido no se pudo hacer (win32={error}); se copia y se borra: {source}");
+            return false;
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"El renombrado rápido falló ({ex.Message}); se copia y se borra: {source}");
+            return false;
+        }
+    }
+
+    /// <summary>
     /// Quita del archivo los atributos que IMPIDEN sobrescribirlo: solo lectura, oculto y
     /// de sistema. Windows devuelve «Acceso denegado (5)» al copiar encima de un archivo
     /// oculto o de sistema aunque haya permisos de sobra, y así es como 209 archivos de una
@@ -1594,6 +1709,11 @@ internal static class NativeMethods
 
     [DllImport("kernel32.dll")]
     public static extern IntPtr GetCurrentProcess();
+
+    /// <summary>Renombrado de Windows: mueve dentro del mismo disco sin copiar nada.</summary>
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool MoveFileExW(string existingFileName, string? newFileName, int flags);
 
     [DllImport("kernel32.dll", SetLastError = true)]
     public static extern bool CloseHandle(IntPtr handle);
