@@ -1765,6 +1765,13 @@ public sealed partial class MainForm : Form
             for (var i = 1; i <= 3; i++)
                 File.WriteAllBytes(Path.Combine(folder, $"archivo{i}.bin"), new byte[i * 1024]);
 
+            // XoPy ARRANCA EN VISTA REDUCIDA, y en ese modo la lista y sus botones (↑ ↓
+            // quitar, ordenar) están escondidos. «PerformClick» no hace nada sobre un botón
+            // que no se ve, así que la prueba daba «el boton subir no movio nada» aunque el
+            // reordenado funcionase. Lo primero que hace la prueba es, por tanto, lo mismo
+            // que haría el usuario: mostrar la lista.
+            ApplyCompactView(false, persist: false);
+
             EnsureDefaultList();
             _settings.Destination = Path.Combine(folder, "destino");
             Directory.CreateDirectory(_settings.Destination);

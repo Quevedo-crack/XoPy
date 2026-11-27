@@ -215,10 +215,13 @@ public:
         {
             const int bytes = WideCharToMultiByte(CP_UTF8, 0, path.c_str(), -1, nullptr, 0, nullptr, nullptr);
             if (bytes <= 1) continue;
-            std::string utf8(static_cast<size_t>(bytes - 1), '\0');
-            WideCharToMultiByte(CP_UTF8, 0, path.c_str(), -1, utf8.data(), bytes, nullptr, nullptr);
+            // Búfer con sitio para el cero final (&buffer[0] y no .data(): el compilador
+            // usa C++14 por omisión y ahí data() devuelve «const char*»).
+            std::vector<char> buffer(static_cast<size_t>(bytes), '\0');
+            WideCharToMultiByte(CP_UTF8, 0, path.c_str(), -1, &buffer[0], bytes, nullptr, nullptr);
+            std::string utf8(&buffer[0]);
             utf8 += "\r\n";
-            WriteFile(handle, utf8.data(), static_cast<DWORD>(utf8.size()), &written, nullptr);
+            WriteFile(handle, utf8.c_str(), static_cast<DWORD>(utf8.size()), &written, nullptr);
         }
         CloseHandle(handle);
         return file;
