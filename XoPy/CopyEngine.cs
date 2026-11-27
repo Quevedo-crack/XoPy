@@ -454,6 +454,9 @@ public sealed class CopyEngine
             if (items.Any(item => item.Operation == OperationType.Move) && Errors == 0)
                 CleanupMovedFolders(items);
             FileLog.Write($"Fin: {DoneBytes} bytes en {Elapsed.TotalSeconds:0.0}s, errores={Errors}");
+            // Al terminar una copia el registro se guarda entero: si luego cierran XoPy a
+            // lo bruto (o lo cierra el sistema), el resumen ya está en el disco.
+            FileLog.Flush();
             try { Finished?.Invoke(this, EventArgs.Empty); } catch { }
         }
     }
@@ -904,10 +907,17 @@ public sealed class CopyEngine
         }
 
         long existing = 0;
-        if (options.ResumePartials && File.Exists(temp))
+        if (File.Exists(temp))
         {
-            try { existing = new FileInfo(temp).Length; } catch { existing = 0; }
-            if (existing > sourceLength)
+            if (options.ResumePartials)
+            {
+                try { existing = new FileInfo(temp).Length; } catch { existing = 0; }
+            }
+            // Resto de un intento anterior que NO se va a aprovechar (o que ya no sirve
+            // porque es más grande que el origen): se borra ahora. Si se dejaba ahí, la
+            // copia terminaba bien pero la carpeta de destino se quedaba con un archivo
+            // oculto «.nombre.xopy-part» de propina.
+            if (existing == 0 || existing > sourceLength)
             {
                 TryDeleteFile(temp);
                 existing = 0;

@@ -306,7 +306,14 @@ public sealed class StartupRequest
     public VerifyAlgorithm? VerifyAlgorithm { get; set; }
     public bool VerifyAfterCopy { get; set; }
     public bool CopyLockedFiles { get; set; }
-    public bool ResumePartials { get; set; }
+
+    /// <summary>
+    /// Reanudar copias a medias. ARRANCA EN «SÍ» porque la bandera de la línea de comandos
+    /// es «--no-resume»: valía «no» por omisión, así que CADA pegado desde el Explorador
+    /// ejecutaba «si no se pidió reanudar, apágalo en los ajustes» y dejaba la casilla
+    /// «Reanudar copias parciales» desmarcada para siempre, sin que nadie la tocara.
+    /// </summary>
+    public bool ResumePartials { get; set; } = true;
     public bool WriteChecksumFile { get; set; }
     public int? SecureDeletePasses { get; set; }
     public string? CompletionScript { get; set; }
