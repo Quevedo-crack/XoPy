@@ -143,7 +143,24 @@ public sealed class CopyEngine
 {
     private CancellationTokenSource? _cts;
     private volatile bool _paused;
+    /// <summary>
+    /// Cerrojo de la pausa GENERAL. Antes la espera era un sondeo: cada hilo miraba la
+    /// bandera, dormía 40 ms y volvía a mirar. Al reanudar se perdían hasta 40 ms por cada
+    /// bloque y por cada archivo —con miles de archivos pequeños eso es la diferencia
+    /// entre recuperar el ritmo y seguir a paso de tortuga—, y mientras tanto los cuatro
+    /// hilos estaban despertándose veinticinco veces por segundo para no hacer nada.
+    /// Ahora se duerme sobre un evento y se despierta EN EL ACTO al reanudar.
+    /// </summary>
+    private readonly ManualResetEventSlim _resumeGate = new(true);
+    private volatile TaskCompletionSource<bool> _resumeSignal = CompletedSignal();
     private readonly ConcurrentDictionary<Guid, ManualResetEventSlim> _itemPauseEvents = new();
+
+    private static TaskCompletionSource<bool> CompletedSignal()
+    {
+        var signal = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        signal.TrySetResult(true);
+        return signal;
+    }
     private readonly object _parallelismLock = new();
     private TaskCompletionSource _parallelismChanged = NewSignal();
     private EngineOptions? _activeOptions;
@@ -329,6 +346,8 @@ public sealed class CopyEngine
         _cts?.Dispose();
         _cts = new CancellationTokenSource();
         _paused = false;
+        try { _resumeGate.Set(); } catch (ObjectDisposedException) { }
+        _resumeSignal = CompletedSignal();
         Interlocked.Exchange(ref _pausedTicks, 0);
         Interlocked.Exchange(ref _pauseStarted, 0);
         _skipCurrent = false;
@@ -380,9 +399,15 @@ public sealed class CopyEngine
         if (paused)
         {
             Interlocked.Exchange(ref _pauseStarted, _clock.Elapsed.Ticks);
+            _resumeSignal = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            try { _resumeGate.Reset(); } catch (ObjectDisposedException) { }
         }
         else
         {
+            // Primero se abre el cerrojo y después se recalculan los tiempos: así los hilos
+            // ya están copiando mientras se ajusta la muestra de velocidad.
+            try { _resumeGate.Set(); } catch (ObjectDisposedException) { }
+            _resumeSignal.TrySetResult(true);
             var started = Interlocked.Exchange(ref _pauseStarted, 0);
             if (started > 0) Interlocked.Add(ref _pausedTicks, _clock.Elapsed.Ticks - started);
             // REANUDAR ES REANUDAR TODO. Si antes se había pausado algún archivo suelto
@@ -843,6 +868,12 @@ public sealed class CopyEngine
                             ClearReadOnly(leftover);
                             TryDeleteFile(leftover);
                         }
+                        // EL DESTINO QUE YA ESTÁ TAMBIÉN ESTORBA. Si se llegó hasta aquí es
+                        // porque toca sobrescribirlo, y Windows niega el acceso al volver a
+                        // crear encima de un archivo que está «pendiente de borrado», es un
+                        // enlace o lo dejó a medias otro programa. Borrarlo y escribir
+                        // limpio es lo que de verdad desatasca el archivo.
+                        if (File.Exists(target)) TryDeleteFile(target);
                     }
                     catch { }
                     continue;
@@ -892,6 +923,13 @@ public sealed class CopyEngine
         }
     }
 
+    /// <summary>
+    /// A partir de cuántos bytes merece la pena continuar una copia a medias en vez de
+    /// repetirla entera con el motor rápido. Ocho megas es, con cualquier disco actual,
+    /// menos de un segundo de copia.
+    /// </summary>
+    private const long ResumeWorthBytes = 8L * 1024 * 1024;
+
     private async Task CopyCoreAsync(string source, string target, TransferItem item, EngineOptions options, CancellationToken token)
     {
         var directory = Path.GetDirectoryName(target)!;
@@ -913,6 +951,12 @@ public sealed class CopyEngine
         long existing = 0;
         if (File.Exists(temp))
         {
+            // ATRIBUTOS DEL TROZO ANTERIOR. Windows devuelve «acceso denegado (5)» al
+            // volver a crear o ampliar un archivo que está marcado como oculto, de sistema
+            // o de solo lectura; un «.archivo.xopy-part» heredado de un intento anterior
+            // (o tocado por el antivirus) dejaba el archivo imposible de copiar una y otra
+            // vez, que es el error que salía al pausar y reanudar.
+            ClearReadOnly(temp);
             if (options.ResumePartials)
             {
                 try { existing = new FileInfo(temp).Length; } catch { existing = 0; }
@@ -926,17 +970,47 @@ public sealed class CopyEngine
                 TryDeleteFile(temp);
                 existing = 0;
             }
+            // APROVECHAR UN TROZO PEQUEÑO SALE CARO. Reanudar obliga a usar la copia
+            // administrada: leer y escribir a mano en el temporal y moverlo después, bastante
+            // más lento que CopyFileEx, que es lo que usa Windows por dentro. Para unos pocos
+            // megas no compensa, y era la razón de que después de pausar y reanudar la copia
+            // se quedara arrastrándose: cada archivo con un trozo suelto salía del camino
+            // rápido. Por debajo del umbral se tira el trozo y se copia entero, a toda
+            // velocidad; por encima (un archivo grande a medias) sí se continúa.
+            if (existing > 0 && existing < ResumeWorthBytes && existing != sourceLength
+                && options.Engine != CopyEngineKind.Managed)
+            {
+                FileLog.Write($"Trozo pequeño descartado ({existing} B) en {temp}: sale más rápido copiar el archivo entero.");
+                TryDeleteFile(temp);
+                existing = 0;
+            }
         }
 
         // Copia ya terminada en una ejecución anterior: solo hay que verificar y colocar.
         if (existing > 0 && existing == sourceLength)
         {
-            item.TransferredBytes = sourceLength;
-            await FinishFileAsync(source, temp, item, options, token).ConfigureAwait(false);
-            MoveWithRetry(temp, target);
-            ApplyMetadata(source, target, options);
-            FileLog.Write($"Reanudada (completa) la copia parcial de {target}");
-            return;
+            try
+            {
+                item.TransferredBytes = sourceLength;
+                await FinishFileAsync(source, temp, item, options, token).ConfigureAwait(false);
+                MoveWithRetry(temp, target);
+                ApplyMetadata(source, target, options);
+                FileLog.Write($"Reanudada (completa) la copia parcial de {target}");
+                return;
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (SkipRequestedException) { throw; }
+            catch (Exception ex)
+            {
+                // APROVECHAR EL TROZO ANTERIOR ES UN ATAJO, NO UNA OBLIGACIÓN. Si ese
+                // archivo a medias no se puede leer, mover o verificar, se tira y se copia
+                // limpio: antes el mismo trozo roto hacía fallar el archivo en cada
+                // intento, para siempre.
+                FileLog.Write($"No se pudo aprovechar {temp} ({ex.Message}); se copia el archivo entero.");
+                TryDeleteFile(temp);
+                existing = 0;
+                item.TransferredBytes = 0;
+            }
         }
 
         // Robocopy: el motor más rápido con muchos archivos, redes y rutas largas.
@@ -1032,14 +1106,13 @@ public sealed class CopyEngine
         }
         catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or NotSupportedException)
         {
-            if (existing > 0)
-            {
-                // No mezclamos una copia parcial con una escritura directa.
-                keepTemp = true;
-                throw;
-            }
-
-            // Si no se puede crear el temporal (permisos, rutas largas, unidades de red), copiamos directo.
+            // SI EL TEMPORAL DA PROBLEMAS, SE TIRA Y SE COPIA DIRECTO. Antes, al reanudar
+            // un trozo anterior cualquier fallo se daba por definitivo («no mezclamos una
+            // copia parcial con una escritura directa»): si ese «.archivo.xopy-part» no se
+            // dejaba ampliar —el caso típico es el antivirus o la protección contra
+            // ransomware bloqueando el archivo oculto—, el mismo archivo fallaba con
+            // «acceso denegado (5)» en CADA intento, una y otra vez. Ahora se descarta el
+            // trozo y se copia el archivo entero, que es lo que el usuario quiere.
             TryDeleteFile(temp);
             item.TransferredBytes = 0;
             FileLog.Write($"Temporal no disponible para {target}: {ex.Message}. Se copia directamente.");
@@ -1128,8 +1201,14 @@ public sealed class CopyEngine
         var size = (int)Math.Clamp(wanted, 64 * 1024, Math.Max(64 * 1024, options.BufferSize));
         await using var input = OpenSourceRead(source, options, size);
         if (offset > 0) input.Seek(offset, SeekOrigin.Begin);
+        // Atributos del destino ANTES de abrirlo: crear o ampliar un archivo marcado como
+        // oculto, de sistema o de solo lectura devuelve «acceso denegado (5)».
+        ClearReadOnly(destination);
+        // Se deja mirar y borrar mientras se escribe (FileShare.None hacía que el
+        // antivirus o el Explorador, al abrir el archivo un instante, provocaran un fallo
+        // de uso compartido en mitad de la copia).
         await using var output = new FileStream(destination, append ? FileMode.Append : FileMode.Create, FileAccess.Write,
-            FileShare.None, 1, FileOptions.Asynchronous | FileOptions.SequentialScan);
+            FileShare.Read | FileShare.Delete, 1, FileOptions.Asynchronous | FileOptions.SequentialScan);
 
         var buffer = System.Buffers.ArrayPool<byte>.Shared.Rent(size);
         try
@@ -1606,22 +1685,32 @@ public sealed class CopyEngine
 
     private async Task WaitWhilePausedAsync(TransferItem item, CancellationToken token)
     {
+        // CAMINO RÁPIDO: sin pausa no se toca nada. Esta comprobación se hace una vez por
+        // bloque leído (miles de veces por segundo), así que no puede costar nada.
+        if (!_paused && !IsItemPaused(item)) return;
+
         while (_paused || IsItemPaused(item))
         {
             if (IsItemPaused(item)) item.State = ItemState.Paused;
             token.ThrowIfCancellationRequested();
-            await Task.Delay(40, token).ConfigureAwait(false);
+            // La pausa general despierta en el acto; la de un archivo suelto se comprueba
+            // cuatro veces por segundo, que para un archivo parado a mano sobra.
+            var wake = _resumeSignal.Task;
+            await Task.WhenAny(wake, Task.Delay(250, token)).ConfigureAwait(false);
         }
         if (item.State == ItemState.Paused) item.State = ItemState.Running;
     }
 
     private void WaitWhilePaused(TransferItem item, CancellationToken token)
     {
+        if (!_paused && !IsItemPaused(item)) return;
+
         while (_paused || IsItemPaused(item))
         {
             if (IsItemPaused(item)) item.State = ItemState.Paused;
             token.ThrowIfCancellationRequested();
-            Thread.Sleep(40);
+            try { _resumeGate.Wait(250, token); }
+            catch (ObjectDisposedException) { Thread.Sleep(40); }
         }
         if (item.State == ItemState.Paused) item.State = ItemState.Running;
     }

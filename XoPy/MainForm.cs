@@ -97,6 +97,7 @@ public sealed partial class MainForm : Form
     private Panel _tabsHost = null!;
     /// <summary>Tapa la barra de desplazamiento nativa de la lista (blanca en tema oscuro).</summary>
     private Panel? _scrollCover;
+    private ListHeaderTail? _headerTail;
     private Control[] _pages = Array.Empty<Control>();
     private int _tabIndex;
 
@@ -375,11 +376,14 @@ public sealed partial class MainForm : Form
             if (_transferHeader is not null && _transferHeader.RowStyles.Count >= 4)
             {
                 // Las dos líneas con sus dos barras se ven igual en reducido: en ese modo
-                // son lo único que queda, así que tienen que estar completas.
+                // son lo único que queda, así que tienen que estar completas. El orden es
+                // el de BuildTransferHeader: Total + su barra, y debajo el archivo con la
+                // suya (si estos altos no coinciden con los de allí, una de las dos barras
+                // se queda a medio pintar).
                 _transferHeader.RowStyles[0].Height = Px(24);
-                _transferHeader.RowStyles[1].Height = Px(12);
+                _transferHeader.RowStyles[1].Height = Px(14);
                 _transferHeader.RowStyles[2].Height = Px(24);
-                _transferHeader.RowStyles[3].Height = Px(16);
+                _transferHeader.RowStyles[3].Height = Px(14);
             }
             if (compact && _tabIndex != 0) SelectTab(0);
             // La lista (con sus pestañas y el panel de trabajos) se esconde ENTERA, y con
@@ -417,12 +421,35 @@ public sealed partial class MainForm : Form
             catch { }
         }
 
+        // EL TAMAÑO DE ANTES SE APUNTA SIEMPRE, aunque el cambio no sea definitivo: al
+        // pegar con Ctrl+V la ventana se recoge sin «persist», y sin esto, al volver a
+        // enseñar la lista, XoPy no sabía a qué tamaño devolverla.
+        if (compact && _expandedBounds.Width == 0 && WindowState != FormWindowState.Minimized)
+        {
+            _expandedWasMaximized = WindowState == FormWindowState.Maximized;
+            _expandedBounds = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
+        }
+
         // La ventana NUNCA se ajusta sola: se recortaba. Como en TeraCopy, es redimensionable
         // a mano en los dos modos y el tamaño mínimo se calcula para que quepa todo lo visible.
         AutoSize = false;
         // Con la lista oculta solo quedan la barra y la cabecera: el mínimo es ese alto
         // exacto, para que no quede ni un dedo de ventana vacía por debajo.
         MinimumSize = compact ? new Size(560, CompactWindowHeight()) : new Size(820, 560);
+        // …Y EL MÁXIMO, EL MISMO. La vista reducida es una banda: si se puede estirar hacia
+        // abajo, debajo de la cabecera queda un rectángulo negro enorme con nada dentro
+        // (lo que el usuario fotografió). Se bloquea el alto —el ancho se sigue pudiendo
+        // cambiar— y se quita el botón de maximizar, que hacía lo mismo de un clic.
+        if (compact)
+        {
+            MaximumSize = new Size(0, CompactWindowHeight());
+            if (MaximizeBox) MaximizeBox = false;
+        }
+        else
+        {
+            if (MaximumSize != Size.Empty) MaximumSize = Size.Empty;
+            if (!MaximizeBox) MaximizeBox = true;
+        }
         if (persist)
         {
             // LA VENTANA NO SE MUEVE DE SITIO. Solo cambia de alto, y crece o encoge hacia
@@ -430,8 +457,6 @@ public sealed partial class MainForm : Form
             // pantalla cada vez que se mostraba o se escondía la lista.
             if (compact)
             {
-                _expandedWasMaximized = WindowState == FormWindowState.Maximized;
-                _expandedBounds = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
 
                 // MAXIMIZADA NO SE QUEDA MAXIMIZADA. Con la lista escondida, una ventana a
                 // pantalla completa deja debajo de la cabecera un enorme rectángulo vacío
@@ -439,12 +464,20 @@ public sealed partial class MainForm : Form
                 // y punto. Se sale de maximizado conservando el ancho que tenía.
                 if (WindowState == FormWindowState.Maximized)
                 {
-                    var wide = Math.Max(560, RestoreBounds.Width > 0 ? RestoreBounds.Width : Width);
-                    var left = RestoreBounds.Width > 0 ? RestoreBounds.X : Left;
-                    var top = RestoreBounds.Height > 0 ? RestoreBounds.Y : Top;
+                    // LA BANDA SE QUEDA DONDE ESTABA LA VENTANA GRANDE. Antes se usaban las
+                    // coordenadas guardadas de la ventana «normal» (RestoreBounds), que
+                    // podían ser de otra pantalla, de una resolución anterior o estar
+                    // directamente fuera del escritorio: la ventana desaparecía y no había
+                    // manera de recuperarla. Ahora se parte del rectángulo que ocupa la
+                    // ventana maximizada y se recorta al área visible.
+                    var screen = Screen.FromControl(this).WorkingArea;
+                    var wide = Math.Clamp(Width, 560, Math.Max(560, screen.Width));
+                    var band = new Rectangle(screen.X + Math.Max(0, (screen.Width - wide) / 2),
+                        screen.Y, wide, CompactWindowHeight());
                     MinimumSize = new Size(560, CompactWindowHeight());
+                    MaximumSize = new Size(0, CompactWindowHeight());
                     WindowState = FormWindowState.Normal;
-                    Bounds = new Rectangle(left, top, wide, CompactWindowHeight());
+                    Bounds = ClampToWorkArea(band);
                 }
                 else if (WindowState == FormWindowState.Normal)
                 {
@@ -456,9 +489,10 @@ public sealed partial class MainForm : Form
                     // El mínimo se ajusta ANTES de mover la ventana: si no, Math.Max con el
                     // mínimo anterior volvía a estirarla y reaparecía el hueco.
                     MinimumSize = new Size(560, height);
+                    MaximumSize = new Size(0, height);
                     // Una sola asignación de Bounds: cambiar Height y Width por separado
                     // provocaba dos recolocaciones y el típico salto de la ventana.
-                    Bounds = new Rectangle(Left, Top, Math.Max(Width, 560), height);
+                    Bounds = ClampToWorkArea(new Rectangle(Left, Top, Math.Max(Width, 560), height));
                 }
             }
             else if (_expandedBounds.Width > 0)
@@ -473,9 +507,9 @@ public sealed partial class MainForm : Form
                     // Vuelve al alto que tenía, EN EL MISMO SITIO en el que está ahora: si el
                     // usuario movió la ventana con la lista escondida, no se la devolvemos de
                     // un salto a las coordenadas antiguas.
-                    Bounds = new Rectangle(Left, Top,
+                    Bounds = ClampToWorkArea(new Rectangle(Left, Top,
                         Math.Max(MinimumSize.Width, _expandedBounds.Width),
-                        Math.Max(MinimumSize.Height, _expandedBounds.Height));
+                        Math.Max(MinimumSize.Height, _expandedBounds.Height)));
                 }
                 _expandedBounds = Rectangle.Empty;
                 _expandedWasMaximized = false;
@@ -483,10 +517,31 @@ public sealed partial class MainForm : Form
             _settings.CompactView = compact;
             _settings.ShowList = !compact;
             _store.Save(_settings);
+            // Último repaso: pase lo que pase, la ventana TIENE que seguir viéndose.
+            RescueOffScreen();
             SetStatus(compact
                 ? "Lista oculta. Pulsa «Mostrar lista» en la barra para recuperarla."
                 : "Lista visible.");
         }
+    }
+
+    /// <summary>
+    /// Mete un rectángulo DENTRO de la pantalla en la que cae. Es la red de seguridad que
+    /// impide que la ventana acabe fuera del escritorio (y, por tanto, imposible de
+    /// recuperar): pasaba al esconder la lista con la ventana maximizada.
+    /// </summary>
+    private static Rectangle ClampToWorkArea(Rectangle bounds)
+    {
+        try
+        {
+            var area = Screen.FromRectangle(bounds).WorkingArea;
+            var width = Math.Min(bounds.Width, area.Width);
+            var height = Math.Min(bounds.Height, area.Height);
+            var x = Math.Clamp(bounds.X, area.Left, Math.Max(area.Left, area.Right - width));
+            var y = Math.Clamp(bounds.Y, area.Top, Math.Max(area.Top, area.Bottom - height));
+            return new Rectangle(x, y, Math.Max(200, width), Math.Max(80, height));
+        }
+        catch { return bounds; }
     }
 
     /// <summary>
@@ -933,7 +988,9 @@ public sealed partial class MainForm : Form
         };
         panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));
         panel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
+        // 46, no 36: el botón «Historial» mide 38 de alto (Ui.ToolButton) y con 36 se veía
+        // cortado por abajo, como en la captura del informe.
+        panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 46));
 
         // Cabecera con el título y el botón que oculta/muestra el historial completo de
         // listas de copia. El estado se guarda, así que al reabrir se mantiene.
@@ -1036,7 +1093,9 @@ public sealed partial class MainForm : Form
             Padding = new Padding(0, 6, 0, 0)
         };
         var historyButton = Ui.ToolButton("Historial", Icons.History, _palette);
-        Ui.Fit(historyButton, 112, 30);
+        // El ancho lo pone el texto; el alto es el de la fila menos el hueco de arriba.
+        Ui.Fit(historyButton, 120, 36);
+        historyButton.Height = 36;
         historyButton.Margin = new Padding(0);
         historyButton.Click += (_, _) => ShowHistory();
         buttons.Controls.Add(historyButton);
@@ -1104,19 +1163,20 @@ public sealed partial class MainForm : Form
         };
         _transferHeader = host;
         // DOS BARRAS, cada una debajo de su línea y sin lugar a dudas:
-        //   línea 1 «Copiando …»  + barra del ARCHIVO que se está copiando ahora
-        //   línea 2 «Total …»     + barra del TOTAL de la copia
-        // El porcentaje de cada línea es el de SU barra.
+        //   línea 1 «Total …»     + barra del TOTAL de la copia (la grande, arriba)
+        //   línea 2 «Copiando …»  + barra del ARCHIVO que se está copiando ahora
+        // El porcentaje de cada línea es el de SU barra. El total va PRIMERO: es el dato
+        // que se mira de reojo, y así coincide con el orden de FlashCopy Pro.
         host.RowCount = 4;
         host.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
-        host.RowStyles.Add(new RowStyle(SizeType.Absolute, 12));
+        host.RowStyles.Add(new RowStyle(SizeType.Absolute, 14));
         host.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
-        host.RowStyles.Add(new RowStyle(SizeType.Absolute, 16));
+        host.RowStyles.Add(new RowStyle(SizeType.Absolute, 14));
 
-        host.Controls.Add(BuildHeaderLine("Copiando", out _hdrCopyState, out _hdrCopyPath, out _hdrCopyInfo, out _hdrCopyPercent), 0, 0);
-        host.Controls.Add(BuildHeaderBar(out _hdrFileBar, 10), 0, 1);
-        host.Controls.Add(BuildHeaderLine("Total", out _hdrTargetState, out _hdrTargetPath, out _hdrTargetInfo, out _hdrTargetPercent), 0, 2);
-        host.Controls.Add(BuildHeaderBar(out _hdrCopyBar, 14), 0, 3);
+        host.Controls.Add(BuildHeaderLine("Total", out _hdrTargetState, out _hdrTargetPath, out _hdrTargetInfo, out _hdrTargetPercent), 0, 0);
+        host.Controls.Add(BuildHeaderBar(out _hdrCopyBar, 14), 0, 1);
+        host.Controls.Add(BuildHeaderLine("Copiando", out _hdrCopyState, out _hdrCopyPath, out _hdrCopyInfo, out _hdrCopyPercent), 0, 2);
+        host.Controls.Add(BuildHeaderBar(out _hdrFileBar, 12), 0, 3);
         return host;
     }
 
@@ -1141,8 +1201,10 @@ public sealed partial class MainForm : Form
         };
         row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 84));
         row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        // 320 px (antes 214): aquí cabe ahora «123 de 2.345 archivos · 102 MB/s · quedan…».
-        row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 320));
+        // AL TAMAÑO DEL TEXTO, no a un ancho fijo. En la línea «Total» va todo lo que hay
+        // que saber —«1.234 de 3.222 archivos · 2,3 GB de 2,9 GB · 88 MB/s · quedan 6 s»— y
+        // con 320 px fijos se cortaba por la mitad. Lo que sobra se lo queda la ruta.
+        row.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 56));
 
         // Píldora redondeada con el estado, como en TeraCopy.
@@ -1162,14 +1224,15 @@ public sealed partial class MainForm : Form
         info = new Label
         {
             Text = string.Empty,
-            AutoSize = false,
-            Dock = DockStyle.Fill,
+            // AutoSize: la columna se mide por el texto (ver ColumnStyles), así nunca se
+            // corta «quedan 6 s» ni los megabytes que faltan.
+            AutoSize = true,
+            Anchor = AnchorStyles.Right,
             TextAlign = ContentAlignment.MiddleRight,
             ForeColor = _palette.Muted,
             Font = new Font("Segoe UI", 8.25f),
-            AutoEllipsis = true,
             UseMnemonic = false,
-            Margin = new Padding(0, 0, 8, 0)
+            Margin = new Padding(0, 4, 8, 0)
         };
         percent = new Label
         {
@@ -1479,6 +1542,10 @@ public sealed partial class MainForm : Form
         _scrollCover = new Panel { BackColor = _palette.Surface, Visible = false };
         Controls.Add(_scrollCover);
 
+        // La franja de cabecera que sobra a la derecha de la última columna la pinta
+        // Windows de blanco; este enganche la repinta siempre (defecto de la barra blanca).
+        _headerTail = new ListHeaderTail(_list, _palette.SurfaceAlt, _palette.Border);
+
         _list.DrawColumnHeader += ListDrawColumnHeader;
         _list.DrawItem += (_, e) => { if (_list.View != View.Details) e.DrawDefault = true; };
         _list.DrawSubItem += ListDrawSubItem;
@@ -1491,6 +1558,9 @@ public sealed partial class MainForm : Form
         // que aparezca la barra de desplazamiento la ensanchan o la estrechan, y el hueco
         // sobrante a la derecha de la última columna se pintaba de blanco.
         _list.ClientSizeChanged += (_, _) => ScheduleColumnUpdate();
+        // Y si el usuario arrastra el borde de una columna a mano, el hueco que deje se
+        // reparte igual: antes quedaba a la derecha una franja sin columna (blanca).
+        _list.ColumnWidthChanged += (_, _) => ScheduleColumnUpdate();
         _list.KeyDown += ListKeyDown;
         _list.DoubleClick += ListDoubleClick;
         _list.AfterLabelEdit += ListAfterLabelEdit;
@@ -3075,7 +3145,24 @@ public sealed partial class MainForm : Form
 
     private async Task HandleExternalAsync(StartupRequest request, bool isStartup)
     {
-        if (!isStartup) RestoreWindow();
+        if (!isStartup)
+        {
+            // FORMATO MÍNIMO AL PEGAR. Lo que llega de fuera (Ctrl+V, el menú del
+            // Explorador, arrastrar y soltar) es una copia, y para una copia el usuario
+            // pidió la ventanita de progreso. Si XoPy ya estaba abierto con la lista
+            // desplegada, se recoge ANTES de enseñarla: así no se ve primero la ventana
+            // grande y después el salto a la pequeña (el parpadeo del informe).
+            var traeTrabajo = request.Paths.Count > 0 || request.PasteFromClipboard
+                              || request.Operation is not null;
+            var quiereReducida = _settings.WindowMode switch
+            {
+                0 => true,
+                2 => traeTrabajo,
+                _ => false
+            };
+            if (quiereReducida && traeTrabajo && !_compactView) ApplyCompactView(true, persist: false);
+            RestoreWindow();
+        }
 
         // El destino pedido con --to se aplica a la lista y al cuadro de destino antes de
         // añadir los archivos, para que la transferencia arranque sin preguntar nada.

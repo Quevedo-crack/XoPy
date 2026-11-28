@@ -297,6 +297,14 @@ public sealed class StartupRequest
     /// <summary>Cerrar al terminar la transferencia pedida por línea de comandos (--exit).</summary>
     public bool ExitWhenDone { get; set; }
 
+    /// <summary>
+    /// VENTANA APARTE (--multi). La manda XoPy a XoPy cuando el usuario elige «copiar a la
+    /// vez»: esta instancia NO debe hablar con la que ya está abierta (eso metía los
+    /// archivos al final de la lista que estaba copiando, que es justo lo contrario de lo
+    /// que se pidió), sino abrir su propia ventana con su propia lista y copiar en paralelo.
+    /// </summary>
+    public bool SeparateWindow { get; set; }
+
     /// <summary>Prueba automática de la cola (--self-test-queue); no abre la ventana.</summary>
     public bool SelfTestQueue { get; set; }
 
@@ -345,6 +353,11 @@ public sealed class StartupRequest
                     request.StartMinimized = false;
                     break;
                 case "--tray": request.StartMinimized = true; break;
+                // Ventana aparte para copiar a la vez: ni IPC ni instancia única.
+                case "--multi":
+                case "--nueva-ventana":
+                    request.SeparateWindow = true;
+                    break;
                 case "--exit": request.ExitWhenDone = true; break;
                 case "--self-test-repeat":
                     request.SelfTestRepeat = true;

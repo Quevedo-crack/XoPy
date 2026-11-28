@@ -151,6 +151,32 @@ el otro gestor de copias de este mismo autor, y resuelve de paso lo que allí fa
 - En la barra de copia se puede alternar entre modo secuencial y multihilo, también durante una transferencia; un archivo se puede pausar/reanudar individualmente desde el menú contextual de la lista. La lista admite reordenado por arrastre; las carpetas se muestran contraídas al añadirse y se pueden desplegar con la flecha o desde el menú. La columna de trabajos también empieza plegada y puede expandirse.
 - El instalador limpia las antiguas claves del menú contextual antes de iniciar la aplicación.
 
+## Novedades de la versión 2.6.6
+
+**Los trece fallos de la 2.6.5, uno por uno.**
+
+Ventana
+
+- **Las dos barras, en el orden que toca:** arriba el **total** de la copia y debajo el **archivo concreto**, que además se ve mejor (antes el azul del archivo era tan oscuro que parecía que no avanzaba).
+- **La línea «Total» lo dice todo**: archivos copiados y los que faltan, megas copiados y los que faltan, velocidad y tiempo restante, sin recortes aunque la ventana sea estrecha.
+- **La vista reducida ya no se puede estirar hacia abajo**: es una banda de alto fijo, sin franja vacía debajo (y sin botón de maximizar, que hacía lo mismo de un clic).
+- **Esconder la lista con la ventana maximizada ya no hace desaparecer XoPy.** La banda se queda en la pantalla en la que estaba, y si por lo que sea la ventana acabara fuera del escritorio, XoPy la trae de vuelta sola.
+- **Ctrl+V abre siempre la ventana pequeña**, sin el parpadeo de verla primero grande y luego encogerse.
+- **El botón «Historial» ya cabe entero.**
+- **Preferencias deja de salir enmarcada en blanco**: el cuadro de pestañas pinta sus propios bordes y los huecos entre pestañas.
+- **Fuera la barra blanca a la derecha de la lista** al desplazarse en horizontal: la cabecera se pinta hasta el borde pase lo que pase con las columnas.
+- **En el árbol se resalta la ruta entera, línea de puntos incluida**: el trazo que une la carpeta con el archivo marcado va en azul aunque pase por encima de las filas de otros archivos.
+
+Copia
+
+- **Se acabaron los «Acceso denegado (error 5)» al reanudar.** Si el resto de una copia anterior (`.archivo.xopy-part`) no se deja tocar, XoPy lo tira y copia el archivo entero en vez de volver a estrellarse contra él una y otra vez; antes de escribir quita los atributos que estorban y, si hace falta, borra el destino.
+- **Reanudar vuelve a ir rápido.** Un trozo pequeño ya no obliga a usar el motor lento: por debajo de 8 MB se copia el archivo entero con el motor nativo. Y la pausa se abre con un cerrojo de verdad, así que al reanudar los hilos arrancan en el acto en vez de esperar su turno de sondeo.
+- **«Copiar a la vez» copia de verdad.** Antes los archivos acababan al final de la lista que ya estaba copiando; ahora se abre otra ventana de XoPy con su propia lista y las dos copias van en paralelo.
+
+Explorador
+
+- **Se acabaron los «aquÃ­» del menú del botón derecho**: la extensión se compila en UTF-8 y los acentos salen bien.
+
 ## Novedades de la versión 2.6.5
 
 **Copiar rápido otra vez, y los avisos que faltaban.**

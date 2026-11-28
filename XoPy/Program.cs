@@ -97,7 +97,14 @@ internal static class Program
             var mutex = new Mutex(true, Ipc.MutexName, out var isFirstInstance);
 
             Log("10. Verificar primera instancia");
-            if (!isFirstInstance)
+            // --multi: ventana aparte a propósito. Pasar por el IPC aquí era el fallo de
+            // «copiar a la vez»: la petición acababa en la ventana que ya estaba copiando,
+            // que añadía los archivos al final de SU lista y no abría nada.
+            if (!isFirstInstance && request.SeparateWindow)
+            {
+                Log("10b. --multi: se abre una ventana aparte sin tocar la instancia abierta");
+            }
+            else if (!isFirstInstance)
             {
                 Log("11. No es primera instancia, intentar IPC");
                 // Se espera un poco al servidor: si la primera instancia aún está arrancando,
@@ -128,7 +135,9 @@ internal static class Program
             using var form = new MainForm(request);
 
             Log("14. Iniciar IpcServer");
-            IpcServer.Start(form);
+            // La ventana aparte NO escucha: la tubería es de uno en uno y, si la robara,
+            // los pegados del Explorador dejarían de llegar a la ventana principal.
+            if (isFirstInstance || !request.SeparateWindow) IpcServer.Start(form);
 
             Log("15. Application.Run");
             Application.Run(form);

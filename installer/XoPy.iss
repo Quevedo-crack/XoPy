@@ -2,8 +2,8 @@
 
 [Setup]
 AppName=XoPy
-AppVersion=2.6.5
-AppVerName=XoPy 2.6.5
+AppVersion=2.6.6
+AppVerName=XoPy 2.6.6
 AppPublisher=Quevedo-crack
 AppPublisherURL=https://github.com/Quevedo-crack/XoPy
 AppSupportURL=https://github.com/Quevedo-crack/XoPy/issues
@@ -14,7 +14,7 @@ DisableProgramGroupPage=yes
 OutputDir=..\installer-output
 OutputBaseFilename=XoPy-Setup-win-x64
 UninstallDisplayIcon={app}\XoPy.exe
-UninstallDisplayName=XoPy 2.6.5
+UninstallDisplayName=XoPy 2.6.6
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
@@ -37,7 +37,7 @@ RestartIfNeededByRun=no
 AlwaysRestart=no
 AppMutex=Local\\XoPy.SingleInstance.5C1A93
 AllowNoIcons=yes
-VersionInfoVersion=2.6.5.0
+VersionInfoVersion=2.6.6.0
 VersionInfoProductName=XoPy
 VersionInfoDescription=Gestor de copias XoPy
 VersionInfoCompany=Quevedo-crack

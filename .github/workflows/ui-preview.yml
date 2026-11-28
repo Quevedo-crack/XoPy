@@ -263,12 +263,25 @@ jobs:
         run: |
           $exe = (Resolve-Path .\publish\XoPy.exe).Path
           New-Item -ItemType Directory -Force C:\xopytest\dest5 | Out-Null
-          $bytes = [byte[]]::new(300000)
+          # 24 MB: continuar un archivo a medias solo compensa cuando el trozo es grande.
+          # Con unos pocos kilobytes XoPy lo tira y lo copia entero con el motor rápido (es
+          # lo que devuelve el ritmo normal después de pausar y reanudar), así que la prueba
+          # de reanudación necesita un archivo de verdad.
+          $bytes = [byte[]]::new(25165824)
           (New-Object Random 7).NextBytes($bytes)
           [IO.File]::WriteAllBytes('C:\xopytest\grande.bin', $bytes)
-          [IO.File]::WriteAllBytes('C:\xopytest\dest5\.grande.bin.xopy-part', $bytes[0..149999])
-          $process = Start-Process -FilePath $exe -ArgumentList @('--copy', '--exit', '--to', 'C:\xopytest\dest5', 'C:\xopytest\grande.bin') -PassThru
-          Start-Sleep -Seconds 15
+          $mitad = [byte[]]::new(12582912)
+          [Array]::Copy($bytes, $mitad, 12582912)
+          [IO.File]::WriteAllBytes('C:\xopytest\dest5\.grande.bin.xopy-part', $mitad)
+          # Y un archivo pequeño con su trocito: este NO se reanuda a propósito.
+          $chico = [byte[]]::new(300000)
+          (New-Object Random 9).NextBytes($chico)
+          [IO.File]::WriteAllBytes('C:\xopytest\pequeno.bin', $chico)
+          $trozo = [byte[]]::new(150000)
+          [Array]::Copy($chico, $trozo, 150000)
+          [IO.File]::WriteAllBytes('C:\xopytest\dest5\.pequeno.bin.xopy-part', $trozo)
+          $process = Start-Process -FilePath $exe -ArgumentList @('--copy', '--exit', '--to', 'C:\xopytest\dest5', 'C:\xopytest\grande.bin', 'C:\xopytest\pequeno.bin') -PassThru
+          Start-Sleep -Seconds 25
           if (-not $process.HasExited) { $process.Kill() }
           $report = @()
           $report += "final=$(Test-Path 'C:\xopytest\dest5\grande.bin')"
@@ -285,16 +298,22 @@ jobs:
           $opcion = ''
           if (Test-Path $log) {
             $reanudo = (Select-String -Path $log -Pattern 'Reanudando .*grande\.bin' -Quiet) -eq $true
+            $descarto = (Select-String -Path $log -Pattern 'Trozo peque.o descartado .*pequeno\.bin' -Quiet) -eq $true
             $ultima = Select-String -Path $log -Pattern 'reanudar=(\w+)' | Select-Object -Last 1
             if ($ultima) { $opcion = $ultima.Matches[0].Groups[1].Value }
           }
           $report += "reanudo_de_verdad=$reanudo"
+          $report += "descarto_trozo_pequeno=$descarto"
+          $report += "pequeno_final=$(Test-Path 'C:\xopytest\dest5\pequeno.bin')"
           $report += "opcion_reanudar=$opcion"
           $report | Set-Content C:\xopytest\reanudartest.txt
           Get-Content C:\xopytest\reanudartest.txt
           Write-Host ("::notice title=Reanudar::" + ($report -join ' | '))
           if ($opcion -eq 'False') { throw 'Pegar desde el Explorador apagó la opción «reanudar copias parciales»' }
           if (-not $reanudo) { throw 'No se aprovechó el trozo ya copiado: se copió el archivo entero otra vez' }
+          if (-not $descarto) { throw 'El trozo pequeño debía descartarse para copiar el archivo entero por el camino rápido' }
+          if (-not (Test-Path 'C:\xopytest\dest5\pequeno.bin')) { throw 'No se copió el archivo pequeño' }
+          if ((Get-FileHash 'C:\xopytest\dest5\pequeno.bin').Hash -ne (Get-FileHash 'C:\xopytest\pequeno.bin').Hash) { throw 'El archivo pequeño no coincide' }
           if (-not (Test-Path 'C:\xopytest\dest5\grande.bin')) { throw 'No se completó la copia reanudada' }
           if ((Get-FileHash 'C:\xopytest\dest5\grande.bin').Hash -ne (Get-FileHash 'C:\xopytest\grande.bin').Hash) { throw 'El archivo reanudado no coincide' }
           if ((Get-ChildItem 'C:\xopytest\dest5' -Force -Filter '*.xopy-part').Count -gt 0) { throw 'Quedó un temporal tras reanudar' }

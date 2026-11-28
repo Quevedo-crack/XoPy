@@ -1214,3 +1214,168 @@ internal sealed class ChoiceButton : Button
         base.Dispose(disposing);
     }
 }
+
+
+/// <summary>
+/// Cuadro de pestañas SIN los bordes blancos. Windows pinta por su cuenta un marco claro
+/// de dos píxeles alrededor de la página y rellena de blanco los huecos que quedan entre
+/// pestaña y pestaña; con el tema oscuro eso dejaba la ventana de Preferencias enmarcada
+/// en blanco por los cuatro lados (justo lo que mostró el usuario). Aquí se repinta esa
+/// franja —y solo esa— con el color del fondo en cuanto el sistema termina de dibujar.
+/// </summary>
+internal sealed class DarkTabs : TabControl
+{
+    private const int WmPaint = 0x000F;
+    private const int WmEraseBackground = 0x0014;
+    private readonly Palette _palette;
+
+    public DarkTabs(Palette palette)
+    {
+        _palette = palette;
+        DoubleBuffered = true;
+    }
+
+    protected override void WndProc(ref Message m)
+    {
+        if (m.Msg == WmEraseBackground)
+        {
+            // El borrado del fondo lo hacía el sistema con el blanco del tema claro: se
+            // ve como un parpadeo blanco al cambiar de pestaña o al estirar la ventana.
+            try
+            {
+                using var graphics = Graphics.FromHdc(m.WParam);
+                using var brush = new SolidBrush(_palette.Canvas);
+                graphics.FillRectangle(brush, ClientRectangle);
+                m.Result = new IntPtr(1);
+                return;
+            }
+            catch { }
+        }
+
+        base.WndProc(ref m);
+        if (m.Msg == WmPaint) PaintFrame();
+    }
+
+    /// <summary>
+    /// Tapa lo que ha pintado Windows fuera de la página y fuera de las pestañas: el marco
+    /// y los huecos del renglón de pestañas.
+    /// </summary>
+    private void PaintFrame()
+    {
+        try
+        {
+            var client = ClientRectangle;
+            var page = DisplayRectangle;
+            if (client.Width <= 0 || client.Height <= 0) return;
+
+            using var region = new Region(client);
+            region.Exclude(page);
+            for (var index = 0; index < TabCount; index++) region.Exclude(GetTabRect(index));
+
+            using var graphics = CreateGraphics();
+            using var brush = new SolidBrush(_palette.Canvas);
+            graphics.FillRegion(brush, region);
+        }
+        catch { }
+    }
+}
+
+
+/// <summary>
+/// Tapa el trozo de CABECERA que queda a la derecha de la última columna. El ListView
+/// nativo pinta esa franja con el color del sistema —blanco— y aparecía como una barra
+/// blanca de punta a punta en cuanto la lista se ensanchaba de golpe (al plegar el panel
+/// de listas, al desplazarse en horizontal o al estirar la ventana) antes de que las
+/// columnas se repartieran el hueco. Se engancha a la ventana de la cabecera y repinta
+/// esa franja —y solo esa— con el color de la paleta en cuanto Windows termina.
+/// </summary>
+internal sealed class ListHeaderTail : NativeWindow, IDisposable
+{
+    private const int LvmFirst = 0x1000;
+    private const int LvmGetHeader = LvmFirst + 31;
+    private const int HdmFirst = 0x1200;
+    private const int HdmGetItemRect = HdmFirst + 7;
+    private const int HdmGetItemCount = HdmFirst + 0;
+    private const int WmPaint = 0x000F;
+
+    [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Auto)]
+    private static extern IntPtr SendMessage(IntPtr hwnd, int message, IntPtr wParam, IntPtr lParam);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool GetClientRect(IntPtr hwnd, out NativeRect rect);
+
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    private struct NativeRect
+    {
+        public int Left, Top, Right, Bottom;
+    }
+
+    private readonly ListView _list;
+    private readonly Color _background;
+    private readonly Color _border;
+
+    public ListHeaderTail(ListView list, Color background, Color border)
+    {
+        _list = list;
+        _background = background;
+        _border = border;
+        if (list.IsHandleCreated) Attach();
+        list.HandleCreated += (_, _) => Attach();
+        list.HandleDestroyed += (_, _) => Detach();
+    }
+
+    private void Attach()
+    {
+        try
+        {
+            Detach();
+            var header = SendMessage(_list.Handle, LvmGetHeader, IntPtr.Zero, IntPtr.Zero);
+            if (header != IntPtr.Zero) AssignHandle(header);
+        }
+        catch { }
+    }
+
+    private void Detach()
+    {
+        try { if (Handle != IntPtr.Zero) ReleaseHandle(); }
+        catch { }
+    }
+
+    protected override void WndProc(ref Message m)
+    {
+        base.WndProc(ref m);
+        if (m.Msg != WmPaint) return;
+        try
+        {
+            if (!GetClientRect(m.HWnd, out var client)) return;
+            var count = (int)SendMessage(m.HWnd, HdmGetItemCount, IntPtr.Zero, IntPtr.Zero);
+            var end = 0;
+            for (var index = 0; index < count; index++)
+            {
+                var rect = new NativeRect();
+                var size = System.Runtime.InteropServices.Marshal.SizeOf<NativeRect>();
+                var buffer = System.Runtime.InteropServices.Marshal.AllocHGlobal(size);
+                try
+                {
+                    System.Runtime.InteropServices.Marshal.StructureToPtr(rect, buffer, false);
+                    if (SendMessage(m.HWnd, HdmGetItemRect, new IntPtr(index), buffer) != IntPtr.Zero)
+                    {
+                        rect = System.Runtime.InteropServices.Marshal.PtrToStructure<NativeRect>(buffer);
+                        if (rect.Right > end) end = rect.Right;
+                    }
+                }
+                finally { System.Runtime.InteropServices.Marshal.FreeHGlobal(buffer); }
+            }
+
+            if (end >= client.Right) return;
+            using var graphics = Graphics.FromHwnd(m.HWnd);
+            var tail = new Rectangle(end, client.Top, client.Right - end, client.Bottom - client.Top);
+            using (var brush = new SolidBrush(_background)) graphics.FillRectangle(brush, tail);
+            using var pen = new Pen(_border);
+            graphics.DrawLine(pen, tail.Left, tail.Bottom - 1, tail.Right, tail.Bottom - 1);
+        }
+        catch { }
+    }
+
+    public void Dispose() => Detach();
+}

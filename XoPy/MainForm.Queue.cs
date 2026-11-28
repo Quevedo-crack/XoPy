@@ -1701,6 +1701,20 @@ public sealed partial class MainForm
         SetStatus($"{moved.Count} elemento(s) añadidos a «{_runningList.DisplayName}»; se copiarán al llegarles el turno.");
     }
 
+    /// <summary>
+    /// Entrecomilla una ruta para la línea de órdenes de Windows. LA BARRA FINAL IMPORTA:
+    /// en «E:\» la barra anula la comilla de cierre y todo lo que viene detrás acaba
+    /// metido dentro del destino (era el fallo de la extensión del Explorador). La regla
+    /// de Windows es duplicar las barras que preceden a la comilla.
+    /// </summary>
+    private static string Quote(string value)
+    {
+        var text = value ?? string.Empty;
+        var tail = 0;
+        while (tail < text.Length && text[text.Length - 1 - tail] == '\\') tail++;
+        return '"' + text + new string('\\', tail) + '"';
+    }
+
     private void LaunchSeparateWindow(OperationType operation)
     {
         var sources = BasisItems().Select(item => item.SourcePath)
@@ -1720,14 +1734,36 @@ public sealed partial class MainForm
             _ => "--copy "
         });
         var destination = _destination.Text.Trim();
-        if (destination.Length > 0) arguments.Append("--to \"").Append(destination).Append("\" ");
+        if (destination.Length > 0) arguments.Append("--to ").Append(Quote(destination)).Append(' ');
         if (_settings.VerifyAfterCopy) arguments.Append("--verify ");
-        foreach (var source in sources) arguments.Append('"').Append(source).Append("\" ");
+        foreach (var source in sources) arguments.Append(Quote(source)).Append(' ');
 
         try
         {
-            Process.Start(new ProcessStartInfo(Application.ExecutablePath, arguments.ToString()) { UseShellExecute = false });
-            SetStatus("Abriendo otra ventana de XoPy para copiar en paralelo…");
+            var started = Process.Start(new ProcessStartInfo(Application.ExecutablePath, arguments.ToString())
+            {
+                UseShellExecute = false
+            });
+            if (started is null) throw new InvalidOperationException("Windows no devolvió el proceso.");
+
+            // LOS ARCHIVOS SE VAN CON LA OTRA VENTANA. Si se quedaran aquí, el usuario
+            // terminaría con la misma copia en dos sitios: la de verdad corriendo en la
+            // ventana nueva y una lista huérfana aquí que no arranca nunca (y que al
+            // pulsar Copiar volvería a preguntar lo mismo).
+            if (_activeList is not null && _activeList != _runningList)
+            {
+                var name = _activeList.DisplayName;
+                _activeList.Items.Clear();
+                _activeList.Queued = false;
+                RebuildRows();
+                UpdateFooter();
+                if (_lists.Count > 1) DeleteList(_activeList, ask: false);
+                SetStatus($"«{name}» se copia en una ventana aparte, a la vez que «{_runningList?.DisplayName ?? "la copia en curso"}».");
+            }
+            else
+            {
+                SetStatus("Abriendo otra ventana de XoPy para copiar en paralelo…");
+            }
         }
         catch (Exception ex)
         {
@@ -4357,21 +4393,34 @@ public sealed partial class MainForm
             // volvía en estado minimizado en la barra de tareas. Pero si estaba maximizada,
             // se devuelve maximizada: al pasar por Normal se perdía el maximizado y la
             // ventana volvía más pequeña de lo que el usuario la tenía.
-            var wasMaximized = WindowState == FormWindowState.Maximized || _settings.WindowMaximized;
+            // EN VISTA REDUCIDA NO SE MAXIMIZA NUNCA. Al pegar con Ctrl+V, XoPy traía la
+            // ventana al frente y, si el ajuste guardado decía «maximizada», maximizaba la
+            // banda: la lista aparecía desplegada de golpe (con su parpadeo) en vez de
+            // salir la ventanita pequeña de siempre.
+            var wasMaximized = !_compactView
+                && (WindowState == FormWindowState.Maximized || _settings.WindowMaximized);
+            // ¿ESTABA YA A LA VISTA? Si la ventana se ve y no está minimizada, basta con
+            // traerla al frente. El repertorio completo (Show dos veces, TopMost encendido
+            // y apagado, ForceForeground) sobre una ventana que YA se estaba viendo es lo
+            // que producía el parpadeo al pegar con Ctrl+V.
+            var yaVisible = Visible && WindowState != FormWindowState.Minimized;
             if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
             if (!Visible) Show();
-            Show();
-            if (wasMaximized) WindowState = FormWindowState.Maximized;
+            if (wasMaximized && WindowState != FormWindowState.Maximized) WindowState = FormWindowState.Maximized;
             Activate();
             BringToFront();
-            // Windows solo concede SetForegroundWindow a procesos con permiso del usuario.
-            // TopMost temporal ayuda a sacar la ventana cuando está minimizada u ocultada en bandeja.
-            TopMost = true;
-            TopMost = false;
-            // El clic se ha producido en el área de notificación (de Explorer), así que este
-            // proceso NO tiene el foco y SetForegroundWindow se ignora. ForceForeground usa
-            // AttachThreadInput, que sí funciona en ese caso.
-            ForceForeground();
+            if (!yaVisible)
+            {
+                // Windows solo concede SetForegroundWindow a procesos con permiso del usuario.
+                // TopMost temporal ayuda a sacar la ventana cuando está minimizada u ocultada en bandeja.
+                TopMost = true;
+                TopMost = false;
+                // El clic se ha producido en el área de notificación (de Explorer), así que este
+                // proceso NO tiene el foco y SetForegroundWindow se ignora. ForceForeground usa
+                // AttachThreadInput, que sí funciona en ese caso.
+                ForceForeground();
+            }
+            RescueOffScreen();
             UpdateFooter();
             UpdateButtons();
         }
@@ -4414,11 +4463,40 @@ public sealed partial class MainForm
             if (!Visible) Show();
             Activate();
             BringToFront();
+            RescueOffScreen();
         }
         catch (Exception ex)
         {
             FileLog.Write("No se pudo mostrar la ventana: " + ex.Message);
         }
+    }
+
+    /// <summary>
+    /// RED DE SEGURIDAD CONTRA LA VENTANA PERDIDA. Si la ventana se ha quedado fuera del
+    /// escritorio —pasaba al esconder la lista estando maximizada: se recolocaba con unas
+    /// coordenadas guardadas que podían ser de otra pantalla— XoPy seguía funcionando sin
+    /// que hubiera forma humana de volver a verlo. Aquí se comprueba que quede un trozo
+    /// visible de verdad y, si no, se trae de vuelta a la pantalla principal.
+    /// </summary>
+    private void RescueOffScreen()
+    {
+        try
+        {
+            if (WindowState != FormWindowState.Normal) return;
+            foreach (var screen in Screen.AllScreens)
+            {
+                var seen = Rectangle.Intersect(screen.WorkingArea, Bounds);
+                // Con menos de esto no hay ni barra de título que agarrar con el ratón.
+                if (seen.Width >= 160 && seen.Height >= 32) return;
+            }
+            var area = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1280, 720);
+            var width = Math.Min(Math.Max(Width, MinimumSize.Width), area.Width);
+            var height = Math.Min(Math.Max(Height, MinimumSize.Height), area.Height);
+            Bounds = new Rectangle(area.X + Math.Max(0, (area.Width - width) / 2),
+                area.Y + Math.Max(0, (area.Height - height) / 3), width, height);
+            FileLog.Write("La ventana estaba fuera de la pantalla: se ha traído de vuelta.");
+        }
+        catch { }
     }
 
     /// <summary>

@@ -313,7 +313,8 @@ internal sealed class OptionsDialog : Form
         MinimumSize = new Size(840, 560);
 
 
-        _tabs = new TabControl
+        // DarkTabs y no TabControl: el de serie se enmarca solo en blanco (ver Theme.cs).
+        _tabs = new DarkTabs(palette)
         {
             Dock = DockStyle.Fill,
             // FRANJA BLANCA DE LAS PESTAÑAS: el trozo de renglón que sobraba a la derecha lo

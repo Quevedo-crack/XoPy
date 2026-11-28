@@ -818,7 +818,11 @@ public sealed partial class MainForm
             ? Math.Clamp(runningLeaf.TransferredBytes * 100d / runningLeaf.SizeBytes, 0, 100)
             : runningLeaf is not null ? 0 : 0;
         _hdrFileBar.Value = running ? fileNow : 0;
-        _hdrFileBar.FillColor = _palette.AccentSoft;
+        // AZUL DE VERDAD, PERO MÁS APAGADO QUE EL DEL TOTAL. Con el azul casi negro de
+        // antes (#1F3D5C) el avance del archivo no se veía sobre la pista gris: parecía
+        // que XoPy no lo enseñaba. Ahora es un azul intermedio: se distingue de un
+        // vistazo y sigue sin competir con la barra grande de la copia entera.
+        _hdrFileBar.FillColor = Blend(_palette.Accent, _palette.AccentSoft, 0.35);
         _hdrCopyPercent.Text = running && runningLeaf is not null ? $"{fileNow:0.0} %" : "—";
         if (running && runningLeaf is { SizeBytes: > 0 })
             _hdrCopyInfo.Text = $"{Format.Bytes(runningLeaf.TransferredBytes)} de {Format.Bytes(runningLeaf.SizeBytes)}"
@@ -850,38 +854,98 @@ public sealed partial class MainForm
         // ventana reducida la lista está escondida y el pie no existe, así que este era el
         // único sitio donde mirar cuánto queda por copiar.
         var doneFiles = leaves.Count(item => item.State is ItemState.Completed or ItemState.Skipped);
-        var counter = leaves.Count > 0 ? $"{doneFiles} de {Format.Files(leaves.Count)}" : string.Empty;
+        var leftFiles = Math.Max(0, leaves.Count - doneFiles);
+        var leftBytes = Math.Max(0, total - done);
+        // CUÁNTOS VAN Y CUÁNTOS FALTAN, EN ARCHIVOS Y EN TAMAÑO, MÁS LA VELOCIDAD Y EL
+        // TIEMPO QUE QUEDA. Todo eso en una sola línea no cabe en la ventana reducida, así
+        // que se preparan tres versiones del mismo dato —larga, media y corta— y se usa la
+        // más completa que QUEPA de verdad en el hueco que hay (ver AjustarAlAncho).
+        string largo, medio, corto;
+        if (leaves.Count == 0 && total == 0)
+        {
+            largo = medio = corto = string.Empty;
+        }
+        else
+        {
+            var files = leaves.Count > 0;
+            largo = (files ? $"{doneFiles} de {Format.Files(leaves.Count)} · faltan {leftFiles}" : string.Empty)
+                    + (files && total > 0 ? "  ·  " : string.Empty)
+                    + (total > 0 ? $"{Format.Bytes(done)} de {Format.Bytes(total)} · faltan {Format.Bytes(leftBytes)}" : string.Empty);
+            medio = (files ? $"{doneFiles}/{leaves.Count} · faltan {leftFiles}" : string.Empty)
+                    + (files && total > 0 ? "  ·  " : string.Empty)
+                    + (total > 0 ? $"{Format.Bytes(done)}/{Format.Bytes(total)} · faltan {Format.Bytes(leftBytes)}" : string.Empty);
+            corto = (files ? $"{doneFiles}/{leaves.Count}" : string.Empty)
+                    + (files && total > 0 ? " · " : string.Empty)
+                    + (total > 0 ? $"{Format.Bytes(done)}/{Format.Bytes(total)}" : string.Empty);
+        }
+
+        string cola, colaCorta;
         if (waiting)
         {
             // Ni velocidad ni tiempo restante: los dos serían mentira mientras el motor
             // está parado esperando a que alguien conteste.
-            _hdrTargetInfo.Text = (counter.Length > 0 ? counter + "  ·  " : string.Empty)
-                                  + "parada: hay un aviso esperando respuesta";
+            cola = "parada: hay un aviso esperando respuesta";
+            colaCorta = "esperando";
         }
         else if (running && _engine.IsPaused)
         {
-            _hdrTargetInfo.Text = counter.Length > 0 ? counter + "  ·  en pausa" : "En pausa · 0 B/s";
+            cola = colaCorta = "en pausa";
         }
         else if (running)
         {
             var speed = _engine.SpeedBytesPerSecond;
             var remaining = _engine.Remaining;
-            _hdrTargetInfo.Text = speed > 0
-                ? $"{counter}  ·  {Format.Speed(speed)}  ·  quedan {Format.Duration(remaining)}"
-                : counter + "  ·  calculando…";
+            cola = speed > 0 ? $"{Format.Speed(speed)}  ·  quedan {Format.Duration(remaining)}" : "calculando…";
+            colaCorta = speed > 0 ? $"{Format.Speed(speed)} · {Format.Duration(remaining)}" : "…";
         }
         else
         {
-            // Parado: se sigue viendo cuántos hay y cuántos están ya copiados.
-            _hdrTargetInfo.Text = counter.Length > 0 && doneFiles > 0
-                ? counter + " copiados"
-                : counter;
+            cola = colaCorta = string.Empty;
         }
+
+        _hdrTargetInfo.Text = AjustarAlAncho(_hdrTargetInfo,
+            Unir(largo, cola, "  ·  "),
+            Unir(medio, cola, "  ·  "),
+            Unir(medio, colaCorta, " · "),
+            Unir(corto, colaCorta, " · "));
 
         // SEGUNDA LÍNEA = EL TOTAL de la copia, con su barra justo debajo.
         _hdrCopyBar.Value = percent;
         _hdrCopyBar.FillColor = _items.Any(item => item.State == ItemState.Failed) && !running ? _palette.Warning : _palette.Accent;
         _hdrTargetPercent.Text = leaves.Count == 0 ? "—" : $"{percent:0.0} %";
+    }
+
+    private static string Unir(string head, string tail, string separator) =>
+        head.Length > 0 && tail.Length > 0 ? head + separator + tail
+        : head.Length > 0 ? head : tail;
+
+    /// <summary>
+    /// Elige la versión MÁS COMPLETA del texto que de verdad cabe en el hueco del rótulo.
+    /// La línea «Total» tiene que enseñar archivos, megas, velocidad y tiempo restante, y
+    /// en la ventana reducida eso no cabe entero: en vez de cortarlo con puntos suspensivos
+    /// (que es como se perdía justo el final, el tiempo que queda) se acorta la redacción.
+    /// </summary>
+    private static string AjustarAlAncho(Label label, params string[] options)
+    {
+        if (options.Length == 0) return string.Empty;
+        try
+        {
+            // Hueco real: el ancho de la fila menos la píldora, el porcentaje y un trozo
+            // para la ruta de destino, que también tiene derecho a verse.
+            var row = label.Parent;
+            var available = (row?.ClientSize.Width ?? 0) - 84 - 56 - 24 - 150;
+            if (available <= 80) available = Math.Max(120, (row?.ClientSize.Width ?? 400) - 160);
+            var font = label.Font ?? SystemFonts.DefaultFont;
+            foreach (var option in options)
+            {
+                if (option.Length == 0) continue;
+                var size = TextRenderer.MeasureText(option, font, new Size(int.MaxValue, int.MaxValue),
+                    TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine);
+                if (size.Width <= available) return option;
+            }
+        }
+        catch { }
+        return options[^1];
     }
 
     private void UpdateCategories()
@@ -1552,23 +1616,69 @@ public sealed partial class MainForm
     /// </summary>
     private readonly HashSet<Guid> _highlightChain = new();
 
+    /// <summary>
+    /// Tramos de la línea de puntos que hay que pintar resaltados, fila por fila y nivel a
+    /// nivel. NO BASTA CON RESALTAR LA CARPETA Y EL ARCHIVO: la línea que los une pasa POR
+    /// ENCIMA de las filas de los hermanos, y esas filas no pertenecen a la cadena, así que
+    /// el trazo quedaba partido (resaltada la ruta, pero no la línea, que es justo lo que
+    /// se veía en la captura). Aquí se marca, para cada fila por la que pasa el trazo, el
+    /// nivel concreto que debe ir en azul.
+    /// </summary>
+    private readonly Dictionary<Guid, HashSet<int>> _guideMarks = new();
+
     private void UpdateHighlightChain()
     {
         var before = _highlightChain.Count;
         _highlightChain.Clear();
+        _guideMarks.Clear();
         var byId = new Dictionary<Guid, TransferItem>(_items.Count);
         foreach (var candidate in _items) byId[candidate.Id] = candidate;
+
+        // Orden REAL de las filas en pantalla: es lo que permite saber por qué filas pasa
+        // la línea entre una carpeta y su archivo.
+        var order = new Dictionary<Guid, int>(_list.Items.Count);
+        var visible = new List<TransferItem>(_list.Items.Count);
+        foreach (ListViewItem row in _list.Items)
+        {
+            if (row.Tag is not TransferItem shown) continue;
+            order[shown.Id] = visible.Count;
+            visible.Add(shown);
+        }
+
+        void Mark(Guid id, int level)
+        {
+            if (level < 1 || level > 12) return;
+            if (!_guideMarks.TryGetValue(id, out var levels)) _guideMarks[id] = levels = new HashSet<int>();
+            levels.Add(level);
+        }
 
         foreach (ListViewItem row in _list.SelectedItems)
         {
             if (row.Tag is not TransferItem item) continue;
+            var chain = new List<TransferItem>();
             var node = item;
             var guard = 0;
             while (node is not null && guard++ < 64)
             {
+                chain.Add(node);
                 _highlightChain.Add(node.Id);
                 if (node.ParentId is not { } parentId) break;
                 node = byId.TryGetValue(parentId, out var parent) ? parent : null;
+            }
+
+            // Todos los niveles de la propia fila marcada.
+            for (var level = 1; level <= Math.Clamp(item.Depth, 0, 12); level++) Mark(item.Id, level);
+
+            // Y el trazo vertical que va de cada padre a su hijo, fila por fila.
+            for (var index = 0; index + 1 < chain.Count; index++)
+            {
+                var child = chain[index];
+                var parent = chain[index + 1];
+                if (!order.TryGetValue(child.Id, out var childRow) || !order.TryGetValue(parent.Id, out var parentRow)) continue;
+                var level = Math.Clamp(child.Depth, 1, 12);
+                var from = Math.Min(parentRow, childRow);
+                var to = Math.Max(parentRow, childRow);
+                for (var position = from; position <= to; position++) Mark(visible[position].Id, level);
             }
         }
         // Repintar solo cuando de verdad cambia algo: esto se dispara con cada flechita.
@@ -1649,28 +1759,30 @@ public sealed partial class MainForm
                 // TODA la línea se pinta en el color de acento (lo que pidió el usuario:
                 // ver de un vistazo la ruta completa del archivo marcado).
                 {
-                    var chain = _highlightChain;
-                    var onPath = chain.Count > 0 && chain.Contains(item.Id);
+                    var onPath = _highlightChain.Count > 0 && _highlightChain.Contains(item.Id);
+                    _guideMarks.TryGetValue(item.Id, out var marks);
                     using var plain = new Pen(_palette.Border) { DashStyle = System.Drawing.Drawing2D.DashStyle.Dot };
                     // Sobre la fila marcada el azul de acento se confunde con el fondo de
                     // la selección: ahí la línea se pinta en claro para que se siga viendo.
                     using var marked = new Pen(selected ? Blend(_palette.Accent, Color.White, 0.65)
-                        : _palette.Accent, 1.8f)
+                        : _palette.Accent, 2f)
                     { DashStyle = System.Drawing.Drawing2D.DashStyle.Dot };
-                    var guide = onPath ? marked : plain;
+                    Pen GuideFor(int level) => marks is not null && marks.Contains(level) ? marked : plain;
 
-                    // Líneas de los niveles de los que CUELGA esta fila.
+                    // Líneas de los niveles de los que CUELGA esta fila. Cada nivel elige su
+                    // pluma por separado: el trazo que lleva al archivo marcado va en azul
+                    // aunque la fila por la que pasa sea la de un hermano cualquiera.
                     for (var level = 1; level <= item.Depth; level++)
                     {
                         var gx = e.Bounds.Left + 8 + (level - 1) * 18 + 8;
-                        e.Graphics.DrawLine(guide, gx, top, gx, top + height);
+                        e.Graphics.DrawLine(GuideFor(level), gx, top, gx, top + height);
                     }
                     if (item.Depth > 0)
                     {
                         // Codo: del último nivel al icono de esta fila.
                         var elbowX = e.Bounds.Left + 8 + (item.Depth - 1) * 18 + 8;
                         var middle = top + height / 2;
-                        e.Graphics.DrawLine(guide, elbowX, middle, elbowX + 12, middle);
+                        e.Graphics.DrawLine(onPath ? marked : GuideFor(item.Depth), elbowX, middle, elbowX + 12, middle);
                     }
 
                     // LA LÍNEA NO SE CORTA EN LA CARPETA. Una carpeta con contenido abre su
@@ -1681,7 +1793,7 @@ public sealed partial class MainForm
                     if (item.Kind == ItemKind.Folder && ChildCount(item) > 0 && item.IsExpanded)
                     {
                         var ownX = e.Bounds.Left + 8 + item.Depth * 18 + 8;
-                        e.Graphics.DrawLine(guide, ownX, top + height / 2, ownX, top + height);
+                        e.Graphics.DrawLine(GuideFor(item.Depth + 1), ownX, top + height / 2, ownX, top + height);
                     }
                 }
 
