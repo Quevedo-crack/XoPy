@@ -164,6 +164,9 @@ public sealed class CopyEngine
     // siguiente, se vuelve a mirar si el usuario ya dijo «todos».
     private readonly object _promptGate = new();
     private int _waitingForUser;
+    // Huella del ORIGEN ya calculada en esta copia. Con dos destinos, cada archivo se leía
+    // y se cifraba dos veces para sacar exactamente el mismo número; ahora solo una.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte[]> _sourceHashes = new(StringComparer.OrdinalIgnoreCase);
     // Velocidad reciente (media móvil). La media desde el principio hacía que un parón o
     // una pausa dejasen el número clavado en «lento» durante minutos.
     private long _speedSampleTicks;
@@ -365,6 +368,7 @@ public sealed class CopyEngine
         Interlocked.Exchange(ref _errors, 0);
         Interlocked.Exchange(ref _totalBytes, list.Sum(item => Math.Max(0, item.SizeBytes)) * destinations);
         _clock.Restart();
+        _sourceHashes.Clear();
         FileLog.Write($"Inicio: {list.Count} elementos, destinos={string.Join(" | ", options.Destinations)}, verificar={options.VerifyAfterCopy} ({options.Verify}), reanudar={options.ResumePartials}");
         _ = Task.Run(() => RunAsync(list, options, _cts.Token));
         return true;
@@ -1068,7 +1072,11 @@ public sealed class CopyEngine
             item.State = ItemState.Verifying;
             try
             {
-                var sourceHash = await Hashing.ComputeAsync(options.Verify, source, token).ConfigureAwait(false);
+                if (!_sourceHashes.TryGetValue(source, out var sourceHash))
+                {
+                    sourceHash = await Hashing.ComputeAsync(options.Verify, source, token).ConfigureAwait(false);
+                    _sourceHashes[source] = sourceHash;
+                }
                 var targetHash = await Hashing.ComputeAsync(options.Verify, writtenPath, token).ConfigureAwait(false);
                 item.HashSource = Hashing.ToText(options.Verify, sourceHash);
                 item.HashTarget = Hashing.ToText(options.Verify, targetHash);
