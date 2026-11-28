@@ -61,7 +61,10 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force publish | Out-Null
-          cl.exe /nologo /LD /EHsc /O2 ShellExtension\XoPyShell.cpp /link /DEF:ShellExtension\XoPyShell.def /OUT:publish\XoPyShell.dll shell32.lib user32.lib advapi32.lib ole32.lib uuid.lib gdi32.lib 2>&1 | Tee-Object -FilePath shell-extension-build.log
+          # /utf-8 ES OBLIGATORIO: el archivo está en UTF-8 y, sin esta opción, cl.exe lo
+          # lee con la página de códigos del sistema; los textos del menú salían como
+          # «Copiar aquÃ- con XoPy» en el Explorador.
+          cl.exe /nologo /utf-8 /LD /EHsc /O2 ShellExtension\XoPyShell.cpp /link /DEF:ShellExtension\XoPyShell.def /OUT:publish\XoPyShell.dll shell32.lib user32.lib advapi32.lib ole32.lib uuid.lib gdi32.lib 2>&1 | Tee-Object -FilePath shell-extension-build.log
           $compileExit = $LASTEXITCODE
           if ($compileExit -ne 0) { throw "No se pudo compilar la extensión C++ (código $compileExit)" }
 

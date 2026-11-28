@@ -8,6 +8,30 @@ namespace XoPy;
 
 internal sealed class PromptDialog : Form
 {
+    /// <summary>
+    /// Último repaso antes de que la ventana se vea: la barra de título se pinta de oscuro
+    /// (Windows la hace blanca por su cuenta) y cualquier control que se haya quedado con
+    /// los colores del sistema recibe los de la paleta. Es lo que quita las barras blancas.
+    /// </summary>
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        Ui.DarkFrame(this, _palette!);
+        Ui.PaintAll(this, _palette!);
+    }
+
+    /// <summary>
+    /// Ya con la ventana en pantalla: a estas alturas TODOS los controles tienen su
+    /// identificador de Windows, así que es cuando se pueden oscurecer sus barras de
+    /// desplazamiento nativas (en Preferencias salían blancas).
+    /// </summary>
+    protected override void OnShown(EventArgs e)
+    {
+        base.OnShown(e);
+        Ui.PaintAll(this, _palette!);
+        Ui.DarkScrollbars(this, _palette!);
+    }
+
     private readonly CheckBox? _checkBox;
     private readonly Palette _palette;
     public int SelectedIndex { get; private set; }
@@ -27,8 +51,23 @@ internal sealed class PromptDialog : Form
         ShowInTaskbar = false;
         AutoSize = true;
         AutoSizeMode = AutoSizeMode.GrowAndShrink;
-        MinimumSize = new Size(640, 0);
-        MaximumSize = new Size(640, 1400);
+
+        // EL CUADRO SE HACE TAN ANCHO COMO PIDAN SUS BOTONES. Con 640 px fijos, cuatro
+        // botones con texto largo («Elegir otra carpeta…», «Guardar en la carpeta de
+        // XoPy») no cabían y se veían cortados; con el tamaño de letra de Windows al
+        // 125 % se cortaban hasta los de dos palabras.
+        var buttonsWidth = 0;
+        try
+        {
+            using var probe = new Font("Segoe UI", 9f);
+            foreach (var caption in buttons)
+                buttonsWidth += Math.Max(112, TextRenderer.MeasureText(caption, probe).Width + 32) + 8;
+        }
+        catch { buttonsWidth = 480; }
+        var width = Math.Clamp(buttonsWidth + 56, 640, 1100);
+        var inner = width - 80;
+        MinimumSize = new Size(width, 0);
+        MaximumSize = new Size(width, 1400);
 
         var layout = new TableLayoutPanel
         {
@@ -36,7 +75,7 @@ internal sealed class PromptDialog : Form
             ColumnCount = 1,
             BackColor = palette.Canvas,
             Padding = new Padding(20, 18, 20, 14),
-            Width = 620,
+            Width = width - 20,
             AutoSize = true,
             AutoSizeMode = AutoSizeMode.GrowAndShrink,
             RowCount = 5
@@ -56,25 +95,38 @@ internal sealed class PromptDialog : Form
         {
             Text = message,
             AutoSize = true,
-            MaximumSize = new Size(560, 0),
+            MaximumSize = new Size(inner, 0),
             ForeColor = palette.Text,
             Margin = new Padding(0, 0, 0, 8)
         };
 
+        var detailText = (detail ?? string.Empty).Replace("\r\n", "\n").Replace("\n", "\r\n");
+        var detailFont = new Font("Segoe UI", 8.25f);
+        // El alto se MIDE con el texto real. Antes eran 76 px fijos: el mensaje salía
+        // recortado y, encima, con la barra de desplazamiento bajada, así que se leía por la
+        // mitad («…bloqueado, activa Copiar archivos bloqueados en Opciones»).
+        var detailHeight = 76;
+        try
+        {
+            var measured = TextRenderer.MeasureText(detailText, detailFont, new Size(inner - 12, 0),
+                TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix);
+            detailHeight = Math.Clamp(measured.Height + 16, 48, 300);
+        }
+        catch { }
         var detailBox = new TextBox
         {
-            Text = (detail ?? string.Empty).Replace("\r\n", "\n").Replace("\n", "\r\n"),
+            Text = detailText,
             Multiline = true,
             ReadOnly = true,
             WordWrap = true,
             ScrollBars = ScrollBars.Vertical,
             Dock = DockStyle.None,
-            Size = new Size(560, 76),
+            Size = new Size(inner, detailHeight),
             TabStop = false,
             BorderStyle = BorderStyle.FixedSingle,
             BackColor = palette.SurfaceAlt,
             ForeColor = palette.Muted,
-            Font = new Font("Segoe UI", 8.25f),
+            Font = detailFont,
             Margin = new Padding(0, 0, 0, 10)
         };
         if (string.IsNullOrEmpty(detail)) detailBox.Visible = false;
@@ -123,7 +175,18 @@ internal sealed class PromptDialog : Form
         layout.Controls.Add(buttonRow, 0, 4);
         Controls.Add(layout);
 
-        Shown += (_, _) => { detailBox.Select(0, 0); ActiveControl = null; };
+        // Siempre empezando por la PRIMERA línea del detalle.
+        Shown += (_, _) =>
+        {
+            try
+            {
+                detailBox.SelectionStart = 0;
+                detailBox.SelectionLength = 0;
+                NativeTheme.ScrollToTop(detailBox);
+            }
+            catch { }
+            ActiveControl = null;
+        };
         AcceptButton = buttonRow.Controls.Count > 0 ? buttonRow.Controls[buttonRow.Controls.Count - 1] as Button : null;
         CancelButton = buttonRow.Controls.Count > 0 ? buttonRow.Controls[0] as Button : null;
     }
@@ -143,6 +206,30 @@ internal sealed class PromptDialog : Form
 
 internal sealed class OptionsDialog : Form
 {
+    /// <summary>
+    /// Último repaso antes de que la ventana se vea: la barra de título se pinta de oscuro
+    /// (Windows la hace blanca por su cuenta) y cualquier control que se haya quedado con
+    /// los colores del sistema recibe los de la paleta. Es lo que quita las barras blancas.
+    /// </summary>
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        Ui.DarkFrame(this, _palette!);
+        Ui.PaintAll(this, _palette!);
+    }
+
+    /// <summary>
+    /// Ya con la ventana en pantalla: a estas alturas TODOS los controles tienen su
+    /// identificador de Windows, así que es cuando se pueden oscurecer sus barras de
+    /// desplazamiento nativas (en Preferencias salían blancas).
+    /// </summary>
+    protected override void OnShown(EventArgs e)
+    {
+        base.OnShown(e);
+        Ui.PaintAll(this, _palette!);
+        Ui.DarkScrollbars(this, _palette!);
+    }
+
     private readonly Palette _palette;
     private readonly TabControl _tabs;
     private Button? _advancedBack;
@@ -169,6 +256,8 @@ internal sealed class OptionsDialog : Form
     private readonly NumericUpDown _retries;
     private readonly CheckBox _replaceCopier;
     private readonly CheckBox _askWhenBusy;
+    private readonly CheckBox _askWhenPasting;
+    private readonly CheckBox _showFullPath;
     private readonly CheckBox _sound;
     private readonly CheckBox _openDestination;
     private readonly CheckBox _closeWhenDone;
@@ -224,17 +313,37 @@ internal sealed class OptionsDialog : Form
         MinimumSize = new Size(840, 560);
 
 
-        _tabs = new TabControl
+        // DarkTabs y no TabControl: el de serie se enmarca solo en blanco (ver Theme.cs).
+        _tabs = new DarkTabs(palette)
         {
             Dock = DockStyle.Fill,
+            // FRANJA BLANCA DE LAS PESTAÑAS: el trozo de renglón que sobraba a la derecha lo
+            // pintaba Windows de blanco. «FillToRight» no sirve (solo estira cuando hay
+            // varios renglones y, además, ignora el ancho que se le pide), así que se usa
+            // ancho fijo y en FitTabWidths se reparte el ancho ENTERO entre las pestañas.
             SizeMode = TabSizeMode.Fixed,
             ItemSize = new Size(112, 30),
             Padding = new Point(12, 6),
+            // El dibujo entero lo hace DarkTabs (ver Theme.cs); se deja en owner-draw para
+            // que, si Windows llegara a pintar por su cuenta, no escriba las pestañas con
+            // los colores del tema claro.
             DrawMode = TabDrawMode.OwnerDrawFixed,
+            // EN VARIAS FILAS. Con ocho pestañas en una sola fila no cabían y Windows ponía
+            // dos flechitas para ir pasándolas de una en una: no se veía dónde estaba cada
+            // cosa. Ahora se ven TODAS a la vez, repartidas en dos renglones.
+            Multiline = true,
             Font = new Font("Segoe UI", 9f)
         };
-        _tabs.DrawItem += DrawTab;
         _tabs.HandleCreated += (_, _) => FitTabWidths();
+        // Al cambiar el tamaño del cuadro hay que repartir otra vez: si no, vuelve a
+        // asomar el hueco sin pintar al ensanchar la ventana.
+        _tabs.SizeChanged += (_, _) => FitTabWidths();
+        // Cada página crea su barra de desplazamiento la PRIMERA vez que se muestra, y
+        // Windows la pinta blanca mientras no se le pida el tema oscuro para ese control.
+        _tabs.SelectedIndexChanged += (_, _) =>
+        {
+            try { BeginInvoke(new Action(() => Ui.DarkScrollbars(this, _palette))); } catch { }
+        };
         // La vista principal es de una sola pantalla (estilo TeraCopy); las pestañas siguen
         // existiendo solo para las opciones avanzadas, que se abren desde un botón.
         _tabs.Visible = false;
@@ -248,7 +357,7 @@ internal sealed class OptionsDialog : Form
         // solo afecta al arranque automático con Windows.
         _startMinimized = Check("Al iniciar con Windows, arrancar en el área de notificación", settings.StartMinimized);
 
-        _multiThread = Check("Copiar varios archivos a la vez (multihilo)", settings.MultiThreadCopy);
+        _multiThread = Check("Copiar varios archivos a la vez (solo ayuda entre discos distintos)", settings.MultiThreadCopy);
         _showMenuBar = Check("Mostrar la barra de menús superior", settings.ShowMenuBar);
         _showJobs = Check("Mostrar el historial de listas de copia (se puede ocultar con el botón « de la lista)",
             settings.ShowJobs);
@@ -285,6 +394,10 @@ internal sealed class OptionsDialog : Form
         _replaceCopier = Check("Sustituir el copiador de Windows: Ctrl+V y Mayús+Insert en el Explorador abren XoPy",
             settings.ReplaceWindowsCopier);
         _askWhenBusy = Check("Preguntar qué hacer si ya hay una transferencia en curso", settings.AskWhenBusy);
+        // De fábrica DESMARCADA: pegar arranca directamente con lo que hay en el
+        // portapapeles, sin cuadros por el medio.
+        _askWhenPasting = Check("Al pegar, preguntar en qué lista van los archivos", settings.AskWhenPasting);
+        _showFullPath = Check("Mostrar la ruta completa de cada archivo en la lista", settings.ShowFullPath);
 
         _sound = Check("Reproducir un sonido al terminar", settings.PlaySoundWhenDone);
         _openDestination = Check("Abrir la carpeta de destino al terminar", settings.OpenDestinationWhenDone);
@@ -313,8 +426,11 @@ internal sealed class OptionsDialog : Form
         _slowDevices.PlaceholderText = @"Ejemplo: D:, \\PC-lento\datos";
         _language = new ChoiceButton(palette, new[] { "Español", "English" }, settings.Language == "en" ? 1 : 0);
         _language.Width = 170;
-        // Modo de ventana al abrir: reducida (como TeraCopy), completa o automático.
-        _windowMode = new ChoiceButton(palette, new[] { "Reducida", "Completa", "Automático" },
+        // Modo de ventana al abrir. «Solo el progreso» esconde la lista de archivos y las
+        // pestañas (quedan la barra de botones, el progreso y el pie), «Completa» enseña la
+        // ventana entera y «Automático» usa la reducida solo al abrirse para copiar algo.
+        // Se vuelve a la vista completa con el botón «Mostrar lista» o con F9.
+        _windowMode = new ChoiceButton(palette, new[] { "Solo el progreso", "Completa", "Automático" },
             Math.Clamp(settings.WindowMode, 0, 2));
         _windowMode.Width = 170;
 
@@ -450,6 +566,8 @@ internal sealed class OptionsDialog : Form
         right.Controls.Add(Stack(_checkFreeSpace));
         right.Controls.Add(Stack(_systemWriteCache));
         right.Controls.Add(Stack(_showHashes));
+        right.Controls.Add(Stack(_showFullPath));
+        right.Controls.Add(Stack(_askWhenPasting));
         right.Controls.Add(Stack(_minimizeToTray, _startWithWindows));
 
         var columns = new TableLayoutPanel
@@ -482,7 +600,7 @@ internal sealed class OptionsDialog : Form
         columns.Controls.Add(rightScroll, 1, 0);
 
         var advanced = Ui.DialogButton("Opciones avanzadas…", _palette);
-        advanced.Size = new Size(180, 30);
+        Ui.Fit(advanced, 180, 30);
         advanced.Anchor = AnchorStyles.Left | AnchorStyles.Bottom;
         advanced.Margin = new Padding(0, 8, 0, 0);
         advanced.Click += (_, _) => ShowAdvanced();
@@ -534,7 +652,7 @@ internal sealed class OptionsDialog : Form
         // un TabControl solo admite TabPage y añadirle un Button lanzaba
         // «No se puede agregar 'Button' a 'TabControl'» al pulsar Opciones avanzadas.
         var back = Ui.DialogButton("← Volver a las opciones", _palette);
-        back.Size = new Size(210, 30);
+        Ui.Fit(back, 210, 30);
         back.Margin = new Padding(0, 0, 8, 0);
         back.Click += (_, _) => CloseAdvanced();
         _advancedBack = back;
@@ -543,6 +661,13 @@ internal sealed class OptionsDialog : Form
             _advancedRow.Controls.Add(back);
             _advancedRow.Controls.SetChildIndex(back, 0);
         }
+
+        // Las pestañas avanzadas NACEN aquí: cuando se abrió la ventana todavía no tenían
+        // identificador de Windows, así que el oscurecido de barras de desplazamiento que
+        // se hace en OnShown no llegó a tocarlas y salía la franja blanca de la derecha.
+        // Se repite ahora, y otra vez cada vez que se cambia de pestaña (cada página crea
+        // su barra la primera vez que se muestra).
+        try { BeginInvoke(new Action(() => Ui.DarkScrollbars(this, _palette))); } catch { }
     }
 
     private void CloseAdvanced()
@@ -570,6 +695,18 @@ internal sealed class OptionsDialog : Form
         Font = new Font("Segoe UI", 9.25f, FontStyle.Bold),
         BackColor = Color.Transparent,
         Margin = new Padding(0, 2, 0, 6)
+    };
+
+    /// <summary>Texto de presentación de una pestaña: dice para qué sirve lo que hay debajo.</summary>
+    private Label Intro(string text) => new()
+    {
+        Text = text,
+        AutoSize = true,
+        MaximumSize = new Size(560, 0),
+        ForeColor = _palette.Muted,
+        Font = new Font("Segoe UI", 8.75f),
+        BackColor = Color.Transparent,
+        Margin = new Padding(0, 0, 0, 10)
     };
 
     private Label Hint(string text) => new()
@@ -648,8 +785,39 @@ internal sealed class OptionsDialog : Form
         // principal (tema, sonido al terminar y abrir el destino) no se pueden repetir aquí
         // porque al añadirlos otra vez desaparecen de una de las dos pantallas. Es lo que
         // dejaba «Tema de la interfaz» como un rótulo suelto sin su desplegable.
-        _tabs.TabPages.Add(Page("Destino predeterminado", 3,
-            ("Carpeta de destino predeterminada", _destination, 48),
+        // La caja del destino con su botón «Examinar…»: escribir una ruta a mano era la
+        // única forma de rellenarla y la pestaña se veía medio vacía.
+        var destinationRow = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            RowCount = 1,
+            BackColor = _palette.Canvas,
+            Margin = new Padding(0)
+        };
+        destinationRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        destinationRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 124));
+        _destination.Dock = DockStyle.Fill;
+        _destination.Margin = new Padding(0, 2, 8, 2);
+        var browseDestination = Ui.DialogButton("Examinar…", _palette);
+        browseDestination.Dock = DockStyle.Fill;
+        browseDestination.Margin = new Padding(0, 2, 0, 2);
+        browseDestination.Click += (_, _) =>
+        {
+            using var dialog = new FolderBrowserDialog { Description = "Carpeta de destino predeterminada" };
+            if (!string.IsNullOrWhiteSpace(_destination.Text) && Directory.Exists(_destination.Text.Trim()))
+                dialog.SelectedPath = _destination.Text.Trim();
+            if (dialog.ShowDialog(this) == DialogResult.OK) _destination.Text = dialog.SelectedPath;
+        };
+        destinationRow.Controls.Add(_destination, 0, 0);
+        destinationRow.Controls.Add(browseDestination, 1, 0);
+
+        // Rótulo corto a propósito: con ocho pestañas repartiéndose el ancho, «Destino
+        // predeterminado» obligaba a dos renglones y dejaba medio renglón en blanco.
+        _tabs.TabPages.Add(Page("Destino", 3,
+            ("", Intro("La carpeta que XoPy propone al copiar cuando todavía no se ha elegido ninguna. " +
+                       "Si se deja vacía, XoPy pregunta a dónde copiar cada vez."), 0),
+            ("Carpeta de destino predeterminada", destinationRow, 48),
             ("", _confirmDelete, 40),
             ("", _startMinimized, 40)));
 
@@ -675,7 +843,7 @@ internal sealed class OptionsDialog : Form
             BackColor = _palette.Canvas
         };
         var addExtra = Ui.DialogButton("Añadir destino…", _palette);
-        addExtra.Size = new Size(140, 28);
+        Ui.Fit(addExtra, 140, 28);
         addExtra.Click += (_, _) =>
         {
             using var dialog = new FolderBrowserDialog { Description = "Destino adicional" };
@@ -686,7 +854,7 @@ internal sealed class OptionsDialog : Form
                 _extraDestinations.Items.Add(path);
         };
         var removeExtra = Ui.DialogButton("Quitar", _palette);
-        removeExtra.Size = new Size(90, 28);
+        Ui.Fit(removeExtra, 90, 28);
         removeExtra.Click += (_, _) =>
         {
             if (_extraDestinations.SelectedIndex >= 0) _extraDestinations.Items.RemoveAt(_extraDestinations.SelectedIndex);
@@ -696,6 +864,8 @@ internal sealed class OptionsDialog : Form
         extraPanel.Controls.Add(extraButtons, 0, 1);
 
         _tabs.TabPages.Add(Page("Transferencia", 11,
+            ("", Intro("Cómo copia XoPy: cuántos archivos a la vez, qué motor usa y qué hace con las fechas, " +
+                       "la papelera y los archivos en uso. Lo de fábrica va bien para casi todo."), 0),
             ("", _multiThread, 32),
             ("Hilos en paralelo (solo con multihilo)", _parallel, 44),
             ("Búfer por archivo (KiB)", _buffer, 44),
@@ -713,7 +883,7 @@ internal sealed class OptionsDialog : Form
             ("Pasadas de borrado seguro (0 = normal)", _securePasses, 40),
             ("Script al finalizar", _completionScript, 40)));
 
-        _tabs.TabPages.Add(Page("Destinos", 3,
+        _tabs.TabPages.Add(Page("Copias extra", 3,
             ("Carpetas que reciben una copia de todo", extraPanel, 260),
             ("", new Label
             {
@@ -741,6 +911,8 @@ internal sealed class OptionsDialog : Form
         _tabs.TabPages.Add(verifyPage);
 
         _tabs.TabPages.Add(Page("Conflictos", 3,
+            ("", Intro("Qué hacer cuando el archivo ya está en el destino o cuando algo falla. " +
+                       "Con «Preguntar», XoPy enseña los dos archivos y decides tú."), 0),
             ("Si el archivo ya existe", _conflict, 48),
             ("Si aparece un error", _onError, 48),
             ("Reintentos por archivo", _retries, 48)));
@@ -765,6 +937,7 @@ internal sealed class OptionsDialog : Form
         // principal de Preferencias (sección «Al finalizar»): repetirlos aquí los borraba
         // de allí y dejaba esta página con filas vacías.
         _tabs.TabPages.Add(Page("Al terminar", 3,
+            ("", Intro("Qué pasa cuando la copia acaba y qué hacer si se pide otra copia mientras hay una en marcha."), 0),
             ("", _closeWhenDone, 42),
             ("", _shutdown, 42),
             ("", _askWhenBusy, 42)));
@@ -789,7 +962,7 @@ internal sealed class OptionsDialog : Form
             Padding = new Padding(10, 0, 0, 0)
         };
         var add = Ui.DialogButton("Añadir carpeta", _palette);
-        add.Size = new Size(140, 30);
+        Ui.Fit(add, 140, 30);
         add.Margin = new Padding(0, 0, 0, 6);
         add.Click += (_, _) =>
         {
@@ -798,7 +971,7 @@ internal sealed class OptionsDialog : Form
                 _favorites.Items.Add(dialog.SelectedPath);
         };
         var remove = Ui.DialogButton("Quitar", _palette);
-        remove.Size = new Size(140, 30);
+        Ui.Fit(remove, 140, 30);
         remove.Margin = new Padding(0);
         remove.Click += (_, _) =>
         {
@@ -885,8 +1058,18 @@ internal sealed class OptionsDialog : Form
                 control.Anchor = AnchorStyles.Left | AnchorStyles.Right;
                 control.Margin = new Padding(0, 2, 8, 2);
             }
-            layout.Controls.Add(text, 0, row);
-            layout.Controls.Add(control, 1, row);
+            if (isDescription)
+            {
+                // Los textos explicativos ocupan las DOS columnas: empiezan en el margen
+                // izquierdo, como un párrafo, en vez de quedar colgados bajo los controles.
+                layout.Controls.Add(control, 0, row);
+                layout.SetColumnSpan(control, 2);
+            }
+            else
+            {
+                layout.Controls.Add(text, 0, row);
+                layout.Controls.Add(control, 1, row);
+            }
             row++;
         }
 
@@ -917,25 +1100,18 @@ internal sealed class OptionsDialog : Form
                 new Size(int.MaxValue, int.MaxValue), TextFormatFlags.NoPrefix);
             widest = Math.Max(widest, measured.Width);
         }
-        var width = Math.Max(84, widest + 34);
-        _tabs.ItemSize = new Size(width, 30);
-    }
-
-    private void DrawTab(object? sender, DrawItemEventArgs e)
-    {
-        var selected = e.Index == _tabs.SelectedIndex;
-        using var background = new SolidBrush(selected ? _palette.Surface : _palette.Canvas);
-        e.Graphics.FillRectangle(background, e.Bounds);
-        using var line = new Pen(_palette.Border);
-        e.Graphics.DrawLine(line, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Right, e.Bounds.Bottom - 1);
-        if (selected)
-        {
-            using var accent = new SolidBrush(_palette.Accent);
-            e.Graphics.FillRectangle(accent, e.Bounds.Left + 6, e.Bounds.Bottom - 3, e.Bounds.Width - 12, 3);
-        }
-        TextRenderer.DrawText(e.Graphics, _tabs.TabPages[e.Index].Text, _tabs.Font,
-            Rectangle.Inflate(e.Bounds, -6, -2), selected ? _palette.Text : _palette.Muted,
-            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
+        var count = Math.Max(1, _tabs.TabPages.Count);
+        var available = Math.Max(0, _tabs.ClientSize.Width - 4);
+        var natural = Math.Max(84, widest + 34);
+        // SE REPARTE EL ANCHO ENTERO entre las pestañas siempre que quepan en un renglón con
+        // un tamaño decente. Así la fila llega hasta el borde y no queda esa banda blanca
+        // que pintaba Windows en el trozo sobrante. Solo si el reparto deja las pestañas
+        // demasiado estrechas se vuelve al ancho del texto (y Windows usa dos renglones).
+        var share = available / count;
+        var width = share >= Math.Min(natural, 104) ? share : natural;
+        // Solo se toca si cambia: asignar ItemSize dispara otra vuelta de layout.
+        if (_tabs.ItemSize.Width != width || _tabs.ItemSize.Height != 30)
+            _tabs.ItemSize = new Size(width, 30);
     }
 
     private TextBox TextBox(string value) => new()
@@ -1012,6 +1188,8 @@ internal sealed class OptionsDialog : Form
         Result.ExplorerIntegration = false;
         Result.ReplaceWindowsCopier = _replaceCopier.Checked;
         Result.AskWhenBusy = _askWhenBusy.Checked;
+        Result.AskWhenPasting = _askWhenPasting.Checked;
+        Result.ShowFullPath = _showFullPath.Checked;
         Result.PlaySoundWhenDone = _sound.Checked;
         Result.OpenDestinationWhenDone = _openDestination.Checked;
         Result.CloseWhenDone = _closeWhenDone.Checked;
@@ -1071,6 +1249,8 @@ internal sealed class OptionsDialog : Form
         target.ExplorerIntegration = false;
         target.ReplaceWindowsCopier = Result.ReplaceWindowsCopier;
         target.AskWhenBusy = Result.AskWhenBusy;
+        target.AskWhenPasting = Result.AskWhenPasting;
+        target.ShowFullPath = Result.ShowFullPath;
         target.PlaySoundWhenDone = Result.PlaySoundWhenDone;
         target.OpenDestinationWhenDone = Result.OpenDestinationWhenDone;
         target.CloseWhenDone = Result.CloseWhenDone;
@@ -1118,6 +1298,9 @@ internal sealed class OptionsDialog : Form
         ExplorerIntegration = source.ExplorerIntegration,
         ReplaceWindowsCopier = source.ReplaceWindowsCopier,
         AskWhenBusy = source.AskWhenBusy,
+        AskWhenPasting = source.AskWhenPasting,
+        ShowFullPath = source.ShowFullPath,
+        ShowList = source.ShowList,
         PlaySoundWhenDone = source.PlaySoundWhenDone,
         OpenDestinationWhenDone = source.OpenDestinationWhenDone,
         CloseWhenDone = source.CloseWhenDone,
@@ -1137,8 +1320,34 @@ internal sealed class OptionsDialog : Form
 
 internal sealed class HistoryDialog : Form
 {
+    /// <summary>
+    /// Último repaso antes de que la ventana se vea: la barra de título se pinta de oscuro
+    /// (Windows la hace blanca por su cuenta) y cualquier control que se haya quedado con
+    /// los colores del sistema recibe los de la paleta. Es lo que quita las barras blancas.
+    /// </summary>
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        Ui.DarkFrame(this, _palette!);
+        Ui.PaintAll(this, _palette!);
+    }
+
+    /// <summary>
+    /// Ya con la ventana en pantalla: a estas alturas TODOS los controles tienen su
+    /// identificador de Windows, así que es cuando se pueden oscurecer sus barras de
+    /// desplazamiento nativas (en Preferencias salían blancas).
+    /// </summary>
+    protected override void OnShown(EventArgs e)
+    {
+        base.OnShown(e);
+        Ui.PaintAll(this, _palette!);
+        Ui.DarkScrollbars(this, _palette!);
+    }
+
     private readonly List<HistoryEntry> _entries;
     private readonly ListView _list;
+    private readonly Label _empty;
+    private readonly Palette _palette;
     private readonly Font _headerFont = new("Segoe UI", 9f, FontStyle.Bold);
 
     public bool Modified { get; private set; }
@@ -1147,6 +1356,7 @@ internal sealed class HistoryDialog : Form
     public HistoryDialog(List<HistoryEntry> entries, Palette palette)
     {
         _entries = entries.ToList();
+        _palette = palette;
 
         Text = "Historial de transferencias";
         BackColor = palette.Canvas;
@@ -1172,6 +1382,17 @@ internal sealed class HistoryDialog : Form
             HeaderStyle = ColumnHeaderStyle.Nonclickable
         };
         _list.OwnerDraw = true;
+        _empty = new Label
+        {
+            Text = "Todavía no hay transferencias en el historial.\r\n\r\n"
+                   + "Aquí se irán guardando la fecha, el destino, el tamaño y la velocidad de cada copia.",
+            AutoSize = false,
+            TextAlign = ContentAlignment.MiddleCenter,
+            ForeColor = palette.Muted,
+            BackColor = palette.Surface,
+            Font = new Font("Segoe UI", 9.5f),
+            Visible = false
+        };
         _list.Columns.Add("Fecha", 122);
         _list.Columns.Add("Operación", 88);
         _list.Columns.Add("Destino", 300); // se ajusta al ancho para no dejar hueco en la cabecera
@@ -1191,9 +1412,63 @@ internal sealed class HistoryDialog : Form
                 Rectangle.Inflate(e.Bounds, -10, 0), palette.Muted,
                 alignment | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
         };
-        _list.DrawItem += (_, e) => e.DrawDefault = true;
+        // Las filas se pintan a mano: con DrawDefault el ListView usaba los colores del
+        // sistema y las filas seleccionadas salían en azul claro sobre fondo oscuro.
+        _list.DrawItem += (_, e) =>
+        {
+            var background = e.Item.Selected
+                ? palette.Selection
+                : (e.ItemIndex % 2 == 0 ? palette.Surface : palette.SurfaceAlt);
+            using var brush = new SolidBrush(background);
+            e.Graphics.FillRectangle(brush, e.Bounds);
+        };
+        _list.DrawSubItem += (_, e) =>
+        {
+            if (e.Item is null) return;
+            var entry = e.Item.Tag as HistoryEntry;
+            var color = e.ColumnIndex == 6 && entry is not null
+                ? (entry.Errors > 0 ? palette.Danger : palette.Success)
+                : e.ColumnIndex is 0 or 2 ? palette.Text : palette.Muted;
+            var align = _list.Columns[e.ColumnIndex].TextAlign == HorizontalAlignment.Right
+                ? TextFormatFlags.Right
+                : TextFormatFlags.Left;
+            TextRenderer.DrawText(e.Graphics, e.SubItem?.Text ?? string.Empty, _list.Font,
+                Rectangle.Inflate(e.Bounds, -8, 0), color,
+                align | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+        };
         _list.Resize += (_, _) => FitDestinationColumn();
+        // LA BARRA BLANCA del historial: el ListView nativo pinta con los colores del sistema
+        // tanto la barra de desplazamiento como la franja que queda a la derecha de la última
+        // columna. SetWindowTheme oscurece la barra; la franja sobrante la tapa _scrollCover.
+        _list.HandleCreated += (_, _) =>
+        {
+            try { SetWindowTheme(_list.Handle, "DarkMode_Explorer", null); } catch { }
+            foreach (Control child in _list.Controls)
+            {
+                try { if (child.IsHandleCreated) SetWindowTheme(child.Handle, "DarkMode_Explorer", null); } catch { }
+            }
+        };
+        _list.Paint += (_, e) =>
+        {
+            var width = SystemInformation.VerticalScrollBarWidth + 4;
+            var right = _list.ClientSize.Width - width;
+            if (right <= 0) return;
+            var header = _list.Items.Count > 0 ? Math.Max(1, _list.Items[0].Bounds.Top) : _list.ClientSize.Height;
+            using var brush = new SolidBrush(palette.Surface);
+            e.Graphics.FillRectangle(brush, new Rectangle(right, 0, width, header));
+        };
+        try
+        {
+            typeof(ListView).GetProperty("DoubleBuffered",
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+                ?.SetValue(_list, true);
+        }
+        catch { }
         FillList();
+        // Al aparecer o desaparecer la barra vertical cambia el ancho disponible: se vuelve
+        // a repartir para que la última columna siga llegando al borde.
+        _list.HandleCreated += (_, _) => BeginInvoke(new Action(FitDestinationColumn));
+        _list.ClientSizeChanged += (_, _) => FitDestinationColumn();
 
         var buttons = new FlowLayoutPanel
         {
@@ -1201,7 +1476,7 @@ internal sealed class HistoryDialog : Form
             AutoSize = true,
             FlowDirection = FlowDirection.RightToLeft,
             BackColor = palette.Surface,
-            Padding = new Padding(12, 10, 12, 10)
+            Padding = new Padding(12, 8, 12, 8)
         };
 
         var close = Ui.DialogButton("Cerrar", palette, true);
@@ -1242,8 +1517,19 @@ internal sealed class HistoryDialog : Form
             RowCount = 2
         };
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 58));
-        root.Controls.Add(_list, 0, 0);
+        // 62 px: los botones miden 32 y la fila llevaba 58 con 10 de relleno arriba y abajo,
+        // así que salían cortados por la mitad en la parte de abajo del historial.
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 62));
+
+        // Panel con la lista y, encima, el aviso de «sin entradas»: una ventana negra y vacía
+        // no dice si está cargando, si falló o si simplemente no hay nada.
+        var listHost = new Panel { Dock = DockStyle.Fill, BackColor = palette.Surface, Margin = new Padding(0) };
+        _empty.Dock = DockStyle.Fill;
+        listHost.Controls.Add(_empty);
+        listHost.Controls.Add(_list);
+        _list.BringToFront();
+
+        root.Controls.Add(listHost, 0, 0);
         root.Controls.Add(buttons, 0, 1);
         Controls.Add(root);
         AcceptButton = close;
@@ -1261,9 +1547,16 @@ internal sealed class HistoryDialog : Form
     private void FitDestinationColumn()
     {
         const int fixedWidth = 122 + 88 + 88 + 84 + 92 + 100;
-        var width = Math.Max(140, _list.ClientSize.Width - fixedWidth - 4);
+        // El hueco de la barra vertical se reserva SOLO SI LA BARRA ESTÁ. Reservarlo siempre
+        // dejaba a la derecha de la cabecera un cuadrado del ancho de la barra que Windows
+        // pinta de blanco (y la cabecera es una ventana aparte: no se puede tapar pintando).
+        var reserve = NativeTheme.HasVerticalScrollBar(_list) ? SystemInformation.VerticalScrollBarWidth + 2 : 1;
+        var width = Math.Max(140, _list.ClientSize.Width - fixedWidth - reserve);
         if (_list.Columns[2].Width != width) _list.Columns[2].Width = width;
     }
+
+    [System.Runtime.InteropServices.DllImport("uxtheme.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+    private static extern int SetWindowTheme(IntPtr hwnd, string appName, string? idList);
 
     protected override void Dispose(bool disposing)
     {
@@ -1273,6 +1566,12 @@ internal sealed class HistoryDialog : Form
 
     private void FillList()
     {
+        // Con el historial vacío se esconde la lista entera y se enseña el aviso: así no queda
+        // un rectángulo negro con una barra de desplazamiento blanca y nada dentro.
+        var vacio = _entries.Count == 0;
+        _empty.Visible = vacio;
+        _list.Visible = !vacio;
+        if (vacio) _empty.BringToFront();
         _list.BeginUpdate();
         _list.Items.Clear();
         foreach (var entry in _entries)
@@ -1369,5 +1668,256 @@ internal sealed class HistoryDialog : Form
         {
             MessageBox.Show(this, "No se pudo exportar: " + ex.Message, "XoPy", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
+    }
+}
+
+/// <summary>
+/// Ventana que sale cuando el archivo ya existe en el destino. Antes era un cuadro de texto
+/// gris con dos rutas larguísimas pegadas y costaba leerlo. Ahora compara los dos archivos
+/// lado a lado —tamaño y fecha— y marca cuál es más nuevo y cuál más grande, para poder
+/// decidir de un vistazo sin leer ninguna ruta completa.
+/// </summary>
+internal sealed class ConflictDialog : Form
+{
+    /// <summary>
+    /// Último repaso antes de que la ventana se vea: la barra de título se pinta de oscuro
+    /// (Windows la hace blanca por su cuenta) y cualquier control que se haya quedado con
+    /// los colores del sistema recibe los de la paleta. Es lo que quita las barras blancas.
+    /// </summary>
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        Ui.DarkFrame(this, _palette!);
+        Ui.PaintAll(this, _palette!);
+    }
+
+    /// <summary>
+    /// Ya con la ventana en pantalla: a estas alturas TODOS los controles tienen su
+    /// identificador de Windows, así que es cuando se pueden oscurecer sus barras de
+    /// desplazamiento nativas (en Preferencias salían blancas).
+    /// </summary>
+    protected override void OnShown(EventArgs e)
+    {
+        base.OnShown(e);
+        Ui.PaintAll(this, _palette!);
+        Ui.DarkScrollbars(this, _palette!);
+    }
+
+    /// <summary>0 Sobrescribir · 1 Omitir · 2 Cambiar nombre · 3 Cancelar.</summary>
+    public int Choice { get; private set; } = 3;
+
+    public bool ApplyToAll => _applyAll.Checked;
+
+    private readonly CheckBox _applyAll;
+    private readonly Palette _palette;
+    // Un solo ToolTip para todo el cuadro: antes se creaba uno por botón y no se liberaba.
+    private readonly ToolTip _tips = new();
+
+    public ConflictDialog(Palette palette, ConflictPrompt prompt)
+    {
+        _palette = palette;
+        var name = Path.GetFileName(prompt.TargetPath);
+
+        Text = "Ya existe un archivo con ese nombre";
+        BackColor = palette.Canvas;
+        ForeColor = palette.Text;
+        Font = new Font("Segoe UI", 9f);
+        FormBorderStyle = FormBorderStyle.FixedDialog;
+        StartPosition = FormStartPosition.CenterParent;
+        MinimizeBox = false;
+        MaximizeBox = false;
+        ShowInTaskbar = false;
+        // Ancho suficiente para las cuatro respuestas en una sola fila.
+        ClientSize = new Size(700, 356);
+        KeyPreview = true;
+
+        var newer = prompt.SourceModified > prompt.TargetModified ? 1
+            : prompt.SourceModified < prompt.TargetModified ? 2 : 0;
+        var bigger = prompt.SourceSize > prompt.TargetSize ? 1
+            : prompt.SourceSize < prompt.TargetSize ? 2 : 0;
+        var identical = prompt.SourceSize == prompt.TargetSize
+            && Math.Abs((prompt.SourceModified - prompt.TargetModified).TotalSeconds) < 2;
+
+        var root = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 5,
+            BackColor = palette.Canvas,
+            Padding = new Padding(18, 14, 18, 12)
+        };
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 46));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 46));
+
+        // Título: el NOMBRE del archivo, que es lo que de verdad hace falta saber.
+        var heading = new Label
+        {
+            Text = name,
+            AutoSize = false,
+            Dock = DockStyle.Fill,
+            TextAlign = ContentAlignment.MiddleLeft,
+            ForeColor = palette.Text,
+            Font = new Font("Segoe UI", 13f, FontStyle.Bold),
+            AutoEllipsis = true,
+            UseMnemonic = false
+        };
+
+        var subtitle = new Label
+        {
+            Text = identical
+                ? "Ya hay un archivo igual en la carpeta de destino (mismo tamaño y misma fecha)."
+                : "Ya hay un archivo con ese nombre en la carpeta de destino.",
+            AutoSize = false,
+            Dock = DockStyle.Fill,
+            TextAlign = ContentAlignment.MiddleLeft,
+            ForeColor = palette.Muted,
+            Font = new Font("Segoe UI", 9f),
+            AutoEllipsis = true,
+            UseMnemonic = false
+        };
+
+        // Comparación lado a lado.
+        var compare = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            RowCount = 1,
+            BackColor = palette.Canvas,
+            Margin = new Padding(0, 6, 0, 6)
+        };
+        compare.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        compare.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        compare.Controls.Add(Card(palette, _tips, "El que vas a copiar", prompt.SourcePath,
+            prompt.SourceSize, prompt.SourceModified, newer == 1, bigger == 1), 0, 0);
+        compare.Controls.Add(Card(palette, _tips, "El que ya está en el destino", prompt.TargetPath,
+            prompt.TargetSize, prompt.TargetModified, newer == 2, bigger == 2), 1, 0);
+
+        _applyAll = new CheckBox
+        {
+            Text = "Hacer lo mismo con el resto de archivos repetidos de esta copia",
+            AutoSize = false,
+            Dock = DockStyle.Fill,
+            ForeColor = palette.Text,
+            BackColor = Color.Transparent,
+            Font = new Font("Segoe UI", 9f)
+        };
+
+        var buttons = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            FlowDirection = FlowDirection.RightToLeft,
+            WrapContents = false,
+            BackColor = palette.Canvas,
+            Margin = new Padding(0, 4, 0, 0)
+        };
+
+        // Las cuatro respuestas, todas con el mismo aspecto. Lo que las distingue es el
+        // TEXTO y el globo de ayuda, no el color: así ninguna parece «la buena» de entrada.
+        Button Make(string text, string tip, int choice)
+        {
+            // Todos los botones con EL MISMO estilo: ninguno resaltado, ninguno de color.
+            var button = Ui.DialogButton(text, palette);
+            // El ancho se MIDE con la fuente del botón: con 128 fijos, «Quedarme con los
+            // dos» se quedaba en «Quedarme con los».
+            button.Width = Math.Max(118, TextRenderer.MeasureText(text, button.Font).Width + 26);
+            button.Margin = new Padding(8, 0, 0, 0);
+            _tips.SetToolTip(button, tip);
+            button.Click += (_, _) => { Choice = choice; DialogResult = DialogResult.OK; Close(); };
+            return button;
+        }
+
+        // Orden de izquierda a derecha en pantalla: Cancelar · Omitir · Copiar las dos ·
+        // Reemplazar. El botón resaltado es el que menos daño hace.
+        var replace = Make("Reemplazar", "BORRA el archivo del destino y pone el nuevo en su sitio. Lo que había se pierde.", 0);
+        var skip = Make("No copiar este", "Deja el destino como está y pasa al siguiente archivo.", 1);
+        var both = Make("Quedarme con los dos", "Copia el nuevo con un nombre distinto; no se pierde ninguno.", 2);
+        var cancel = Make("Cancelar la copia", "Detiene la transferencia completa.", 3);
+
+        buttons.Controls.Add(replace);
+        buttons.Controls.Add(skip);
+        buttons.Controls.Add(both);
+        buttons.Controls.Add(cancel);
+
+        root.Controls.Add(heading, 0, 0);
+        root.Controls.Add(subtitle, 0, 1);
+        root.Controls.Add(compare, 0, 2);
+        root.Controls.Add(_applyAll, 0, 3);
+        root.Controls.Add(buttons, 0, 4);
+        Controls.Add(root);
+
+        AcceptButton = both;
+        CancelButton = cancel;
+        // Nadie empieza con el foco puesto: un botón enfocado se ve distinto de los demás y
+        // eso es, otra vez, resaltar una respuesta. Se contesta con el ratón o con Tab.
+        Shown += (_, _) => ActiveControl = null;
+        KeyDown += (_, e) =>
+        {
+            if (e.KeyCode != Keys.Escape) return;
+            Choice = 3;
+            DialogResult = DialogResult.Cancel;
+            Close();
+        };
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing) _tips.Dispose();
+        base.Dispose(disposing);
+    }
+
+    /// <summary>Tarjeta con los datos de uno de los dos archivos.</summary>
+    private static Control Card(Palette palette, ToolTip tips, string title, string path, long size, DateTime modified,
+        bool isNewer, bool isBigger)
+    {
+        var card = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 5,
+            BackColor = palette.Surface,
+            Padding = new Padding(12, 10, 12, 10),
+            Margin = new Padding(0, 0, 8, 0)
+        };
+        card.RowStyles.Add(new RowStyle(SizeType.Absolute, 20));
+        card.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));
+        card.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
+        card.RowStyles.Add(new RowStyle(SizeType.Absolute, 20));
+        card.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+
+        Label Line(string text, float points, Color color, bool bold = false) => new()
+        {
+            Text = text,
+            AutoSize = false,
+            Dock = DockStyle.Fill,
+            TextAlign = ContentAlignment.MiddleLeft,
+            ForeColor = color,
+            Font = new Font("Segoe UI", points, bold ? FontStyle.Bold : FontStyle.Regular),
+            AutoEllipsis = true,
+            UseMnemonic = false,
+            Margin = new Padding(0)
+        };
+
+        var folder = string.Empty;
+        try { folder = Path.GetDirectoryName(path) ?? string.Empty; } catch { }
+
+        var sizeLine = Format.Bytes(size) + (isBigger ? "   ·   el más grande" : string.Empty);
+        var dateLine = modified.ToString("dd/MM/yyyy HH:mm", CultureInfo.InvariantCulture)
+                       + (isNewer ? "   ·   el más nuevo" : string.Empty);
+
+        card.Controls.Add(Line(title.ToUpperInvariant(), 7.5f, palette.Muted, true), 0, 0);
+        card.Controls.Add(Line(sizeLine, 12f, isBigger ? palette.Accent : palette.Text, true), 0, 1);
+        card.Controls.Add(Line(dateLine, 9f, isNewer ? palette.Accent : palette.Text), 0, 2);
+        card.Controls.Add(Line("Carpeta", 7.5f, palette.Muted, true), 0, 3);
+
+        var folderLabel = Line(folder, 8.25f, palette.Muted);
+        folderLabel.TextAlign = ContentAlignment.TopLeft;
+        // El globo con la ruta se cuelga del cuadro (antes se creaba un ToolTip suelto que
+        // nadie liberaba y se quedaba flotando en medio de la ventana).
+        tips.SetToolTip(folderLabel, path);
+        card.Controls.Add(folderLabel, 0, 4);
+        return card;
     }
 }

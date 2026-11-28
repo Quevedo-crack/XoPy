@@ -59,9 +59,28 @@ XoPy.exe --multi --copy --to "D:\Copias" "C:\Datos\informe.pdf"
   sistema, con pausa, saltar archivo y límite de velocidad, y sin dobles lecturas. Si algo falla,
   XoPy reintenta con la copia administrada y con permisos de copia de seguridad.
 - **Cola jerárquica**: al añadir una carpeta se ve la carpeta y dentro cada archivo, con sus
-  subcarpetas. Puedes expandirla o contraerla, **reordenar** (botones ↑/↓ o Alt+↑/Alt+↓) sin separar
-  un archivo de su carpeta, **ordenar** por nombre, tamaño, tipo o carpeta de destino (menú Cola o el
+  subcarpetas. Puedes expandirla o contraerla, **ordenar** por nombre, tamaño, **fecha de
+  modificación**, carpeta de destino o ruta de origen (menú Cola, menú del botón derecho o el
   botón ⇅) y **quitar** elementos de la cola antes de transferir.
+- **Orden libre, sin ataduras**: cualquier archivo se puede llevar a cualquier sitio de la lista
+  —arrastrándolo, con ↑/↓, con Alt+↑/Alt+↓ o con «Llevar al principio / al final» (Alt+Inicio y
+  Alt+Fin)—, aunque salga de otra carpeta. Si un archivo de «Carpeta 2» se cuela entre los de
+  «Carpeta 1», la lista enseña *Carpeta 1 → sus archivos → Carpeta 2 → ese archivo → Carpeta 1 →
+  lo que quedaba → Carpeta 2 → el resto*, repitiendo la cabecera (marcada «(sigue)») y las
+  subcarpetas que hagan falta. **Reordenar solo cambia el orden en que se copia**: ni la carpeta
+  de origen ni la de destino de un archivo cambian nunca. Y lo que se ve es lo que se copia: el
+  motor sigue ese mismo orden.
+- **Ruta completa a la vista**: cada elemento de la lista enseña de qué carpeta del disco sale. Si
+  no cabe, se recorta por el medio (`C:\Users\…\foto.jpg`) y el nombre del archivo siempre se lee.
+  Se puede apagar en Preferencias o con el menú del botón derecho de la lista.
+- **La lista se puede ocultar**: el botón «Ocultar lista» de la barra (o F9) deja solo los botones,
+  el progreso y el pie. El mismo botón, encendido en azul y con el texto «Mostrar lista», es el
+  camino de vuelta: ocultar algo nunca deja la ventana sin forma de recuperarlo.
+- **Multihilo con un clic**: el botón «Multihilo · N» de la barra se enciende en azul cuando está
+  activado y el cambio se aplica al instante, incluso con una copia en marcha.
+- **Pegar empieza solo**: `Ctrl+V` y la opción «Pegar» del menú del Explorador arrancan la copia
+  directamente con lo que haya en el portapapeles, sin cuadros por el medio. Si ya hay una lista
+  empezada con otro destino, se abre una lista nueva para no mezclarlos.
 - **La estructura se conserva**: copiar `C:\Fotos` crea `Destino\Fotos\sub\archivo.jpg`, nunca
   archivos sueltos en la raíz del destino. Las carpetas vacías también se crean.
 - **Varios destinos por tarea**: cada archivo se copia a la vez en el destino principal y en los
@@ -99,6 +118,20 @@ XoPy.exe --multi --copy --to "D:\Copias" "C:\Datos\informe.pdf"
 - Icono de progreso en el **área de notificación** y modo minimizado.
 - Temas **oscuro** y **claro**.
 
+## Fusión con FlashCopyPro
+
+XoPy incorpora el aspecto y las opciones de [FlashCopyPro](https://github.com/Quevedo-crack/FlashCopyPro),
+el otro gestor de copias de este mismo autor, y resuelve de paso lo que allí faltaba:
+
+| De FlashCopyPro | Cómo queda en XoPy |
+| --- | --- |
+| Paleta oscura de grises neutros, acento azul de Windows 11 e iconos Segoe Fluent | Tema oscuro de toda la aplicación, también en la barra de título y en las barras de desplazamiento de los cuadros |
+| Lista con la ruta completa y recorte por el medio | Columna «Archivo y ruta», con el árbol de carpetas de XoPy encima |
+| No se podía ocultar la lista de copia | Botón «Ocultar lista» / «Mostrar lista» y F9 |
+| No había interruptor de multihilo | Botón «Multihilo · N» que se enciende en azul y se aplica en caliente |
+| «Pegar» del menú abría otro menú en vez de copiar | Pegar arranca directamente con lo que hay en el portapapeles |
+| Ordenar solo por nombre y tamaño | También por fecha de modificación, carpeta de destino y ruta de origen |
+
 ## Novedades de la versión 2.4.6
 
 - **Corregido el arranque**: el programa ya no falla con error 0xc00000fd (desbordamiento de pila) al abrir, ni en la versión portable ni en la instalada. El hook de pegado de teclado (Ctrl+V) se instala ahora después de que la ventana se muestra, no durante el constructor.
@@ -117,6 +150,121 @@ XoPy.exe --multi --copy --to "D:\Copias" "C:\Datos\informe.pdf"
 - Si una transferencia encuentra un destino no válido, se puede elegir otra carpeta, crearla, usar la carpeta predeterminada o cancelar.
 - En la barra de copia se puede alternar entre modo secuencial y multihilo, también durante una transferencia; un archivo se puede pausar/reanudar individualmente desde el menú contextual de la lista. La lista admite reordenado por arrastre; las carpetas se muestran contraídas al añadirse y se pueden desplegar con la flecha o desde el menú. La columna de trabajos también empieza plegada y puede expandirse.
 - El instalador limpia las antiguas claves del menú contextual antes de iniciar la aplicación.
+
+## Novedades de la versión 2.6.6
+
+**Los trece fallos de la 2.6.5, uno por uno.**
+
+Ventana
+
+- **Las dos barras, en el orden que toca:** arriba el **total** de la copia y debajo el **archivo concreto**, que además se ve mejor (antes el azul del archivo era tan oscuro que parecía que no avanzaba).
+- **La línea «Total» lo dice todo**: archivos copiados y los que faltan, megas copiados y los que faltan, velocidad y tiempo restante, sin recortes aunque la ventana sea estrecha.
+- **La vista reducida ya no se puede estirar hacia abajo**: es una banda de alto fijo, sin franja vacía debajo (y sin botón de maximizar, que hacía lo mismo de un clic).
+- **Esconder la lista con la ventana maximizada ya no hace desaparecer XoPy.** La banda se queda en la pantalla en la que estaba, y si por lo que sea la ventana acabara fuera del escritorio, XoPy la trae de vuelta sola.
+- **Ctrl+V abre siempre la ventana pequeña**, sin el parpadeo de verla primero grande y luego encogerse.
+- **El botón «Historial» ya cabe entero.**
+- **Preferencias deja de salir enmarcada en blanco**: el cuadro de pestañas pinta sus propios bordes y los huecos entre pestañas.
+- **Fuera la barra blanca a la derecha de la lista** al desplazarse en horizontal: la cabecera se pinta hasta el borde pase lo que pase con las columnas.
+- **En el árbol se resalta la ruta entera, línea de puntos incluida**: el trazo que une la carpeta con el archivo marcado va en azul aunque pase por encima de las filas de otros archivos.
+
+Copia
+
+- **Se acabaron los «Acceso denegado (error 5)» al reanudar.** Si el resto de una copia anterior (`.archivo.xopy-part`) no se deja tocar, XoPy lo tira y copia el archivo entero en vez de volver a estrellarse contra él una y otra vez; antes de escribir quita los atributos que estorban y, si hace falta, borra el destino.
+- **Reanudar vuelve a ir rápido.** Un trozo pequeño ya no obliga a usar el motor lento: por debajo de 8 MB se copia el archivo entero con el motor nativo. Y la pausa se abre con un cerrojo de verdad, así que al reanudar los hilos arrancan en el acto en vez de esperar su turno de sondeo.
+- **«Copiar a la vez» copia de verdad.** Antes los archivos acababan al final de la lista que ya estaba copiando; ahora se abre otra ventana de XoPy con su propia lista y las dos copias van en paralelo.
+
+Explorador
+
+- **Se acabaron los «aquÃ­» del menú del botón derecho**: la extensión se compila en UTF-8 y los acentos salen bien.
+
+## Novedades de la versión 2.6.5
+
+**Copiar rápido otra vez, y los avisos que faltaban.**
+
+- **Se acabaron los tirones y la velocidad en bytes por segundo.** Cada archivo pedía a Windows un bloque de memoria de 4 MB (y otros dos para los flujos de lectura y escritura), así que copiar una carpeta con miles de archivos pequeños se pasaba el rato recogiendo basura: copiaba un poco, se paraba, copiaba un poco. Ahora el bloque se ajusta al tamaño del archivo y se reutiliza.
+- **La verificación ya no apaga el motor rápido.** Con «verificar al copiar» activado, XoPy dejaba de usar la copia nativa de Windows y escribía cada archivo a mano en un temporal oculto (`.archivo.xopy-part`) que luego renombraba: el triple de trabajo de disco… y justo el temporal que el antivirus, la protección contra ransomware y OneDrive bloquean con «acceso denegado». Ahora copia rápido y verifica después, sobre el archivo ya colocado.
+- **El registro de transferencias ya no abre y cierra el archivo en cada archivo copiado.** Se mantiene abierto y se vuelca una vez por segundo.
+- **La ventana deja de parecer colgada.** Cuando la copia se para a preguntar algo, la cabecera lo dice («Esperando · contesta al aviso») en vez de enseñar el mismo archivo con «0 B/s» y «quedan 00:00». Y con la lista escondida ya no se repasan tres mil filas invisibles tres veces por segundo.
+- **«Acceso denegado (error 5)» con datos, no con sospechas.** El aviso dice si el archivo ya existía en el destino y con qué atributos, si quedaba un resto de una copia anterior y si la carpeta la sincroniza OneDrive. El botón **«Permitir XoPy y reintentar»** aparece siempre que el fallo huela a protección de Windows, no solo cuando se puede leer el registro del sistema.
+- **Pegar en la raíz de un disco («E:\») ya no da «Carpeta de destino no válida».** La barra final se comía la comilla de cierre y XoPy recibía la línea de comandos entera como si fuera la carpeta. Arreglado en la extensión del Explorador y, por si quedara instalada una versión anterior suya, XoPy también sabe deshacer el estropicio.
+- **El menú del Explorador se actualiza de verdad.** El Explorador guarda en memoria la extensión antigua, así que seguía enseñando «Pegar  (XoPy)» después de actualizar. El instalador ofrece reiniciarlo (un parpadeo de la barra de tareas) y hay una opción nueva en **Herramientas → «Refrescar el menú del Explorador…»**.
+- **Con la lista escondida ya no queda media pantalla vacía.** La vista reducida es una banda: si la ventana estaba maximizada, se deja de maximizar; y si la maximizas con la lista escondida, se enseña la lista.
+- **La línea de puntos del árbol no se corta.** Al marcar un archivo, toda la guía —desde su carpeta hasta él, pasando por las subcarpetas— se pinta resaltada, también sobre la fila seleccionada.
+- **Pegar con otra copia en marcha pregunta lo que hay que preguntar:** «añadir a esa lista (mismo destino)», «dejarlos en esta y esperar turno» o «copiar a la vez». Ya no empieza por «reanudar aquella».
+
+## Novedades de la versión 2.6.4
+
+**Los siete fallos de la 2.6.3, uno por uno.**
+
+- **Se acabó el falso «Carpeta de destino no válida».** La ruta se limpia antes de juzgarla (comillas de «Copiar como ruta de acceso», espacios o puntos al final, barras repetidas, %VARIABLES%) y, si la carpeta ya existe, no se vuelve a crear. Cuando de verdad hay un problema, el aviso dice la ruta exacta y qué carácter sobra.
+- **El icono del área de notificación es el PORCENTAJE de la copia.** Al terminar vuelve el icono de XoPy. Con varias copias a la vez, el icono lleva una chapita con cuántas son y el texto del ratón las enseña todas con su porcentaje; van desapareciendo según terminan.
+- **Menú «Ordenar» limpio**: nueve opciones, ninguna repetida, y la primera es **«Archivos más grandes primero»**, que ordena archivo por archivo (no por carpetas) y es el orden en el que se copia de verdad, aunque los archivos estén dentro de carpetas.
+- **Con la lista oculta no queda ninguna franja clara**, y la línea «Total» muestra **cuántos archivos van copiados de cuántos** — también en la ventana reducida.
+- **«Acceso denegado (error 5)» explicado y resuelto.** XoPy comprueba si puede escribir en el destino ANTES de empezar, distingue si el problema está al leer el origen o al escribir en el destino y, cuando la causa es el **Acceso controlado a carpetas** de Seguridad de Windows (lo que bloquea el Escritorio y Documentos), ofrece permitir XoPy con un botón. También está en Herramientas → «Permitir XoPy en el acceso controlado a carpetas…».
+- **En el Explorador queda solo «Pegar»**, con el icono de XoPy y sin «(XoPy)» entre paréntesis.
+- **El informe se guarda donde quieras**: el cuadro de guardar empieza en una carpeta en la que de verdad se pueda escribir (se acabó el aviso de Windows «¿Desea guardar en Documents?»), y si falla, se explica por qué y se ofrece otra carpeta o la carpeta de XoPy. El archivo se escribe entero o no se escribe: nunca más un informe de 0 bytes.
+- **Ningún botón vuelve a salir cortado**: todos se miden con el tamaño de letra real de Windows (125 %, 150 %…), igual que las franjas de la ventana.
+
+## Novedades de la versión 2.6.3
+
+**Los doce fallos que apareciste probando la 2.6.2, uno por uno.**
+
+Ventana
+
+- **XoPy abre SIEMPRE en vista reducida.** Era lo pedido desde el principio: se abre pequeño, con los datos justos, y se agranda solo si lo pides. Si ya tenías ajustes guardados, se cambian solos al actualizar.
+- **Se acabó el hueco negro de la vista reducida**: la ventana mide exactamente lo que ocupan la barra, las dos barras de progreso y el pie.
+- **Vuelven las DOS barras de progreso**: arriba la del archivo que se está copiando, abajo la del total, cada una con su rótulo.
+- **Fuera el cuadradito blanco de la esquina superior derecha** de la lista y del historial: solo se reserva sitio para la barra de desplazamiento cuando esa barra existe de verdad.
+- **Los botones del historial ya no salen cortados** y la columna «Destino» se ajusta sola al ancho de la ventana.
+- **Las barras de desplazamiento de las opciones avanzadas ya no salen blancas.**
+- **La lista deja de parpadear mientras copia**: se repintan solo las filas que cambian, no las dos mil.
+- **Al marcar un archivo se resalta su ruta completa hasta la raíz**: la fila y todas sus carpetas padre se tiñen y llevan su banda azul, así se sigue con la vista de dónde sale.
+
+Icono
+
+- **Icono redondo de verdad**, recortado en círculo y con el fondo transparente: igual en el escritorio, en la barra de tareas y en el área de notificación, sin el cuadrado alrededor.
+
+Copia
+
+- **Mover dentro del mismo disco es INSTANTÁNEO.** Antes se copiaban los 3 GB, se comprobaban y luego se borraba el original; ahora se renombra, que es lo que hace Windows. De paso desaparecen los cientos de errores que salían al mover una carpeta grande de un sitio a otro del mismo disco.
+- **Segunda copia sobre archivos que ya están**: los atributos que bloquean (solo lectura, oculto, de sistema) se quitan ANTES de copiar, no después de fallar.
+
+Registro
+
+- **Botón «Guardar informe para enviar…»** en la pestaña Registro: crea un único archivo de texto con la versión, Windows, los discos, los ajustes, los archivos que han fallado, las últimas transferencias y el registro técnico. Es el archivo que hay que adjuntar cuando algo falle.
+- **Cada error se apunta con su código de Windows**, el tamaño del origen y los atributos del destino, y el registro ya no se borra solo a los 2 MB (ahora 8 MB y guarda la vuelta anterior).
+
+Explorador de Windows
+
+- **Copiar y mover arrastrando, como SuperCopier.** XoPy se registra como manejador de arrastrar y soltar: al soltar archivos sobre una carpeta aparecen «Copiar aquí con XoPy» y «Mover aquí con XoPy», y si XoPy es el copiador predeterminado esa es la acción que se hace al soltar con el botón izquierdo. Con miles de archivos la lista viaja en un archivo temporal, así que no hay límite de longitud de la línea de comandos.
+
+## Novedades de la versión 2.6.2
+
+**Repaso a fondo de los fallos que se arrastraban de versiones anteriores.**
+
+Ventana e interfaz
+
+- **La X minimiza al área de notificación** (junto al reloj) en vez de cerrar el programa, y el ajuste viene activado de fábrica. Para salir de verdad: menú «Archivo → Salir» o el icono de la bandeja.
+- **XoPy ya no abre maximizado** y recuerda el tamaño que tenía, siempre dentro de la pantalla.
+- **Se acabó el hueco vacío** debajo de la lista: la cabecera y el pie se ajustan al contenido real, y en vista compacta el pie desaparece entero.
+- **Una sola barra de progreso**, la del total. Antes había dos (una encima de otra) y no se entendía cuál era cuál.
+- **Los botones de los cuadros de diálogo son todos iguales**, sin colores ni resaltes: ninguna opción «tira» del ratón.
+- **El cuadro «Añadir archivos a la copia» es pequeño**, del tamaño justo de lo que enseña.
+- **La ruta del archivo marcado se ve de un vistazo**: la fila seleccionada lleva una banda azul y toda su rama se marca con una línea de puntos hasta la raíz. Al reordenar la lista ya no se pierde de vista de dónde sale cada archivo.
+
+Copia
+
+- **Segunda copia sobre la misma carpeta: se acabaron los «Acceso denegado (error 5)» en cadena.** Al sobrescribir se quitan también los atributos **oculto** y **de sistema**, no solo el de solo lectura; es lo que hacía fallar cientos de archivos seguidos en carpetas de juegos y programas.
+- **Reintentos con cabeza.** Solo se reintenta lo que puede arreglarse esperando (archivo en uso por otro programa, corte de red). Con «acceso denegado», «no existe» o «ruta no encontrada» no se insiste cuatro veces por archivo: antes eso convertía la segunda copia en una tortura de varios minutos para acabar fallando igual.
+- **«Hacer lo mismo con el resto»** en el cuadro de error: una respuesta vale para todos los archivos que fallen después. Con doscientos archivos rotos, contestar doscientas veces no es una opción.
+
+Explorador de Windows
+
+- **«Pegar» del menú contextual vuelve a ser el de XoPy.** La extensión tenía una comprobación mal escrita que la invalidaba siempre, así que la entrada no llegaba a aparecer nunca y pegaba Windows. Además, con XoPy puesto como gestor de copias predeterminado, **el «Pegar» del sistema se sustituye por el de XoPy** en el menú.
+
+Icono
+
+- **Icono nuevo**, en la línea del de FlashCopyPro: anillo azul, fondo oscuro y el rayo sobre las dos hojas, con el azul y los tonos oscuros del propio programa.
 
 ## Novedades de la versión 2.5.9
 

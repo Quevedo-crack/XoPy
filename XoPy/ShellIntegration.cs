@@ -87,6 +87,7 @@ public static class ShellIntegration
             // crea a propósito y comprueba que desaparecen), pero Unregister ya NO borra el
             // CLSID de la extensión «Pegar»: esa clave es la que hace funcionar Ctrl+V.
             try { RegisterAppPath(Application.ExecutablePath); } catch { }
+            try { SetDefaultCopierFlag(true); } catch { }
             try { Unregister(); } catch { }
             // «Enviar a → XoPy»: se crea y se deja. Antes el arranque llamaba a Cleanup(),
             // que borraba el acceso, y por eso «Enviar a» no existía nunca.
@@ -133,6 +134,16 @@ public static class ShellIntegration
                  })
         {
             using var handlers = Registry.CurrentUser.CreateSubKey(ClassesRoot + @"\" + context);
+            handlers?.SetValue(null, clsid);
+        }
+        // MANEJADOR DE ARRASTRAR Y SOLTAR. Es como SuperCopier le quita la copia al
+        // Explorador desde hace más de diez años: Windows construye este menú también
+        // cuando se suelta con el botón izquierdo (y al pegar dentro de una carpeta) y
+        // ejecuta su elemento predeterminado. Al marcarlo nosotros, copia XoPy.
+        foreach (var target in new[] { "Directory", "Drive", "Folder" })
+        {
+            using var handlers = Registry.CurrentUser.CreateSubKey(
+                ClassesRoot + @"\" + target + @"\shellex\DragDropHandlers\XoPyCopier");
             handlers?.SetValue(null, clsid);
         }
         try
@@ -203,6 +214,15 @@ public static class ShellIntegration
             Registry.CurrentUser.DeleteSubKeyTree(@"Software\Classes\Directory\Background\shellex\ContextMenuHandlers\XoPyPaste", false);
         }
         catch { }
+        foreach (var target in new[] { "Directory", "Drive", "Folder" })
+        {
+            try
+            {
+                Registry.CurrentUser.DeleteSubKeyTree(
+                    ClassesRoot + @"\" + target + @"\shellex\DragDropHandlers\XoPyCopier", false);
+            }
+            catch { }
+        }
     }
 
     /// <summary>Borra las integraciones antiguas y registra la ruta de la aplicación.</summary>
@@ -210,9 +230,32 @@ public static class ShellIntegration
     {
         var exe = Application.ExecutablePath;
         try { RegisterAppPath(exe); } catch { }
+        try { SetDefaultCopierFlag(false); } catch { }
         try { RemoveSendToShortcuts(); } catch { }
         try { Unregister(); } catch { }
+        // Sin integración, XoPy no se mete en los arrastres del Explorador.
+        foreach (var target in new[] { "Directory", "Drive", "Folder" })
+        {
+            try
+            {
+                Registry.CurrentUser.DeleteSubKeyTree(
+                    ClassesRoot + @"\" + target + @"\shellex\DragDropHandlers\XoPyCopier", false);
+            }
+            catch { }
+        }
         try { SHChangeNotify(0x08000000, 0, IntPtr.Zero, IntPtr.Zero); } catch { }
+    }
+
+    /// <summary>
+    /// Deja escrito en el registro si XoPy es el gestor de copias predeterminado. Lo lee la
+    /// extensión del Explorador (XoPyShell.dll) para decidir si quita el «Pegar» de Windows
+    /// del menú contextual y pone el suyo en su sitio. Sin esta marca, la extensión no toca
+    /// el menú del sistema.
+    /// </summary>
+    private static void SetDefaultCopierFlag(bool enabled)
+    {
+        using var key = Registry.CurrentUser.CreateSubKey(@"Software\XoPy");
+        key?.SetValue("DefaultCopier", enabled ? 1 : 0, RegistryValueKind.DWord);
     }
 
     private static void CreateSendToShortcut()

@@ -8,7 +8,7 @@ namespace XoPy;
 
 public sealed record ConflictPrompt(string SourcePath, string TargetPath, long SourceSize, long TargetSize, DateTime SourceModified, DateTime TargetModified);
 
-public enum ConflictChoice { Overwrite, Skip, Rename, OverwriteAll, SkipAll, Cancel }
+public enum ConflictChoice { Overwrite, Skip, Rename, OverwriteAll, SkipAll, Cancel, RenameAll }
 
 public sealed record ErrorPrompt(string FilePath, string Message, int Attempt);
 
@@ -38,23 +38,99 @@ public sealed class EngineOptions
 public static class FileLog
 {
     private static readonly object Gate = new();
+    private static StreamWriter? _writer;
+    private static DateTime _lastFlush = DateTime.MinValue;
+    private static bool _exitHooked;
+
     private static string LogPath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "XoPy", "transfer.log");
 
+    /// <summary>
+    /// EL REGISTRO SE ESCRIBE CON EL ARCHIVO ABIERTO. Antes cada línea abría el archivo,
+    /// consultaba su tamaño, escribía y lo cerraba; como se apunta una línea POR ARCHIVO
+    /// COPIADO, copiar una carpeta de tres mil archivos pequeños suponía diez mil
+    /// operaciones de disco extra —todas dentro del mismo cerrojo, frenando además las
+    /// copias en paralelo—. Ahora se mantiene abierto y se vuelca una vez por segundo.
+    /// </summary>
     public static void Write(string message)
     {
         try
         {
             lock (Gate)
             {
-                var directory = Path.GetDirectoryName(LogPath)!;
-                Directory.CreateDirectory(directory);
-                var info = new FileInfo(LogPath);
-                if (info.Exists && info.Length > 2 * 1024 * 1024) info.Delete();
-                File.AppendAllText(LogPath, $"{DateTime.Now:yyyy-MM-dd HH:mm:ss}  {message}{Environment.NewLine}", Encoding.UTF8);
+                EnsureWriter();
+                if (_writer is null) return;
+                _writer.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}  {message}");
+                if ((DateTime.UtcNow - _lastFlush).TotalMilliseconds > 1000)
+                {
+                    _writer.Flush();
+                    _lastFlush = DateTime.UtcNow;
+                }
             }
         }
         catch { }
+    }
+
+    /// <summary>Vuelca al disco lo que quede en el búfer (antes de leer el registro).</summary>
+    public static void Flush()
+    {
+        lock (Gate)
+        {
+            try { _writer?.Flush(); } catch { }
+            _lastFlush = DateTime.UtcNow;
+        }
+    }
+
+    private static void EnsureWriter()
+    {
+        // 8 MB y se guarda la vuelta anterior: con doscientos errores en una copia el
+        // registro se llenaba y se borraba justo lo que hacía falta para saber qué pasó.
+        if (_writer is not null)
+        {
+            try
+            {
+                if (_writer.BaseStream.Length > 8 * 1024 * 1024)
+                {
+                    _writer.Flush();
+                    _writer.Dispose();
+                    _writer = null;
+                    try { File.Copy(LogPath, LogPath + ".1", true); } catch { }
+                    try { File.Delete(LogPath); } catch { }
+                }
+            }
+            catch { }
+        }
+        if (_writer is not null) return;
+
+        var directory = Path.GetDirectoryName(LogPath)!;
+        Directory.CreateDirectory(directory);
+        var stream = new FileStream(LogPath, FileMode.Append, FileAccess.Write,
+            FileShare.ReadWrite | FileShare.Delete, 16 * 1024);
+        _writer = new StreamWriter(stream, new UTF8Encoding(false)) { AutoFlush = false };
+        if (!_exitHooked)
+        {
+            _exitHooked = true;
+            try { AppDomain.CurrentDomain.ProcessExit += (_, _) => Flush(); } catch { }
+        }
+    }
+
+    /// <summary>
+    /// Apunta un fallo con TODO lo que hace falta para saber por qué: código de Windows,
+    /// rutas, tamaños y atributos del destino. Es lo que permite leer un informe y decir
+    /// «esto es un archivo de sistema», en vez de adivinar.
+    /// </summary>
+    public static void Failure(string operation, string source, string target, Exception ex)
+    {
+        var code = ex.HResult & 0xFFFF;
+        var attributes = "—";
+        try { if (File.Exists(target)) attributes = File.GetAttributes(target).ToString(); } catch { }
+        var size = "—";
+        try { if (File.Exists(source)) size = new FileInfo(source).Length.ToString(); } catch { }
+        Write($"ERROR {operation} win32={code} ({ex.GetType().Name}) «{ex.Message}»"
+              + $" | origen={source} ({size} B) | destino={target} | atributos destino={attributes}");
+        // Un fallo se guarda al momento: si XoPy se cierra justo después, ese renglón es
+        // precisamente el que hace falta.
+        Flush();
     }
 }
 
@@ -67,7 +143,24 @@ public sealed class CopyEngine
 {
     private CancellationTokenSource? _cts;
     private volatile bool _paused;
+    /// <summary>
+    /// Cerrojo de la pausa GENERAL. Antes la espera era un sondeo: cada hilo miraba la
+    /// bandera, dormía 40 ms y volvía a mirar. Al reanudar se perdían hasta 40 ms por cada
+    /// bloque y por cada archivo —con miles de archivos pequeños eso es la diferencia
+    /// entre recuperar el ritmo y seguir a paso de tortuga—, y mientras tanto los cuatro
+    /// hilos estaban despertándose veinticinco veces por segundo para no hacer nada.
+    /// Ahora se duerme sobre un evento y se despierta EN EL ACTO al reanudar.
+    /// </summary>
+    private readonly ManualResetEventSlim _resumeGate = new(true);
+    private volatile TaskCompletionSource<bool> _resumeSignal = CompletedSignal();
     private readonly ConcurrentDictionary<Guid, ManualResetEventSlim> _itemPauseEvents = new();
+
+    private static TaskCompletionSource<bool> CompletedSignal()
+    {
+        var signal = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        signal.TrySetResult(true);
+        return signal;
+    }
     private readonly object _parallelismLock = new();
     private TaskCompletionSource _parallelismChanged = NewSignal();
     private EngineOptions? _activeOptions;
@@ -82,6 +175,20 @@ public sealed class CopyEngine
     private readonly Stopwatch _clock = new();
     private ConflictChoice? _stickyConflict;
     private ErrorChoice? _stickyError;
+    // Un solo cuadro de pregunta a la vez. Con varios archivos en paralelo se abrían tantos
+    // cuadros como hilos y «Omitir todos» solo callaba al que estaba delante: los demás
+    // seguían preguntando. Ahora las preguntas se hacen en fila y, antes de enseñar la
+    // siguiente, se vuelve a mirar si el usuario ya dijo «todos».
+    private readonly object _promptGate = new();
+    private int _waitingForUser;
+    // Huella del ORIGEN ya calculada en esta copia. Con dos destinos, cada archivo se leía
+    // y se cifraba dos veces para sacar exactamente el mismo número; ahora solo una.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte[]> _sourceHashes = new(StringComparer.OrdinalIgnoreCase);
+    // Velocidad reciente (media móvil). La media desde el principio hacía que un parón o
+    // una pausa dejasen el número clavado en «lento» durante minutos.
+    private long _speedSampleTicks;
+    private long _speedSampleBytes;
+    private double _recentSpeed;
 
     public event EventHandler? Finished;
     public Func<ConflictPrompt, ConflictChoice>? ConflictResolver { get; set; }
@@ -89,6 +196,13 @@ public sealed class CopyEngine
 
     public bool IsRunning => Volatile.Read(ref _running) != 0;
     public bool IsPaused => _paused;
+
+    /// <summary>
+    /// La copia está parada esperando que el usuario conteste a un cuadro (un conflicto o
+    /// un error). Sin esto, la ventana enseñaba el mismo archivo congelado, «0 B/s» y
+    /// «quedan 00:00», y parecía que XoPy se hubiera colgado.
+    /// </summary>
+    public bool IsWaitingForUser => Volatile.Read(ref _waitingForUser) > 0;
     public int Parallelism => Volatile.Read(ref _parallelism);
 
     private static TaskCompletionSource NewSignal() => new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -153,13 +267,34 @@ public sealed class CopyEngine
     /// <summary>Tiempo transcurrido desde que comenzó la transferencia, incluyendo el tiempo en pausa.</summary>
     public TimeSpan ElapsedIncludingPauses => _clock.Elapsed;
 
+    /// <summary>
+    /// Velocidad de AHORA MISMO, no la media desde que empezó. Se mide por tramos de medio
+    /// segundo y se suaviza: así, después de una pausa o de un archivo atascado, el número
+    /// vuelve a subir en cuanto la copia corre otra vez (antes arrastraba el parón durante
+    /// minutos y parecía que XoPy se hubiera vuelto lento para siempre).
+    /// </summary>
     public double SpeedBytesPerSecond
     {
         get
         {
             if (_paused) return 0;
-            var seconds = Elapsed.TotalSeconds;
-            return seconds > 0.4 ? Math.Max(0, DoneBytes) / seconds : 0;
+            var done = DoneBytes;
+            lock (_parallelismLock)
+            {
+                var now = _clock.Elapsed.Ticks;
+                var seconds = (now - _speedSampleTicks) / (double)TimeSpan.TicksPerSecond;
+                if (seconds >= 0.5)
+                {
+                    var bytes = Math.Max(0, done - _speedSampleBytes);
+                    var instant = bytes / seconds;
+                    _recentSpeed = _recentSpeed <= 0 ? instant : (_recentSpeed * 0.55) + (instant * 0.45);
+                    _speedSampleTicks = now;
+                    _speedSampleBytes = done;
+                }
+                if (_recentSpeed > 0) return _recentSpeed;
+            }
+            var elapsed = Elapsed.TotalSeconds;
+            return elapsed > 0.4 ? Math.Max(0, done) / elapsed : 0;
         }
     }
 
@@ -211,6 +346,8 @@ public sealed class CopyEngine
         _cts?.Dispose();
         _cts = new CancellationTokenSource();
         _paused = false;
+        try { _resumeGate.Set(); } catch (ObjectDisposedException) { }
+        _resumeSignal = CompletedSignal();
         Interlocked.Exchange(ref _pausedTicks, 0);
         Interlocked.Exchange(ref _pauseStarted, 0);
         _skipCurrent = false;
@@ -221,6 +358,9 @@ public sealed class CopyEngine
         {
             _activeOptions = options;
             Volatile.Write(ref _parallelism, options.Parallelism);
+            _speedSampleTicks = 0;
+            _speedSampleBytes = 0;
+            _recentSpeed = 0;
         }
         foreach (var pair in _itemPauseEvents.ToArray())
         {
@@ -229,6 +369,17 @@ public sealed class CopyEngine
         }
         options.BufferSize = Math.Clamp(options.BufferSize, 64 * 1024, 8 * 1024 * 1024);
         options.Destinations = DestinationList(options);
+        // COPIAR VARIOS ARCHIVOS A LA VEZ SOLO AYUDA ENTRE DISCOS DISTINTOS. Dentro del
+        // mismo disco, cada hilo manda el cabezal a otra parte y el disco pasa el rato
+        // buscando en vez de copiando: es la razón de que la copia se volviera mucho más
+        // lenta que antes. Si el origen y el destino están en la misma unidad, se copia de
+        // uno en uno aunque el multihilo esté encendido.
+        if (options.Parallelism > 1 && SameVolume(list, options.Destinations))
+        {
+            FileLog.Write($"Multihilo desactivado para esta copia ({options.Parallelism} -> 1): origen y destino están en la misma unidad.");
+            options.Parallelism = 1;
+        }
+        lock (_parallelismLock) Volatile.Write(ref _parallelism, options.Parallelism);
         if (options.CopyLockedFiles) Privileges.EnableBackupPrivileges();
 
         var destinations = Math.Max(1, options.Destinations.Count);
@@ -236,6 +387,7 @@ public sealed class CopyEngine
         Interlocked.Exchange(ref _errors, 0);
         Interlocked.Exchange(ref _totalBytes, list.Sum(item => Math.Max(0, item.SizeBytes)) * destinations);
         _clock.Restart();
+        _sourceHashes.Clear();
         FileLog.Write($"Inicio: {list.Count} elementos, destinos={string.Join(" | ", options.Destinations)}, verificar={options.VerifyAfterCopy} ({options.Verify}), reanudar={options.ResumePartials}");
         _ = Task.Run(() => RunAsync(list, options, _cts.Token));
         return true;
@@ -247,11 +399,32 @@ public sealed class CopyEngine
         if (paused)
         {
             Interlocked.Exchange(ref _pauseStarted, _clock.Elapsed.Ticks);
+            _resumeSignal = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            try { _resumeGate.Reset(); } catch (ObjectDisposedException) { }
         }
         else
         {
+            // Primero se abre el cerrojo y después se recalculan los tiempos: así los hilos
+            // ya están copiando mientras se ajusta la muestra de velocidad.
+            try { _resumeGate.Set(); } catch (ObjectDisposedException) { }
+            _resumeSignal.TrySetResult(true);
             var started = Interlocked.Exchange(ref _pauseStarted, 0);
             if (started > 0) Interlocked.Add(ref _pausedTicks, _clock.Elapsed.Ticks - started);
+            // REANUDAR ES REANUDAR TODO. Si antes se había pausado algún archivo suelto
+            // («Pausar lo seleccionado»), su cerrojo seguía cerrado y el botón Reanudar no
+            // lo abría: la copia se quedaba parada para siempre aunque la ventana dijera
+            // «Transferencia en curso». El botón grande manda sobre las pausas sueltas.
+            foreach (var pair in _itemPauseEvents.ToArray())
+            {
+                try { pair.Value.Set(); }
+                catch (ObjectDisposedException) { }
+            }
+            lock (_parallelismLock)
+            {
+                _speedSampleTicks = _clock.Elapsed.Ticks;
+                _speedSampleBytes = DoneBytes;
+                _recentSpeed = 0;
+            }
         }
         _paused = paused;
     }
@@ -310,6 +483,9 @@ public sealed class CopyEngine
             if (items.Any(item => item.Operation == OperationType.Move) && Errors == 0)
                 CleanupMovedFolders(items);
             FileLog.Write($"Fin: {DoneBytes} bytes en {Elapsed.TotalSeconds:0.0}s, errores={Errors}");
+            // Al terminar una copia el registro se guarda entero: si luego cierran XoPy a
+            // lo bruto (o lo cierra el sistema), el resumen ya está en el disco.
+            FileLog.Flush();
             try { Finished?.Invoke(this, EventArgs.Empty); } catch { }
         }
     }
@@ -338,7 +514,7 @@ public sealed class CopyEngine
         catch (Exception ex)
         {
             item.State = ItemState.Failed;
-            item.Error = Describe(ex);
+            item.Error = Describe(ex, item.SourcePath, item.DestinationPath);
             Interlocked.Increment(ref _errors);
             FileLog.Write($"ERROR {item.SourcePath}: {ex}");
         }
@@ -418,6 +594,44 @@ public sealed class CopyEngine
         }
     }
 
+    /// <summary>
+    /// ¿Todo lo que se va a copiar sale y entra en la MISMA unidad? Se mira la letra de
+    /// unidad (o el servidor, en rutas de red) del origen y de cada destino.
+    /// </summary>
+    private static bool SameVolume(List<TransferItem> items, List<string>? destinations)
+    {
+        try
+        {
+            if (destinations is null || destinations.Count == 0) return false;
+            string? volume = null;
+            foreach (var path in destinations)
+            {
+                var root = Root(path);
+                if (root is null) return false;
+                if (volume is null) volume = root;
+                else if (!string.Equals(volume, root, StringComparison.OrdinalIgnoreCase)) return false;
+            }
+            foreach (var item in items)
+            {
+                var root = Root(item.SourcePath);
+                if (root is null) return false;
+                if (!string.Equals(volume, root, StringComparison.OrdinalIgnoreCase)) return false;
+            }
+            return volume is not null;
+        }
+        catch
+        {
+            return false;
+        }
+
+        static string? Root(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return null;
+            var root = Path.GetPathRoot(Path.GetFullPath(path));
+            return string.IsNullOrEmpty(root) ? null : root.TrimEnd('\\');
+        }
+    }
+
     private static List<string> DestinationList(EngineOptions options)
     {
         var list = new List<string>();
@@ -473,6 +687,42 @@ public sealed class CopyEngine
         var copied = 0;
         var skipped = 0;
         var failed = 0;
+
+        // ---- MOVER DENTRO DEL MISMO DISCO: SE RENOMBRA, NO SE COPIA -------------------
+        // Mover 3 GB de D:\ a D:\Películas estaba COPIANDO los 3 GB, verificándolos byte a
+        // byte y borrando después el original. Además de tardar una eternidad, cada archivo
+        // pasaba por todo el camino de la copia, que es donde salían los cientos de
+        // «Acceso denegado». Windows sabe mover un archivo dentro del mismo volumen con un
+        // simple renombrado: instantáneo y sin leer ni un byte.
+        if (item.Operation == OperationType.Move && destinations.Count == 1)
+        {
+            var fastTarget = Path.Combine(destinations[0], relative);
+            var fastDirectory = Path.GetDirectoryName(fastTarget);
+            if (!string.IsNullOrEmpty(fastDirectory)
+                && !string.Equals(Path.GetFullPath(fastTarget), source, StringComparison.OrdinalIgnoreCase)
+                && SameVolume(source, fastTarget))
+            {
+                Directory.CreateDirectory(fastDirectory);
+                var resolvedFast = ResolveTarget(source, fastTarget, options, token);
+                if (resolvedFast is null)
+                {
+                    item.State = ItemState.Skipped;
+                    item.TransferredBytes = item.SizeBytes;
+                    Interlocked.Add(ref _doneBytes, Math.Max(0, item.SizeBytes));
+                    return;
+                }
+                if (TryFastMove(source, resolvedFast))
+                {
+                    item.DestinationPath = resolvedFast;
+                    item.TransferredBytes = item.SizeBytes;
+                    Interlocked.Add(ref _doneBytes, Math.Max(0, item.SizeBytes));
+                    if (item.State is ItemState.Failed) item.State = ItemState.Completed;
+                    FileLog.Write($"Movido en el mismo disco (renombrado): {source} -> {resolvedFast}");
+                    return;
+                }
+            }
+        }
+        // ------------------------------------------------------------------------------
 
         foreach (var destination in destinations)
         {
@@ -598,27 +848,61 @@ public sealed class CopyEngine
                     Interlocked.Add(ref _doneBytes, -item.TransferredBytes);
                     item.TransferredBytes = 0;
                 }
-                FileLog.Write($"Intento {attempt} fallido para {source} -> {target}: {ex.Message}");
-                // Windows Defender, el Explorador o un reproductor pueden bloquear el archivo unos segundos.
+                FileLog.Failure($"intento {attempt}", source, target, ex);
                 var win32 = ex.HResult & 0xFFFF;
-                var transient = ex is UnauthorizedAccessException || win32 is 5 or 32 or 33;
-                if (transient && attempt <= 2)
+
+                // ACCESO DENEGADO (5): casi siempre es el archivo de destino con el atributo
+                // de solo lectura, oculto o de sistema, o un trozo de copia anterior
+                // («.archivo.xopy-part») que se quedó con esos mismos atributos y que
+                // Windows ya no deja sobrescribir. Se limpia todo eso y se prueba UNA vez
+                // más. Si vuelve a fallar, esperar no arregla nada.
+                if (win32 == 5 && attempt == 1)
                 {
-                    await Task.Delay(350 * attempt, token).ConfigureAwait(false);
+                    ClearReadOnly(target);
+                    try
+                    {
+                        var leftover = Path.Combine(Path.GetDirectoryName(target) ?? string.Empty,
+                            "." + Path.GetFileName(target) + ".xopy-part");
+                        if (File.Exists(leftover))
+                        {
+                            ClearReadOnly(leftover);
+                            TryDeleteFile(leftover);
+                        }
+                        // EL DESTINO QUE YA ESTÁ TAMBIÉN ESTORBA. Si se llegó hasta aquí es
+                        // porque toca sobrescribirlo, y Windows niega el acceso al volver a
+                        // crear encima de un archivo que está «pendiente de borrado», es un
+                        // enlace o lo dejó a medias otro programa. Borrarlo y escribir
+                        // limpio es lo que de verdad desatasca el archivo.
+                        if (File.Exists(target)) TryDeleteFile(target);
+                    }
+                    catch { }
                     continue;
                 }
-                var choice = DecideError(source, ex, attempt, options);
+
+                // Reintentar con espera SOLO cuando tiene sentido: el archivo lo tiene
+                // abierto otro programa (32/33) o hay un corte momentáneo de red (64, 1231,
+                // 1232). Con «acceso denegado», «no existe» o «ruta no encontrada»,
+                // reintentar cuatro veces por archivo era lo que dejaba la segunda copia
+                // arrastrándose durante minutos para acabar fallando igual.
+                var transient = win32 is 32 or 33 or 64 or 1231 or 1232;
+                var hopeless = win32 is 2 or 3 or 5 or 87 or 123 or 161 or 206;
+                if (transient && attempt <= 2)
+                {
+                    await Task.Delay(250 * attempt, token).ConfigureAwait(false);
+                    continue;
+                }
+                var choice = DecideError(source, ex, attempt, options, target: target);
                 if (choice == ErrorChoice.Retry)
                 {
-                    if (attempt <= Math.Max(1, options.RetryCount))
+                    if (!hopeless && attempt <= Math.Max(1, options.RetryCount))
                     {
-                        await Task.Delay(250 * attempt, token).ConfigureAwait(false);
+                        await Task.Delay(200 * attempt, token).ConfigureAwait(false);
                         continue;
                     }
 
                     // Incluso con reintento automático, no abandonar el archivo en silencio:
                     // agotados los reintentos, pedir al usuario la decisión final.
-                    choice = DecideError(source, ex, attempt, options, forcePrompt: true);
+                    choice = DecideError(source, ex, attempt, options, forcePrompt: true, target: target);
                     if (choice == ErrorChoice.Retry)
                     {
                         attempt = 0;
@@ -627,17 +911,24 @@ public sealed class CopyEngine
                 }
                 if (choice == ErrorChoice.Abort)
                 {
-                    item.Error = Describe(ex);
+                    item.Error = Describe(ex, source, target);
                     _cts?.Cancel();
                     throw;
                 }
-                item.Error = Describe(ex);
+                item.Error = Describe(ex, source, target);
                 item.State = choice is ErrorChoice.Skip or ErrorChoice.SkipAll ? ItemState.Skipped : ItemState.Failed;
                 if (choice == ErrorChoice.SkipAll) _stickyError = ErrorChoice.SkipAll;
                 return;
             }
         }
     }
+
+    /// <summary>
+    /// A partir de cuántos bytes merece la pena continuar una copia a medias en vez de
+    /// repetirla entera con el motor rápido. Ocho megas es, con cualquier disco actual,
+    /// menos de un segundo de copia.
+    /// </summary>
+    private const long ResumeWorthBytes = 8L * 1024 * 1024;
 
     private async Task CopyCoreAsync(string source, string target, TransferItem item, EngineOptions options, CancellationToken token)
     {
@@ -647,12 +938,49 @@ public sealed class CopyEngine
         long sourceLength;
         try { sourceLength = new FileInfo(source).Length; } catch { sourceLength = 0; }
 
-        long existing = 0;
-        if (options.ResumePartials && File.Exists(temp))
+        // SEGUNDA COPIA SOBRE ARCHIVOS QUE YA ESTÁN. Si el destino existe y es de solo
+        // lectura, oculto o de sistema, Windows contesta «Acceso denegado (5)» aunque
+        // sobren permisos; así es como una carpeta de juego devolvía cientos de errores al
+        // copiarla por segunda vez. Antes se limpiaban los atributos DESPUÉS de fallar (y
+        // solo en el reintento); ahora se quitan ANTES, que es cuando no cuesta nada.
+        if (File.Exists(target))
         {
-            try { existing = new FileInfo(temp).Length; } catch { existing = 0; }
-            if (existing > sourceLength)
+            try { ClearReadOnly(target); } catch { }
+        }
+
+        long existing = 0;
+        if (File.Exists(temp))
+        {
+            // ATRIBUTOS DEL TROZO ANTERIOR. Windows devuelve «acceso denegado (5)» al
+            // volver a crear o ampliar un archivo que está marcado como oculto, de sistema
+            // o de solo lectura; un «.archivo.xopy-part» heredado de un intento anterior
+            // (o tocado por el antivirus) dejaba el archivo imposible de copiar una y otra
+            // vez, que es el error que salía al pausar y reanudar.
+            ClearReadOnly(temp);
+            if (options.ResumePartials)
             {
+                try { existing = new FileInfo(temp).Length; } catch { existing = 0; }
+            }
+            // Resto de un intento anterior que NO se va a aprovechar (o que ya no sirve
+            // porque es más grande que el origen): se borra ahora. Si se dejaba ahí, la
+            // copia terminaba bien pero la carpeta de destino se quedaba con un archivo
+            // oculto «.nombre.xopy-part» de propina.
+            if (existing == 0 || existing > sourceLength)
+            {
+                TryDeleteFile(temp);
+                existing = 0;
+            }
+            // APROVECHAR UN TROZO PEQUEÑO SALE CARO. Reanudar obliga a usar la copia
+            // administrada: leer y escribir a mano en el temporal y moverlo después, bastante
+            // más lento que CopyFileEx, que es lo que usa Windows por dentro. Para unos pocos
+            // megas no compensa, y era la razón de que después de pausar y reanudar la copia
+            // se quedara arrastrándose: cada archivo con un trozo suelto salía del camino
+            // rápido. Por debajo del umbral se tira el trozo y se copia entero, a toda
+            // velocidad; por encima (un archivo grande a medias) sí se continúa.
+            if (existing > 0 && existing < ResumeWorthBytes && existing != sourceLength
+                && options.Engine != CopyEngineKind.Managed)
+            {
+                FileLog.Write($"Trozo pequeño descartado ({existing} B) en {temp}: sale más rápido copiar el archivo entero.");
                 TryDeleteFile(temp);
                 existing = 0;
             }
@@ -661,12 +989,28 @@ public sealed class CopyEngine
         // Copia ya terminada en una ejecución anterior: solo hay que verificar y colocar.
         if (existing > 0 && existing == sourceLength)
         {
-            item.TransferredBytes = sourceLength;
-            await FinishFileAsync(source, temp, item, options, token).ConfigureAwait(false);
-            MoveWithRetry(temp, target);
-            ApplyMetadata(source, target, options);
-            FileLog.Write($"Reanudada (completa) la copia parcial de {target}");
-            return;
+            try
+            {
+                item.TransferredBytes = sourceLength;
+                await FinishFileAsync(source, temp, item, options, token).ConfigureAwait(false);
+                MoveWithRetry(temp, target);
+                ApplyMetadata(source, target, options);
+                FileLog.Write($"Reanudada (completa) la copia parcial de {target}");
+                return;
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (SkipRequestedException) { throw; }
+            catch (Exception ex)
+            {
+                // APROVECHAR EL TROZO ANTERIOR ES UN ATAJO, NO UNA OBLIGACIÓN. Si ese
+                // archivo a medias no se puede leer, mover o verificar, se tira y se copia
+                // limpio: antes el mismo trozo roto hacía fallar el archivo en cada
+                // intento, para siempre.
+                FileLog.Write($"No se pudo aprovechar {temp} ({ex.Message}); se copia el archivo entero.");
+                TryDeleteFile(temp);
+                existing = 0;
+                item.TransferredBytes = 0;
+            }
         }
 
         // Robocopy: el motor más rápido con muchos archivos, redes y rutas largas.
@@ -703,12 +1047,20 @@ public sealed class CopyEngine
         }
 
         // Motor nativo de Windows (CopyFileEx): mucho más rápido y conserva atributos y fechas.
-        if (options.Engine == CopyEngineKind.Native && existing == 0 && !options.VerifyAfterCopy && !options.ComputeHashes)
+        // TAMBIÉN CUANDO SE VERIFICA. Antes, pedir verificación (o el archivo de sumas)
+        // apagaba este camino y cada archivo se escribía a mano en un «.xopy-part» que
+        // después había que renombrar: el triple de trabajo de disco por archivo y, de
+        // propina, un temporal oculto en la carpeta de destino, que es justo lo que el
+        // antivirus, la protección contra ransomware y OneDrive bloquean con «acceso
+        // denegado (error 5)». Ahora se copia rápido y se verifica después, sobre el
+        // archivo ya colocado.
+        if (options.Engine == CopyEngineKind.Native && existing == 0)
         {
             try
             {
                 await NativeCopyAsync(source, target, item, options, token).ConfigureAwait(false);
                 item.TransferredBytes = item.SizeBytes;
+                await FinishFileAsync(source, target, item, options, token).ConfigureAwait(false);
                 FileLog.Write($"Copia nativa: {source} -> {target}");
                 return;
             }
@@ -754,14 +1106,13 @@ public sealed class CopyEngine
         }
         catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or NotSupportedException)
         {
-            if (existing > 0)
-            {
-                // No mezclamos una copia parcial con una escritura directa.
-                keepTemp = true;
-                throw;
-            }
-
-            // Si no se puede crear el temporal (permisos, rutas largas, unidades de red), copiamos directo.
+            // SI EL TEMPORAL DA PROBLEMAS, SE TIRA Y SE COPIA DIRECTO. Antes, al reanudar
+            // un trozo anterior cualquier fallo se daba por definitivo («no mezclamos una
+            // copia parcial con una escritura directa»): si ese «.archivo.xopy-part» no se
+            // dejaba ampliar —el caso típico es el antivirus o la protección contra
+            // ransomware bloqueando el archivo oculto—, el mismo archivo fallaba con
+            // «acceso denegado (5)» en CADA intento, una y otra vez. Ahora se descarta el
+            // trozo y se copia el archivo entero, que es lo que el usuario quiere.
             TryDeleteFile(temp);
             item.TransferredBytes = 0;
             FileLog.Write($"Temporal no disponible para {target}: {ex.Message}. Se copia directamente.");
@@ -794,7 +1145,11 @@ public sealed class CopyEngine
             item.State = ItemState.Verifying;
             try
             {
-                var sourceHash = await Hashing.ComputeAsync(options.Verify, source, token).ConfigureAwait(false);
+                if (!_sourceHashes.TryGetValue(source, out var sourceHash))
+                {
+                    sourceHash = await Hashing.ComputeAsync(options.Verify, source, token).ConfigureAwait(false);
+                    _sourceHashes[source] = sourceHash;
+                }
                 var targetHash = await Hashing.ComputeAsync(options.Verify, writtenPath, token).ConfigureAwait(false);
                 item.HashSource = Hashing.ToText(options.Verify, sourceHash);
                 item.HashTarget = Hashing.ToText(options.Verify, targetHash);
@@ -832,48 +1187,73 @@ public sealed class CopyEngine
     private async Task WriteFileAsync(string source, string destination, TransferItem item, EngineOptions options,
         CancellationToken token, long offset = 0, bool append = false)
     {
-        await using var input = OpenSourceRead(source, options, options.BufferSize);
+        // EL BÚFER SE AJUSTA AL ARCHIVO Y SE ALQUILA, NO SE FABRICA.
+        // Con el tamaño de fábrica (4 MiB) cada archivo pedía 4 MiB de memoria nueva para
+        // el búfer y otros tantos para cada uno de los dos FileStream: copiar tres mil
+        // archivos pequeños significaba pedir y tirar decenas de gigas de memoria, y el
+        // recolector de basura paraba la copia una y otra vez. Eso es lo que se veía como
+        // «copia un poco, se para, copia un poco» y como una velocidad de bytes por
+        // segundo en carpetas con muchos archivos. Ahora el búfer nunca es mayor que el
+        // propio archivo, se saca de un almacén común y los FileStream no vuelven a
+        // guardar una copia de todo por su cuenta.
+        var length = SafeLength(source);
+        var wanted = length > 0 ? Math.Min(length - offset, options.BufferSize) : options.BufferSize;
+        var size = (int)Math.Clamp(wanted, 64 * 1024, Math.Max(64 * 1024, options.BufferSize));
+        await using var input = OpenSourceRead(source, options, size);
         if (offset > 0) input.Seek(offset, SeekOrigin.Begin);
+        // Atributos del destino ANTES de abrirlo: crear o ampliar un archivo marcado como
+        // oculto, de sistema o de solo lectura devuelve «acceso denegado (5)».
+        ClearReadOnly(destination);
+        // Se deja mirar y borrar mientras se escribe (FileShare.None hacía que el
+        // antivirus o el Explorador, al abrir el archivo un instante, provocaran un fallo
+        // de uso compartido en mitad de la copia).
         await using var output = new FileStream(destination, append ? FileMode.Append : FileMode.Create, FileAccess.Write,
-            FileShare.None, options.BufferSize, FileOptions.Asynchronous | FileOptions.SequentialScan);
+            FileShare.Read | FileShare.Delete, 1, FileOptions.Asynchronous | FileOptions.SequentialScan);
 
-        var buffer = new byte[options.BufferSize];
-        var throttle = Stopwatch.StartNew();
-        long copied = offset;
-
-        // Tras una pausa se reinicia la cuenta del límite de velocidad: si se medía desde el
-        // principio, al reanudar tocaba «esperar» todo el tiempo pausado y avanzaba lentísimo.
-        var baseline = offset;
-        var paused = false;
-        while (true)
+        var buffer = System.Buffers.ArrayPool<byte>.Shared.Rent(size);
+        try
         {
-            token.ThrowIfCancellationRequested();
-            var pauseNow = _paused || IsItemPaused(item);
-            if (paused && !pauseNow)
+            var throttle = Stopwatch.StartNew();
+            long copied = offset;
+
+            // Tras una pausa se reinicia la cuenta del límite de velocidad: si se medía desde el
+            // principio, al reanudar tocaba «esperar» todo el tiempo pausado y avanzaba lentísimo.
+            var baseline = offset;
+            var paused = false;
+            while (true)
             {
-                throttle.Restart();
-                baseline = copied;
-            }
-            paused = pauseNow;
-            await WaitWhilePausedAsync(item, token).ConfigureAwait(false);
-            if (_skipCurrent)
-            {
-                _skipCurrent = false;
-                throw new SkipRequestedException();
+                token.ThrowIfCancellationRequested();
+                var pauseNow = _paused || IsItemPaused(item);
+                if (paused && !pauseNow)
+                {
+                    throttle.Restart();
+                    baseline = copied;
+                }
+                paused = pauseNow;
+                await WaitWhilePausedAsync(item, token).ConfigureAwait(false);
+                if (_skipCurrent)
+                {
+                    _skipCurrent = false;
+                    throw new SkipRequestedException();
+                }
+
+                var read = await input.ReadAsync(buffer.AsMemory(0, size), token).ConfigureAwait(false);
+                if (read == 0) break;
+                await output.WriteAsync(buffer.AsMemory(0, read), token).ConfigureAwait(false);
+
+                copied += read;
+                item.TransferredBytes = copied;
+                item.CurrentFile = source;
+                Interlocked.Add(ref _doneBytes, read);
+                await ThrottleAsync(copied - baseline, throttle, options, token).ConfigureAwait(false);
             }
 
-            var read = await input.ReadAsync(buffer.AsMemory(), token).ConfigureAwait(false);
-            if (read == 0) break;
-            await output.WriteAsync(buffer.AsMemory(0, read), token).ConfigureAwait(false);
-
-            copied += read;
-            item.TransferredBytes = copied;
-            item.CurrentFile = source;
-            Interlocked.Add(ref _doneBytes, read);
-            await ThrottleAsync(copied - baseline, throttle, options, token).ConfigureAwait(false);
+            await output.FlushAsync(token).ConfigureAwait(false);
         }
-
-        await output.FlushAsync(token).ConfigureAwait(false);
+        finally
+        {
+            System.Buffers.ArrayPool<byte>.Shared.Return(buffer);
+        }
     }
 
     /// <summary>Abre el origen permitiendo que otro programa lo tenga abierto; si está bloqueado, usa la API de copia de seguridad.</summary>
@@ -986,6 +1366,10 @@ public sealed class CopyEngine
             // reanudación avanzaba «superlento».
             var clock = Stopwatch.StartNew();
             var wasPaused = false;
+            // Punto de partida del límite de velocidad. Antes se ponía «transferred = 0» al
+            // reanudar y la siguiente vuelta sumaba OTRA VEZ todo lo ya copiado al total:
+            // el porcentaje y la velocidad se disparaban y el tiempo restante se volvía loco.
+            var limitBase = 0L;
             var routine = new NativeMethods.CopyProgressRoutine((_, totalTransferred, _, _, _, _, _, _, _) =>
             {
                 token.ThrowIfCancellationRequested();
@@ -994,7 +1378,7 @@ public sealed class CopyEngine
                 {
                     // Al reanudar se descarta el tiempo en pausa del cálculo del límite.
                     clock.Restart();
-                    transferred = 0;
+                    limitBase = transferred;
                 }
                 wasPaused = pausedNow;
                 WaitWhilePaused(item, token);
@@ -1014,7 +1398,7 @@ public sealed class CopyEngine
 
                 if (options.SpeedLimitBytesPerSecond > 0)
                 {
-                    var expected = transferred * 1000d / options.SpeedLimitBytesPerSecond;
+                    var expected = (transferred - limitBase) * 1000d / options.SpeedLimitBytesPerSecond;
                     var actual = clock.Elapsed.TotalMilliseconds;
                     if (expected > actual) Thread.Sleep((int)Math.Min(200, expected - actual));
                 }
@@ -1201,11 +1585,17 @@ public sealed class CopyEngine
         {
             var samePathPrompt = ConflictResolver;
             if (samePathPrompt is null) return ConflictChoice.Skip;
-            var samePathChoice = samePathPrompt(new ConflictPrompt(source.FullName, target.FullName,
-                source.Length, target.Length, source.LastWriteTime, target.LastWriteTime));
+            Interlocked.Increment(ref _waitingForUser);
+            ConflictChoice samePathChoice;
+            try
+            {
+                samePathChoice = samePathPrompt(new ConflictPrompt(source.FullName, target.FullName,
+                    source.Length, target.Length, source.LastWriteTime, target.LastWriteTime));
+            }
+            finally { Interlocked.Decrement(ref _waitingForUser); }
             return samePathChoice switch
             {
-                ConflictChoice.Rename => ConflictChoice.Rename,
+                ConflictChoice.Rename or ConflictChoice.RenameAll => ConflictChoice.Rename,
                 ConflictChoice.Cancel => ConflictChoice.Cancel,
                 _ => ConflictChoice.Skip
             };
@@ -1225,16 +1615,38 @@ public sealed class CopyEngine
             default:
                 var resolver = ConflictResolver;
                 if (resolver is null) return ConflictChoice.Rename;
-                var choice = resolver(new ConflictPrompt(source.FullName, target.FullName, source.Length, target.Length,
-                    source.LastWriteTime, target.LastWriteTime));
-                if (choice == ConflictChoice.OverwriteAll) { _stickyConflict = ConflictChoice.Overwrite; return ConflictChoice.Overwrite; }
-                if (choice == ConflictChoice.SkipAll) { _stickyConflict = ConflictChoice.Skip; return ConflictChoice.Skip; }
-                return choice;
+                // Un cuadro cada vez (igual que con los errores): con varios archivos a la
+                // vez salían varios cuadros y «aplicar a todos» solo valía para uno.
+                lock (_promptGate)
+                {
+                    if (_stickyConflict.HasValue) return _stickyConflict.Value;
+                    Interlocked.Increment(ref _waitingForUser);
+                    ConflictChoice choice;
+                    try
+                    {
+                        choice = resolver(new ConflictPrompt(source.FullName, target.FullName, source.Length, target.Length,
+                            source.LastWriteTime, target.LastWriteTime));
+                    }
+                    finally { Interlocked.Decrement(ref _waitingForUser); }
+                    if (choice == ConflictChoice.OverwriteAll) { _stickyConflict = ConflictChoice.Overwrite; return ConflictChoice.Overwrite; }
+                    if (choice == ConflictChoice.SkipAll) { _stickyConflict = ConflictChoice.Skip; return ConflictChoice.Skip; }
+                    // «Quedarme con los dos» también se puede aplicar al resto de repetidos.
+                    if (choice == ConflictChoice.RenameAll) { _stickyConflict = ConflictChoice.Rename; return ConflictChoice.Rename; }
+                    return choice;
+                }
         }
     }
 
-    private ErrorChoice DecideError(string file, Exception ex, int attempt, EngineOptions options, bool forcePrompt = false)
+    private ErrorChoice DecideError(string file, Exception ex, int attempt, EngineOptions options, bool forcePrompt = false,
+        string? target = null)
     {
+        // «OMITIR TODOS» POR DELANTE DE TODO. Antes se miraba después de la política de
+        // errores: con «Reintentar automáticamente» puesto, cada archivo que fallaba volvía
+        // a intentarse cuatro veces con sus esperas ANTES de hacer caso al «omitir todos».
+        // Con doscientos archivos rotos eso son minutos de copia a paso de tortuga.
+        if (_stickyError == ErrorChoice.SkipAll) return ErrorChoice.Skip;
+        if (_stickyError == ErrorChoice.Abort) return ErrorChoice.Abort;
+
         if (!forcePrompt)
         {
             switch (options.OnError)
@@ -1245,12 +1657,21 @@ public sealed class CopyEngine
             }
         }
 
-        if (_stickyError == ErrorChoice.SkipAll) return ErrorChoice.Skip;
         var resolver = ErrorResolver;
         if (resolver is null) return ErrorChoice.Skip;
-        var choice = resolver(new ErrorPrompt(file, Describe(ex), attempt));
-        if (choice == ErrorChoice.SkipAll) { _stickyError = ErrorChoice.SkipAll; return ErrorChoice.Skip; }
-        return choice;
+        // De uno en uno: con varios archivos a la vez se abrían varios cuadros iguales y
+        // responder en uno no callaba a los demás.
+        lock (_promptGate)
+        {
+            if (_stickyError == ErrorChoice.SkipAll) return ErrorChoice.Skip;
+            Interlocked.Increment(ref _waitingForUser);
+            ErrorChoice choice;
+            try { choice = resolver(new ErrorPrompt(file, Describe(ex, file, target), attempt)); }
+            finally { Interlocked.Decrement(ref _waitingForUser); }
+            if (choice == ErrorChoice.SkipAll) { _stickyError = ErrorChoice.SkipAll; return ErrorChoice.Skip; }
+            if (choice == ErrorChoice.Abort) _stickyError = ErrorChoice.Abort;
+            return choice;
+        }
     }
 
     private async Task ThrottleAsync(long copied, Stopwatch clock, EngineOptions options, CancellationToken token)
@@ -1264,22 +1685,32 @@ public sealed class CopyEngine
 
     private async Task WaitWhilePausedAsync(TransferItem item, CancellationToken token)
     {
+        // CAMINO RÁPIDO: sin pausa no se toca nada. Esta comprobación se hace una vez por
+        // bloque leído (miles de veces por segundo), así que no puede costar nada.
+        if (!_paused && !IsItemPaused(item)) return;
+
         while (_paused || IsItemPaused(item))
         {
             if (IsItemPaused(item)) item.State = ItemState.Paused;
             token.ThrowIfCancellationRequested();
-            await Task.Delay(40, token).ConfigureAwait(false);
+            // La pausa general despierta en el acto; la de un archivo suelto se comprueba
+            // cuatro veces por segundo, que para un archivo parado a mano sobra.
+            var wake = _resumeSignal.Task;
+            await Task.WhenAny(wake, Task.Delay(250, token)).ConfigureAwait(false);
         }
         if (item.State == ItemState.Paused) item.State = ItemState.Running;
     }
 
     private void WaitWhilePaused(TransferItem item, CancellationToken token)
     {
+        if (!_paused && !IsItemPaused(item)) return;
+
         while (_paused || IsItemPaused(item))
         {
             if (IsItemPaused(item)) item.State = ItemState.Paused;
             token.ThrowIfCancellationRequested();
-            Thread.Sleep(40);
+            try { _resumeGate.Wait(250, token); }
+            catch (ObjectDisposedException) { Thread.Sleep(40); }
         }
         if (item.State == ItemState.Paused) item.State = ItemState.Running;
     }
@@ -1344,13 +1775,67 @@ public sealed class CopyEngine
         }
     }
 
+    /// <summary>
+    /// ¿Origen y destino están en la MISMA unidad? Solo entonces se puede renombrar en vez
+    /// de copiar. Se compara la raíz de la ruta (C:\, D:\, \\servidor\recurso).
+    /// </summary>
+    private static bool SameVolume(string source, string target)
+    {
+        try
+        {
+            var a = Path.GetPathRoot(Path.GetFullPath(source));
+            var b = Path.GetPathRoot(Path.GetFullPath(target));
+            return !string.IsNullOrEmpty(a) && string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+        }
+        catch { return false; }
+    }
+
+    /// <summary>
+    /// Mueve con el renombrado de Windows (instantáneo dentro del mismo disco). Si el
+    /// destino ya existe se le quitan los atributos que lo protegen y se sustituye. Si no
+    /// se puede, devuelve false y se usa el camino normal de copiar y borrar.
+    /// </summary>
+    private static bool TryFastMove(string source, string target)
+    {
+        try
+        {
+            if (File.Exists(target))
+            {
+                ClearReadOnly(target);
+                // MOVEFILE_REPLACE_EXISTING no vale con archivos de solo lectura/ocultos:
+                // se quita el destino antes, ya con los atributos limpios.
+                try { File.Delete(target); } catch { }
+            }
+            ClearReadOnly(source);
+            const int replaceExisting = 0x1;
+            const int writeThrough = 0x8;
+            if (NativeMethods.MoveFileExW(source, target, replaceExisting | writeThrough)) return true;
+            var error = Marshal.GetLastWin32Error();
+            FileLog.Write($"El renombrado rápido no se pudo hacer (win32={error}); se copia y se borra: {source}");
+            return false;
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"El renombrado rápido falló ({ex.Message}); se copia y se borra: {source}");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Quita del archivo los atributos que IMPIDEN sobrescribirlo: solo lectura, oculto y
+    /// de sistema. Windows devuelve «Acceso denegado (5)» al copiar encima de un archivo
+    /// oculto o de sistema aunque haya permisos de sobra, y así es como 209 archivos de una
+    /// carpeta de juego fallaban uno detrás de otro en la segunda copia.
+    /// </summary>
     private static void ClearReadOnly(string path)
     {
         try
         {
+            if (!File.Exists(path)) return;
             var attributes = File.GetAttributes(path);
-            if ((attributes & FileAttributes.ReadOnly) != 0)
-                File.SetAttributes(path, attributes & ~FileAttributes.ReadOnly);
+            const FileAttributes blocking = FileAttributes.ReadOnly | FileAttributes.Hidden | FileAttributes.System;
+            if ((attributes & blocking) != 0)
+                File.SetAttributes(path, attributes & ~blocking);
         }
         catch { }
     }
@@ -1371,6 +1856,265 @@ public sealed class CopyEngine
             if (!File.Exists(candidate) && !Directory.Exists(candidate)) return candidate;
         }
         return path;
+    }
+
+    // ---------------------------------------------------------------- permisos de Windows
+
+    /// <summary>
+    /// ¿Se puede escribir DE VERDAD en esta carpeta? No vale mirar los permisos: con el
+    /// «Acceso controlado a carpetas» de Windows los permisos están bien y la escritura
+    /// se bloquea igual. Se comprueba creando un archivo diminuto que se borra solo.
+    /// </summary>
+    public static bool CanWriteInFolder(string folder)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder)) return false;
+            var probe = Path.Combine(folder, ".xopy-prueba-" + Guid.NewGuid().ToString("N")[..8] + ".tmp");
+            using var stream = new FileStream(probe, FileMode.CreateNew, FileAccess.Write, FileShare.None, 512,
+                FileOptions.DeleteOnClose);
+            stream.WriteByte(0);
+            return true;
+        }
+        catch { return false; }
+    }
+
+    /// <summary>
+    /// ¿Está activado el «Acceso controlado a carpetas» (protección contra ransomware de
+    /// Seguridad de Windows)? Cuando lo está, NINGÚN programa que no esté en su lista
+    /// puede escribir en el Escritorio, Documentos, Imágenes, Vídeos ni Música, y Windows
+    /// contesta siempre «Acceso denegado (error 5)» sin decir por qué.
+    /// </summary>
+    public static bool ControlledFolderAccessEnabled()
+    {
+        var keys = new[]
+        {
+            @"SOFTWARE\Microsoft\Windows Defender\Windows Defender Exploit Guard\Controlled Folder Access",
+            @"SOFTWARE\Policies\Microsoft\Windows Defender\Windows Defender Exploit Guard\Controlled Folder Access"
+        };
+        foreach (var key in keys)
+        {
+            try
+            {
+                using var registry = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(key);
+                if (registry?.GetValue("EnableControlledFolderAccess") is int value && value != 0) return true;
+            }
+            catch { }
+        }
+        return false;
+    }
+
+    private static bool IsInside(string folder, Environment.SpecialFolder special)
+    {
+        try
+        {
+            var root = Environment.GetFolderPath(special);
+            if (string.IsNullOrEmpty(root)) return false;
+            root = Path.GetFullPath(root).TrimEnd('\\');
+            return folder.Equals(root, StringComparison.OrdinalIgnoreCase) ||
+                   folder.StartsWith(root + "\\", StringComparison.OrdinalIgnoreCase);
+        }
+        catch { return false; }
+    }
+
+    /// <summary>
+    /// Explicación concreta de por qué Windows no deja escribir en una carpeta, o null si
+    /// no hay nada especial que contar. Es la diferencia entre «acceso denegado» a secas y
+    /// saber qué tocar para arreglarlo.
+    /// </summary>
+    public static string? ProtectedFolderHint(string folder)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(folder)) return null;
+            var full = Path.GetFullPath(folder).TrimEnd('\\');
+
+            var personal = IsInside(full, Environment.SpecialFolder.Desktop)
+                           || IsInside(full, Environment.SpecialFolder.MyDocuments)
+                           || IsInside(full, Environment.SpecialFolder.MyPictures)
+                           || IsInside(full, Environment.SpecialFolder.MyVideos)
+                           || IsInside(full, Environment.SpecialFolder.MyMusic)
+                           || IsInside(full, Environment.SpecialFolder.Favorites);
+            if (personal && ControlledFolderAccessEnabled())
+                return "CAUSA MÁS PROBABLE: el «Acceso controlado a carpetas» de Seguridad de Windows " +
+                       "(protección contra ransomware) está ACTIVADO. Bloquea a cualquier programa que no esté " +
+                       "en su lista blanca cuando escribe en el Escritorio, Documentos, Imágenes, Vídeos o Música, " +
+                       "y responde siempre «acceso denegado». Solución: en XoPy, menú Herramientas → " +
+                       "«Permitir XoPy en el acceso controlado a carpetas», o a mano en Seguridad de Windows → " +
+                       "Protección contra virus y amenazas → Protección contra ransomware → " +
+                       "Permitir una aplicación a través del Acceso controlado a carpetas → XoPy.exe.";
+
+            if (IsInside(full, Environment.SpecialFolder.Windows) ||
+                IsInside(full, Environment.SpecialFolder.ProgramFiles) ||
+                IsInside(full, Environment.SpecialFolder.ProgramFilesX86))
+                return "Es una carpeta protegida del sistema (Windows o Archivos de programa): hace falta " +
+                       "ejecutar XoPy como administrador (Herramientas → Reiniciar XoPy como administrador) " +
+                       "o copiar a otra carpeta.";
+
+            if (personal)
+                return "Es una de tus carpetas personales y Windows está denegando la escritura. " +
+                       "Suele ser el antivirus o la protección contra ransomware; también puede ser que la " +
+                       "carpeta esté sincronizada con OneDrive y sin conexión.";
+        }
+        catch { }
+        return null;
+    }
+
+    /// <summary>
+    /// Mensaje completo para un «acceso denegado» sabiendo de dónde a dónde se copiaba:
+    /// dice si el problema está al LEER el origen o al ESCRIBIR en el destino, que es lo
+    /// único que de verdad ayuda a arreglarlo.
+    /// </summary>
+    public static string DescribeAccessDenied(string? source, string? target)
+    {
+        var text = new StringBuilder();
+        var sourceReadable = true;
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(source) && File.Exists(source))
+            {
+                try
+                {
+                    using var probe = new FileStream(source, FileMode.Open, FileAccess.Read,
+                        FileShare.ReadWrite | FileShare.Delete);
+                }
+                catch { sourceReadable = false; }
+            }
+        }
+        catch { }
+
+        var folder = string.Empty;
+        try { folder = Path.GetDirectoryName(target ?? string.Empty) ?? string.Empty; }
+        catch { }
+        var folderWritable = string.IsNullOrEmpty(folder) || CanWriteInFolder(folder);
+
+        if (!sourceReadable)
+        {
+            text.Append("Acceso denegado (error 5) AL LEER EL ARCHIVO DE ORIGEN. Windows no deja abrirlo con tu usuario: ");
+            text.Append("puede ser de otro usuario o de una instalación antigua. Prueba a reiniciar XoPy como administrador ");
+            text.Append("(Herramientas → Reiniciar XoPy como administrador) o activa «Copiar archivos bloqueados» en Opciones.");
+        }
+        else if (!folderWritable)
+        {
+            text.Append("Acceso denegado (error 5) AL ESCRIBIR EN LA CARPETA DE DESTINO:\n");
+            text.Append(folder);
+            var hint = ProtectedFolderHint(folder);
+            text.Append("\n\n");
+            text.Append(hint ?? "Comprueba que la unidad no esté llena ni en solo lectura y que tengas permiso de escritura en esa carpeta.");
+        }
+        else
+        {
+            text.Append("Acceso denegado (error 5). Se ha reintentado automáticamente. ");
+            text.Append("El archivo de destino puede estar abierto en otro programa, protegido por el antivirus ");
+            text.Append("o marcado como de solo lectura. Si el archivo de origen está bloqueado, activa ");
+            text.Append("«Copiar archivos bloqueados» en Opciones.");
+            var hint = ProtectedFolderHint(folder);
+            if (hint is not null) text.Append("\n\n").Append(hint);
+        }
+
+        // DATOS CONCRETOS, no sospechas. En la carpeta se puede escribir (acabamos de
+        // probarlo) pero ESTE archivo falla: casi siempre es el archivo que ya está ahí con
+        // atributos que Windows no deja sobrescribir, un resto «.xopy-part» de un intento
+        // anterior, o una carpeta sincronizada con OneDrive. Se dice tal cual, para no
+        // tener que adivinarlo.
+        var facts = AccessFacts(source, target, folder);
+        if (facts.Length > 0) text.Append("\n\n").Append(facts);
+        return text.ToString();
+    }
+
+    /// <summary>
+    /// Lo que se sabe del destino cuando Windows dice «acceso denegado»: si el archivo ya
+    /// existía y con qué atributos, si quedó un trozo de copia anterior y si la carpeta la
+    /// lleva OneDrive. Es la información que convierte «acceso denegado» en algo que se
+    /// puede arreglar.
+    /// </summary>
+    private static string AccessFacts(string? source, string? target, string folder)
+    {
+        var lines = new List<string>();
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(target) && File.Exists(target))
+            {
+                var attributes = File.GetAttributes(target);
+                var marks = new List<string>();
+                if ((attributes & FileAttributes.ReadOnly) != 0) marks.Add("solo lectura");
+                if ((attributes & FileAttributes.Hidden) != 0) marks.Add("oculto");
+                if ((attributes & FileAttributes.System) != 0) marks.Add("de sistema");
+                if ((attributes & FileAttributes.Offline) != 0) marks.Add("sin descargar (OneDrive)");
+                lines.Add("· El archivo ya existe en el destino" +
+                          (marks.Count > 0 ? " y está marcado como " + string.Join(", ", marks) + "." : "."));
+            }
+
+            var leftover = Path.Combine(folder, "." + Path.GetFileName(target ?? string.Empty) + ".xopy-part");
+            if (File.Exists(leftover))
+                lines.Add("· Hay un resto de una copia anterior en la carpeta (" + Path.GetFileName(leftover) + ").");
+
+            var oneDrive = Environment.GetEnvironmentVariable("OneDrive");
+            if (!string.IsNullOrWhiteSpace(oneDrive) && !string.IsNullOrEmpty(folder) &&
+                folder.StartsWith(oneDrive.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase))
+                lines.Add("· La carpeta de destino la sincroniza OneDrive: pon sus archivos «siempre disponibles» o copia fuera de OneDrive.");
+
+            if (!string.IsNullOrWhiteSpace(source) && File.Exists(source))
+            {
+                var attributes = File.GetAttributes(source);
+                if ((attributes & FileAttributes.ReadOnly) != 0)
+                    lines.Add("· El archivo de origen es de solo lectura, así que la copia nace también de solo lectura.");
+            }
+        }
+        catch { }
+        return lines.Count == 0 ? string.Empty : "Lo que ve XoPy:\n" + string.Join("\n", lines);
+    }
+
+    /// <summary>
+    /// Mete a XoPy en la lista blanca del «Acceso controlado a carpetas». Necesita permisos
+    /// de administrador: Windows pedirá confirmación.
+    /// </summary>
+    public static bool TryAllowInControlledFolderAccess(out string message)
+    {
+        try
+        {
+            var exe = Environment.ProcessPath ?? Process.GetCurrentProcess().MainModule?.FileName;
+            if (string.IsNullOrWhiteSpace(exe))
+            {
+                message = "No se pudo averiguar la ruta de XoPy.exe.";
+                return false;
+            }
+
+            var command = "Add-MpPreference -ControlledFolderAccessAllowedApplications '" + exe.Replace("'", "''") + "'";
+            var info = new ProcessStartInfo("powershell.exe",
+                "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command \"" + command + "\"")
+            {
+                UseShellExecute = true,
+                Verb = "runas",
+                WindowStyle = ProcessWindowStyle.Hidden
+            };
+            using var process = Process.Start(info);
+            process?.WaitForExit(30000);
+            var ok = process is { ExitCode: 0 };
+            message = ok
+                ? "XoPy ya está permitido en el Acceso controlado a carpetas. Vuelve a intentar la copia."
+                : "Windows no aceptó la orden (¿se canceló el aviso de administrador?). " +
+                  "Puedes hacerlo a mano en Seguridad de Windows → Protección contra ransomware.";
+            FileLog.Write("Acceso controlado a carpetas: permitir XoPy -> " + (ok ? "correcto" : "fallido"));
+            return ok;
+        }
+        catch (Exception ex)
+        {
+            message = "No se pudo cambiar el Acceso controlado a carpetas: " + ex.Message;
+            return false;
+        }
+    }
+
+    /// <summary>Como <see cref="Describe(Exception)"/>, pero sabiendo el origen y el destino.</summary>
+    public static string Describe(Exception ex, string? source, string? target)
+    {
+        var code = ex.HResult & 0xFFFF;
+        if (ex is UnauthorizedAccessException || code == 5) return DescribeAccessDenied(source, target);
+        if (code == 87 || code == 123)
+            return "La ruta de destino no es válida:\n" + (target ?? "(sin destino)") +
+                   "\nRevisa que no tenga caracteres prohibidos (: * ? \" < > |), que no acabe en espacio o en punto " +
+                   "y que la unidad esté conectada.";
+        return Describe(ex);
     }
 
     public static string Describe(Exception ex)
@@ -1448,6 +2192,11 @@ internal static class NativeMethods
 
     [DllImport("kernel32.dll")]
     public static extern IntPtr GetCurrentProcess();
+
+    /// <summary>Renombrado de Windows: mueve dentro del mismo disco sin copiar nada.</summary>
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool MoveFileExW(string existingFileName, string? newFileName, int flags);
 
     [DllImport("kernel32.dll", SetLastError = true)]
     public static extern bool CloseHandle(IntPtr handle);

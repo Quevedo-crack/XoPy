@@ -1,25 +1,23 @@
   Determining projects to restore...
-  Restored D:\a\XoPy\XoPy\XoPy\XoPy.csproj (in 27 ms).
-D:\a\XoPy\XoPy\XoPy\MainForm.cs(2173,9): warning WFDEV004: 'Form.Closed' is obsolete: 'Form.OnClosing, Form.OnClosed and the corresponding events are obsolete. Use Form.OnFormClosing, Form.OnFormClosed, Form.FormClosing and Form.FormClosed instead.' (https://aka.ms/winforms-warnings/WFDEV004) [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
-D:\a\XoPy\XoPy\XoPy\MainForm.cs(2454,13): warning CS8602: Dereference of a possibly null reference. [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
-D:\a\XoPy\XoPy\XoPy\MainForm.cs(2489,74): warning CS8602: Dereference of a possibly null reference. [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
-D:\a\XoPy\XoPy\XoPy\MainForm.cs(119,18): warning CS0414: The field 'MainForm._wasRunning' is assigned but its value is never used [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
-D:\a\XoPy\XoPy\XoPy\MainForm.cs(123,18): warning CS0414: The field 'MainForm._loadingUi' is assigned but its value is never used [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
+  Restored D:\a\XoPy\XoPy\XoPy\XoPy.csproj (in 28 ms).
+D:\a\XoPy\XoPy\XoPy\MainForm.cs(2791,9): warning WFDEV004: 'Form.Closed' is obsolete: 'Form.OnClosing, Form.OnClosed and the corresponding events are obsolete. Use Form.OnFormClosing, Form.OnFormClosed, Form.FormClosing and Form.FormClosed instead.' (https://aka.ms/winforms-warnings/WFDEV004) [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
+D:\a\XoPy\XoPy\XoPy\MainForm.cs(74,18): warning CS0414: The field 'MainForm._startHidden' is assigned but its value is never used [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
+D:\a\XoPy\XoPy\XoPy\MainForm.cs(131,18): warning CS0414: The field 'MainForm._loadingUi' is assigned but its value is never used [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
+D:\a\XoPy\XoPy\XoPy\MainForm.cs(127,18): warning CS0414: The field 'MainForm._wasRunning' is assigned but its value is never used [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
 CSC : warning WFO0003: Remove high DPI settings from D:\a\XoPy\XoPy\XoPy\app.manifest and configure via Application.SetHighDpiMode API or 'ApplicationHighDpiMode' project property (https://aka.ms/winforms-warnings/wfo0003) [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
   XoPy -> D:\a\XoPy\XoPy\XoPy\bin\Release\net10.0-windows\win-x64\XoPy.dll
 
 Build succeeded.
 
-D:\a\XoPy\XoPy\XoPy\MainForm.cs(2173,9): warning WFDEV004: 'Form.Closed' is obsolete: 'Form.OnClosing, Form.OnClosed and the corresponding events are obsolete. Use Form.OnFormClosing, Form.OnFormClosed, Form.FormClosing and Form.FormClosed instead.' (https://aka.ms/winforms-warnings/WFDEV004) [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
-D:\a\XoPy\XoPy\XoPy\MainForm.cs(2454,13): warning CS8602: Dereference of a possibly null reference. [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
-D:\a\XoPy\XoPy\XoPy\MainForm.cs(2489,74): warning CS8602: Dereference of a possibly null reference. [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
-D:\a\XoPy\XoPy\XoPy\MainForm.cs(119,18): warning CS0414: The field 'MainForm._wasRunning' is assigned but its value is never used [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
-D:\a\XoPy\XoPy\XoPy\MainForm.cs(123,18): warning CS0414: The field 'MainForm._loadingUi' is assigned but its value is never used [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
+D:\a\XoPy\XoPy\XoPy\MainForm.cs(2791,9): warning WFDEV004: 'Form.Closed' is obsolete: 'Form.OnClosing, Form.OnClosed and the corresponding events are obsolete. Use Form.OnFormClosing, Form.OnFormClosed, Form.FormClosing and Form.FormClosed instead.' (https://aka.ms/winforms-warnings/WFDEV004) [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
+D:\a\XoPy\XoPy\XoPy\MainForm.cs(74,18): warning CS0414: The field 'MainForm._startHidden' is assigned but its value is never used [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
+D:\a\XoPy\XoPy\XoPy\MainForm.cs(131,18): warning CS0414: The field 'MainForm._loadingUi' is assigned but its value is never used [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
+D:\a\XoPy\XoPy\XoPy\MainForm.cs(127,18): warning CS0414: The field 'MainForm._wasRunning' is assigned but its value is never used [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
 CSC : warning WFO0003: Remove high DPI settings from D:\a\XoPy\XoPy\XoPy\app.manifest and configure via Application.SetHighDpiMode API or 'ApplicationHighDpiMode' project property (https://aka.ms/winforms-warnings/wfo0003) [D:\a\XoPy\XoPy\XoPy\XoPy.csproj]
-    6 Warning(s)
+    5 Warning(s)
     0 Error(s)
 
-Time Elapsed 00:00:03.89
+Time Elapsed 00:00:04.48
 FILE: carpeta (1 bytes)
 FILE: dest-rbcopy (1 bytes)
 FILE: dest3 (1 bytes)
@@ -28,31 +26,25 @@ FILE: dest5 (1 bytes)
 FILE: destino (1 bytes)
 FILE: destino2 (1 bytes)
 FILE: jerarquia (1 bytes)
-FILE: misma (1 bytes)
-FILE: perf (1 bytes)
-FILE: perf-destino (1 bytes)
-FILE: advanced.png (33046 bytes)
-FILE: cola.txt (534 bytes)
-FILE: conflict.png (8779 bytes)
+FILE: advanced.png (36263 bytes)
+FILE: compacta.png (14216 bytes)
+FILE: conflict.png (15985 bytes)
 FILE: conflictotest.txt (70 bytes)
 FILE: copiatest.txt (83 bytes)
 FILE: exitcode.txt (24 bytes)
 FILE: grande.bin (300000 bytes)
-FILE: history.png (31410 bytes)
+FILE: history.png (29243 bytes)
 FILE: informe.pdf (10242 bytes)
 FILE: jerarquiatest.txt (111 bytes)
-FILE: menu-context.png (5636 bytes)
-FILE: menu-menu.png (22658 bytes)
-FILE: mismacarpeta.txt (59 bytes)
+FILE: menu-context.png (7422 bytes)
+FILE: menu-menu.png (25996 bytes)
 FILE: movetest.txt (88 bytes)
-FILE: options.png (53486 bytes)
-FILE: perf.txt (174 bytes)
+FILE: options.png (57213 bytes)
 FILE: rbcopy.bin (200002 bytes)
 FILE: reanudartest.txt (41 bytes)
-FILE: repeticion.txt (738 bytes)
 FILE: robocopytest.txt (49 bytes)
-FILE: shot.png (33046 bytes)
-FILE: verify.png (33046 bytes)
+FILE: shot.png (38212 bytes)
+FILE: verify.png (31162 bytes)
 FILE: video.mp4 (20482 bytes)
 --- C:\xopytest\exitcode.txt
 exitcode=0 exited=True
@@ -80,38 +72,12 @@ archivo_suelto=True
 checksums=1
 --- C:\xopytest\reanudartest.txt
 final=True
-temporal=0
+temporal=1
 hash_igual=True
---- C:\xopytest\cola.txt
-inicial=archivo1.bin,archivo2.bin,archivo3.bin
-lista_tras_mover=archivo2.bin,archivo1.bin,archivo3.bin
-visual_tras_mover=archivo2.bin,archivo1.bin,archivo3.bin
-tras_mover=archivo2.bin,archivo1.bin,archivo3.bin
-tras_ordenar=archivo3.bin,archivo2.bin,archivo1.bin
-planas=a1.bin,a2.bin,b1.bin
-tras_mover_cruzado=b1.bin,a1.bin,a2.bin
-copia_mixta=OK
-archivos_copiados=3
-boton_arriba=a1.bin,b1.bin,a2.bin -> a1.bin,a2.bin,b1.bin
-boton_abajo=a1.bin,b1.bin,a2.bin
-quitar_copiando=2->1
-anadir_copiando=2
-quitados=2
-resultado=OK
 --- C:\xopytest\robocopytest.txt
 robocopy_copiado=True
 robocopy_hash_igual=True
 --- startup.log (últimas 80 líneas)
-MF-OnShown base.OnShown done
-MF-OnShown Activate
-MF-OnShown Activate done
-MF1. BuildUi
-MF1. BuildUi done
-MF2. LoadSettingsIntoUi
-MF2. LoadSettingsIntoUi done
-MF3. ApplyCompactView
-MF3. ApplyCompactView done
-MF4. ApplyJobsCollapsed
 MF4. ApplyJobsCollapsed done
 MF5. WireEngine
 MF5. WireEngine done
@@ -135,8 +101,14 @@ MF14. ApplyCopierReplacement start
 MF14. ApplyCopierReplacement done
 MF15. InstallShellHookIfNeeded start
 MF15. InstallShellHookIfNeeded done
+MF-OnShown end (UI lista)
+MF-OnShown HandleExternalAsync(startup) start
+MF17. Arranque con ventana visible
+EnsureWindowVisible arranque
+MF-FormClosing: Cancel=False Reason=ApplicationExitCall
 1. Inicio Main
 2. ApplicationConfiguration.Initialize
+2b. Modo oscuro del sistema
 3. SetUnhandledExceptionMode
 4. ThreadException handler
 5. UnhandledException handler
@@ -182,26 +154,73 @@ MF14. ApplyCopierReplacement done
 MF15. InstallShellHookIfNeeded start
 MF15. InstallShellHookIfNeeded done
 MF-OnShown end (UI lista)
+MF-OnShown HandleExternalAsync(startup) start
+MF17. Arranque con ventana visible
+EnsureWindowVisible arranque
+MF-FormClosing: Cancel=False Reason=ApplicationExitCall
 --- transfer.log (últimas 120 líneas)
-2026-11-25 20:41:43  Sustitución real: se activa el arranque de XoPy con Windows para que Ctrl+V siga pasando por XoPy tras reiniciar.
-2026-11-25 20:41:43  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
-2026-11-25 20:41:43  Arranque: destinos extra=[] guardados=[]
-2026-11-25 20:41:43  Inicio: 1 elementos, destinos=C:\xopytest\misma, verificar=False (Sha256), reanudar=False
-2026-11-25 20:41:43  Copia nativa: C:\xopytest\misma\original.txt -> C:\xopytest\misma\original (1).txt
-2026-11-25 20:41:43  Fin: 3002 bytes en 0.0s, errores=0
-2026-11-25 20:41:58  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
-2026-11-25 20:42:00  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
-2026-11-25 20:42:00  Inicio: 4 elementos, destinos=C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\destinoA, verificar=False (Sha256), reanudar=False
-2026-11-25 20:42:00  Copia nativa: C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\origen\r1.bin -> C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\destinoA\r1.bin
-2026-11-25 20:42:00  Copia nativa: C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\origen\r2.bin -> C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\destinoA\r2.bin
-2026-11-25 20:42:00  Copia nativa: C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\origen\r3.bin -> C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\destinoA\r3.bin
-2026-11-25 20:42:00  Copia nativa: C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\origen\r4.bin -> C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\destinoA\r4.bin
-2026-11-25 20:42:00  Fin: 40960 bytes en 0.0s, errores=0
-2026-11-25 20:42:01  Inicio: 4 elementos, destinos=C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\destinoB, verificar=False (Sha256), reanudar=False
-2026-11-25 20:42:01  Copia nativa: C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\origen\r1.bin -> C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\destinoB\r1.bin
-2026-11-25 20:42:01  Copia nativa: C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\origen\r2.bin -> C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\destinoB\r2.bin
-2026-11-25 20:42:01  Copia nativa: C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\origen\r3.bin -> C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\destinoB\r3.bin
-2026-11-25 20:42:01  Copia nativa: C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\origen\r4.bin -> C:\Users\runneradmin\AppData\Local\Temp\xopy-repeat\destinoB\r4.bin
-2026-11-25 20:42:01  Fin: 40960 bytes en 0.0s, errores=0
-2026-11-25 20:42:01  Aviso: 4 elemento(s) sin origen en disco; se marcan como Error sin reintentarlos.
-2026-11-25 20:42:01  Aviso: 4 elemento(s) sin origen en disco; se marcan como Error sin reintentarlos.
+2026-11-27 23:48:13.150  Sustitución real: se activa el arranque de XoPy con Windows para que Ctrl+V siga pasando por XoPy tras reiniciar.
+2026-11-27 23:48:13.158  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
+2026-11-27 23:48:13.162  Arranque: destinos extra=[] guardados=[]
+2026-11-27 23:48:18.882  Interceptor de pegado instalado (Ctrl+V / Mayús+Insert en el Explorador).
+2026-11-27 23:48:18.890  Arranque: destinos extra=[] guardados=[]
+2026-11-27 23:48:29.625  Interceptor de Ctrl+V desactivado: 2 arranques sin cierre limpio.
+2026-11-27 23:48:29.650  Arranque: destinos extra=[] guardados=[]
+2026-11-27 23:48:34.119  Arranque: destinos extra=[] guardados=[]
+2026-11-27 23:48:38.511  Arranque: destinos extra=[] guardados=[]
+2026-11-27 23:48:42.474  Arranque: destinos extra=[] guardados=[]
+2026-11-27 23:48:46.395  Arranque: destinos extra=[] guardados=[]
+2026-11-27 23:48:51.238  Arranque: destinos extra=[] guardados=[]
+2026-11-27 23:48:55.712  Arranque: destinos extra=[] guardados=[]
+2026-11-27 23:48:55.835  Inicio: 4 elementos, destinos=C:\xopytest\destino, verificar=False (Sha256), reanudar=False
+2026-11-27 23:48:55.858  Copia nativa: C:\xopytest\informe.pdf -> C:\xopytest\destino\informe.pdf
+2026-11-27 23:48:55.861  Copia nativa: C:\xopytest\carpeta\foto1.jpg -> C:\xopytest\destino\carpeta\foto1.jpg
+2026-11-27 23:48:55.868  Copia nativa: C:\xopytest\carpeta\foto2.jpg -> C:\xopytest\destino\carpeta\foto2.jpg
+2026-11-27 23:48:55.869  Copia nativa: C:\xopytest\carpeta\foto3.jpg -> C:\xopytest\destino\carpeta\foto3.jpg
+2026-11-27 23:48:55.869  Fin: 22536 bytes en 0.0s, errores=0
+2026-11-27 23:48:56.713  Cierre de la ventana: motivo=ApplicationExitCall, salir_pedido=True, bandeja=True, copiando=False
+2026-11-27 23:49:11.246  Arranque: destinos extra=[] guardados=[]
+2026-11-27 23:49:11.342  Inicio: 1 elementos, destinos=C:\xopytest\destino, verificar=True (Sha256), reanudar=False
+2026-11-27 23:49:11.391  Copia nativa: C:\xopytest\video.mp4 -> C:\xopytest\destino\video.mp4
+2026-11-27 23:49:11.393  Fin: 20482 bytes en 0.1s, errores=0
+2026-11-27 23:49:12.228  Cierre de la ventana: motivo=ApplicationExitCall, salir_pedido=True, bandeja=True, copiando=False
+2026-11-27 23:49:23.391  Arranque: destinos extra=[] guardados=[]
+2026-11-27 23:49:23.473  Inicio: 1 elementos, destinos=C:\xopytest\destino, verificar=True (Sha256), reanudar=False
+2026-11-27 23:49:23.488  Fin: 20482 bytes en 0.0s, errores=0
+2026-11-27 23:49:24.322  Cierre de la ventana: motivo=ApplicationExitCall, salir_pedido=True, bandeja=True, copiando=False
+2026-11-27 23:49:33.823  Arranque: destinos extra=[] guardados=[]
+2026-11-27 23:49:38.729  Arranque: destinos extra=[] guardados=[]
+2026-11-27 23:49:38.815  Inicio: 1 elementos, destinos=C:\xopytest\destino2, verificar=True (Sha256), reanudar=False
+2026-11-27 23:49:38.840  Movido en el mismo disco (renombrado): C:\xopytest\mover.txt -> C:\xopytest\destino2\mover.txt
+2026-11-27 23:49:38.841  Fin: 5002 bytes en 0.0s, errores=0
+2026-11-27 23:49:39.686  Cierre de la ventana: motivo=ApplicationExitCall, salir_pedido=True, bandeja=True, copiando=False
+2026-11-27 23:49:50.753  Arranque: destinos extra=[] guardados=[]
+2026-11-27 23:49:50.854  Inicio: 2 elementos, destinos=C:\xopytest\destino2, verificar=True (Sha256), reanudar=False
+2026-11-27 23:49:50.879  Movido en el mismo disco (renombrado): C:\xopytest\movercarpeta\sub\dos.txt -> C:\xopytest\destino2\movercarpeta\sub\dos.txt
+2026-11-27 23:49:50.882  Movido en el mismo disco (renombrado): C:\xopytest\movercarpeta\uno.txt -> C:\xopytest\destino2\movercarpeta\uno.txt
+2026-11-27 23:49:50.883  Fin: 8196 bytes en 0.0s, errores=0
+2026-11-27 23:49:50.916  Carpeta de origen vacía eliminada tras mover: C:\xopytest\movercarpeta
+2026-11-27 23:49:51.732  Cierre de la ventana: motivo=ApplicationExitCall, salir_pedido=True, bandeja=True, copiando=False
+2026-11-27 23:50:05.163  Arranque: destinos extra=[] guardados=[]
+2026-11-27 23:50:05.242  Inicio: 1 elementos, destinos=C:\xopytest\dest-rbcopy, verificar=True (Sha256), reanudar=False
+2026-11-27 23:50:05.431  Copia con Robocopy: C:\xopytest\rbcopy.bin -> C:\xopytest\dest-rbcopy\rbcopy.bin
+2026-11-27 23:50:05.433  Fin: 200002 bytes en 0.2s, errores=0
+2026-11-27 23:50:06.266  Cierre de la ventana: motivo=ApplicationExitCall, salir_pedido=True, bandeja=True, copiando=False
+2026-11-27 23:50:19.640  Arranque: destinos extra=[C:\xopytest\dest4] guardados=[C:\xopytest\dest4]
+2026-11-27 23:50:19.746  Inicio: 4 elementos, destinos=C:\xopytest\dest3 | C:\xopytest\dest4, verificar=True (Sha256), reanudar=False
+2026-11-27 23:50:19.796  Copia nativa: C:\xopytest\informe.pdf -> C:\xopytest\dest3\informe.pdf
+2026-11-27 23:50:19.803  Copia nativa: C:\xopytest\informe.pdf -> C:\xopytest\dest4\informe.pdf
+2026-11-27 23:50:19.812  Copia nativa: C:\xopytest\jerarquia\sub\anidado.txt -> C:\xopytest\dest3\jerarquia\sub\anidado.txt
+2026-11-27 23:50:19.815  Copia nativa: C:\xopytest\jerarquia\sub\anidado.txt -> C:\xopytest\dest4\jerarquia\sub\anidado.txt
+2026-11-27 23:50:19.817  Copia nativa: C:\xopytest\jerarquia\raiz.txt -> C:\xopytest\dest3\jerarquia\raiz.txt
+2026-11-27 23:50:19.818  Copia nativa: C:\xopytest\jerarquia\raiz.txt -> C:\xopytest\dest4\jerarquia\raiz.txt
+2026-11-27 23:50:19.819  Fin: 40972 bytes en 0.1s, errores=0
+2026-11-27 23:50:19.849  Archivo de checksums creado: C:\xopytest\dest3\XoPy-checksums-20261127-235019.sha256
+2026-11-27 23:50:20.655  Cierre de la ventana: motivo=ApplicationExitCall, salir_pedido=True, bandeja=True, copiando=False
+2026-11-27 23:50:24.101  Arranque: destinos extra=[] guardados=[C:\xopytest\dest4]
+2026-11-27 23:50:24.182  Inicio: 1 elementos, destinos=C:\xopytest\dest5 | C:\xopytest\dest4, verificar=True (Sha256), reanudar=False
+2026-11-27 23:50:24.231  Copia nativa: C:\xopytest\grande.bin -> C:\xopytest\dest5\grande.bin
+2026-11-27 23:50:24.238  Copia nativa: C:\xopytest\grande.bin -> C:\xopytest\dest4\grande.bin
+2026-11-27 23:50:24.240  Fin: 600000 bytes en 0.1s, errores=0
+2026-11-27 23:50:24.270  Archivo de checksums creado: C:\xopytest\dest5\XoPy-checksums-20261127-235024.sha256
+2026-11-27 23:50:25.075  Cierre de la ventana: motivo=ApplicationExitCall, salir_pedido=True, bandeja=True, copiando=False

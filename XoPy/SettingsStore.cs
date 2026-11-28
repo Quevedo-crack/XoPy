@@ -59,6 +59,51 @@ public sealed class SettingsStore
             migrated = true;
         }
 
+        if (settings.SettingsVersion < 4)
+        {
+            // Fusión con FlashCopyPro: pegar empieza SOLO, sin cuadro intermedio, y la lista
+            // arranca visible enseñando la ruta completa de cada archivo.
+            settings.AskWhenPasting = false;
+            settings.ShowFullPath = true;
+            settings.ShowList = true;
+            settings.SettingsVersion = 4;
+            migrated = true;
+        }
+
+        if (settings.SettingsVersion < 5)
+        {
+            // La copia se había vuelto mucho más lenta: el multihilo venía encendido y
+            // copiar cuatro archivos a la vez en el mismo disco (o en un disco duro
+            // normal) es más lento que copiarlos de uno en uno. Vuelve a apagarse.
+            settings.MultiThreadCopy = false;
+            settings.SettingsVersion = 5;
+            migrated = true;
+        }
+
+        if (settings.SettingsVersion < 6)
+        {
+            // Cerrar la ventana NO debe cerrar XoPy: se queda junto al reloj, como
+            // TeraCopy o SuperCopier. Venía apagado en algunas instalaciones y la X
+            // mataba el programa entero (y con él el interceptor de Ctrl+V).
+            settings.MinimizeToTray = true;
+            // La ventana se abre en su tamaño normal, nunca maximizada de salida.
+            settings.WindowMaximized = false;
+            settings.SettingsVersion = 6;
+            migrated = true;
+        }
+
+        if (settings.SettingsVersion < 7)
+        {
+            // XoPy ABRE SIEMPRE EN FORMATO REDUCIDO (solo la barra y el progreso), que es
+            // como lo quiere el usuario desde el principio. La lista completa se saca con
+            // el botón «Mostrar lista» o con F9 cuando hace falta.
+            settings.WindowMode = 0;
+            settings.CompactView = true;
+            settings.ShowList = false;
+            settings.SettingsVersion = 7;
+            migrated = true;
+        }
+
         settings.Favorites ??= new List<string>();
         settings.ExtraDestinations ??= new List<string>();
         settings.ExtraDestinations = settings.ExtraDestinations

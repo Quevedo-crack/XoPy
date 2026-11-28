@@ -48,6 +48,19 @@ public sealed class ShellPasteHook : IDisposable
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern int GetClassName(IntPtr window, StringBuilder text, int count);
 
+    // CF_HDROP: el formato con el que el Explorador pone archivos en el portapapeles.
+    private const uint CfHdrop = 15;
+
+    /// <summary>
+    /// Comprueba si el portapapeles tiene una lista de archivos. A diferencia de
+    /// <c>Clipboard.ContainsFileDropList()</c> esto NO usa COM/OLE: es una consulta directa
+    /// a user32 que solo mira la lista de formatos registrados, no pide los datos al dueño
+    /// del portapapeles. Por eso se puede llamar desde el gancho sin bloquear nada.
+    /// </summary>
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool IsClipboardFormatAvailable(uint format);
+
     private static readonly string[] ExplorerClasses =
     {
         "CabinetWClass", "ExploreWClass", "Progman", "WorkerW", "ApplicationFrameWindow", "MultitaskingViewFrame"
@@ -87,8 +100,12 @@ public sealed class ShellPasteHook : IDisposable
         {
             try
             {
-                // Actualiza el indicador sin bloquear el hook.
-                _clipboardHasFiles = SafeContainsFileDropList();
+                // Respaldo del indicador. Si la lectura falla (el Explorador tiene tomado el
+                // portapapeles) NO se pone en falso: perder el indicador en ese instante era
+                // lo que hacía que la segunda copia la acabara haciendo el copiador de
+                // Windows. Solo se baja cuando se confirma que ya no hay archivos.
+                var probe = ProbeClipboard();
+                if (probe is not null) _clipboardHasFiles = probe.Value;
 
                 if (_work.TryTake(out var action, 200))
                 {
@@ -101,10 +118,30 @@ public sealed class ShellPasteHook : IDisposable
         }
     }
 
-    private static bool SafeContainsFileDropList()
+    /// <summary>
+    /// true/false si se pudo leer el portapapeles; null si la lectura falló (otro proceso lo
+    /// tiene tomado). En ese caso se conserva el valor anterior en vez de darlo por vacío.
+    /// </summary>
+    private static bool? ProbeClipboard()
     {
         try { return Clipboard.ContainsFileDropList(); }
-        catch { return false; }
+        catch { return null; }
+    }
+
+    /// <summary>
+    /// Lee los archivos del portapapeles reintentando: justo después de un Ctrl+C el
+    /// Explorador todavía lo tiene abierto y la primera lectura devuelve vacío. Sin estos
+    /// reintentos la copia se perdía y parecía que Ctrl+V no había hecho nada.
+    /// </summary>
+    private static List<string> ClipboardFilesWithRetry()
+    {
+        for (var attempt = 0; attempt < 8; attempt++)
+        {
+            var files = ClipboardFilesCore();
+            if (files.Count > 0) return files;
+            Thread.Sleep(40);
+        }
+        return new List<string>();
     }
 
     public void Install()
@@ -148,9 +185,17 @@ public sealed class ShellPasteHook : IDisposable
 
         try
         {
-            // Sólo se consulta el indicador mantenido por el hilo STA: nada de COM ni
-            // portapapeles aquí dentro (eso colgaba el Explorador y daba «Object reference»).
-            if (!_clipboardHasFiles) return CallNextHookEx(_hook, code, wParam, lParam);
+            // IsClipboardFormatAvailable es una consulta directa a user32: NO usa COM, no
+            // pide los datos al dueño del portapapeles y vuelve al instante, así que es
+            // segura dentro del gancho. El indicador del hilo STA queda como respaldo.
+            //
+            // Esto arregla el fallo de «la segunda copia la hace Windows»: el sondeo del
+            // hilo STA se actualiza como mucho cada 200 ms y falla mientras el Explorador
+            // tiene tomado el portapapeles (justo después de un Ctrl+C). En ese hueco el
+            // indicador valía «false», el gancho dejaba pasar la pulsación y pegaba Windows.
+            var hasFiles = false;
+            try { hasFiles = IsClipboardFormatAvailable(CfHdrop); } catch { }
+            if (!hasFiles && !_clipboardHasFiles) return CallNextHookEx(_hook, code, wParam, lParam);
 
             var window = GetForegroundWindow();
             if (!IsExplorer(window)) return CallNextHookEx(_hook, code, wParam, lParam);
@@ -196,15 +241,24 @@ public sealed class ShellPasteHook : IDisposable
             var handler = PasteRequested;
             if (handler is null) return;
 
-            var files = ClipboardFilesCore();
-            if (files.Count == 0) return;
+            var files = ClipboardFilesWithRetry();
+            if (files.Count == 0)
+            {
+                FileLog.Write("Pegado interceptado pero el portapapeles no devolvió archivos.");
+                return;
+            }
             var move = ClipboardIsCutCore();
 
+            // Si no se consigue saber en qué carpeta está el Explorador, NO se tira el
+            // pegado: la pulsación ya se ha cancelado, así que perderlo dejaría al usuario
+            // con la sensación de que Ctrl+V no hizo nada. Se avisa a XoPy con el destino
+            // vacío y la ventana preguntará a dónde copiar.
             var destination = ExplorerDestinationCore(explorerWindow);
-            if (string.IsNullOrWhiteSpace(destination)) return;
+            if (string.IsNullOrWhiteSpace(destination))
+                FileLog.Write("Pegado interceptado sin carpeta de destino: XoPy la preguntará.");
 
-            handler(files, destination, move);
-            FileLog.Write($"Pegado interceptado: {files.Count} elemento(s) a {destination} ({(move ? "mover" : "copiar")})");
+            handler(files, destination ?? string.Empty, move);
+            FileLog.Write($"Pegado interceptado: {files.Count} elemento(s) a {destination ?? "(sin destino)"} ({(move ? "mover" : "copiar")})");
         }
         catch (Exception ex)
         {

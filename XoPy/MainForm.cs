@@ -11,6 +11,12 @@ namespace XoPy;
 
 public sealed partial class MainForm : Form
 {
+    /// <summary>
+    /// La ventana principal, para que el enganche de fallos de <see cref="Program"/> pueda
+    /// avisar sin abrir un cuadro modal (un modal deja la copia esperando).
+    /// </summary>
+    public static MainForm? Current { get; private set; }
+
     private readonly AppSettings _settings;
     private readonly SettingsStore _store = new();
     private readonly Palette _palette;
@@ -40,7 +46,6 @@ public sealed partial class MainForm : Form
     private ToolStripButton _skipButton = null!;
     private ToolStripButton _stopButton = null!;
     private ToolStripButton _optionsButton = null!;
-    private ToolStripButton _menuButton = null!;
     private ToolStripButton _multiThreadButton = null!;
     private Button _removeButton = null!;
     private Button _clearButton = null!;
@@ -49,11 +54,18 @@ public sealed partial class MainForm : Form
     private ListView _list = null!;
     private Label _countLabel = null!;
     private Button _sortButton = null!;
+    // Vista de la lista: «En cola» (lo que falta por copiar) o «Finalizados» (lo ya copiado).
+    // Por defecto se ve SOLO lo pendiente, para que ordenar por tamaño no mezcle lo terminado.
+    private bool _showFinished;
+    private Button _viewQueueButton = null!;
+    private Button _viewDoneButton = null!;
     private PillLabel _hdrCopyState = null!, _hdrTargetState = null!;
     private Label _hdrCopyPath = null!, _hdrCopyInfo = null!, _hdrCopyPercent = null!;
     private Label _hdrTargetPath = null!, _hdrTargetInfo = null!, _hdrTargetPercent = null!;
-    private ProgressStrip _hdrCopyBar = null!, _hdrTargetBar = null!;
+    private ProgressStrip _hdrCopyBar = null!, _hdrFileBar = null!;
     private SpeedGraph _footerGraph = null!;
+    private TableLayoutPanel? _footerLayout;
+    private TableLayoutPanel? _statusRow;
     private TableLayoutPanel _rootLayout = null!;
     private TableLayoutPanel _transferHeader = null!;
     private ToolStripButton _compactButton = null!;
@@ -85,6 +97,7 @@ public sealed partial class MainForm : Form
     private Panel _tabsHost = null!;
     /// <summary>Tapa la barra de desplazamiento nativa de la lista (blanca en tema oscuro).</summary>
     private Panel? _scrollCover;
+    private ListHeaderTail? _headerTail;
     private Control[] _pages = Array.Empty<Control>();
     private int _tabIndex;
 
@@ -93,12 +106,8 @@ public sealed partial class MainForm : Form
     private Label _targetFreeLabel = null!;
     private TextBox _logBox = null!;
     private Label _stOperation = null!;
-    private Label _stSource = null!;
-    private Label _stTarget = null!;
-    private Label _stTotals = null!;
     private Label _stSpeed = null!;
     private Label _stEta = null!;
-    private Label _stErrors = null!;
     private Label _stPercent = null!;
     private ProgressStrip _stProgress = null!;
     private ChoiceButton _optConflict = null!;
@@ -121,8 +130,6 @@ public sealed partial class MainForm : Form
     /// <summary>Decisión tomada en el diálogo de espacio insuficiente para esta copia.</summary>
     private FreeSpaceMode _freeSpaceMode = FreeSpaceMode.Ignore;
     private bool _loadingUi;
-    private Label _metaFilter = null!, _metaCount = null!, _metaOrigin = null!, _metaOriginSize = null!;
-    private Label _metaDestination = null!, _metaDestinationSize = null!;
     private bool _shown;
     /// <summary>La interfaz está construida y los controles existen (fin de OnShown).</summary>
     private volatile bool _uiReady;
@@ -130,6 +137,7 @@ public sealed partial class MainForm : Form
     private TableLayoutPanel _contentGrid = null!;
     private Control _jobsPanel = null!;
     private Button? _jobsToggleButton;
+    private ToolStripMenuItem? _fullPathMenuItem;
     /// <summary>El historial de listas (columna de trabajos) está a la vista.</summary>
     private bool _jobsVisible = true;
     private Button _collapseButton = null!;
@@ -140,6 +148,8 @@ public sealed partial class MainForm : Form
     private CopyEngineKind? _engineOverride;
     private bool _trayPaused;
     private bool _trayError;
+    /// <summary>Cuántas copias había en marcha la última vez que se pintó el icono de la bandeja.</summary>
+    private int _trayJobs;
     private DateTime _completedAt = DateTime.MinValue;
     private OperationType _lastOperation = OperationType.Copy;
     private string _lastDestination = string.Empty;
@@ -151,10 +161,8 @@ public sealed partial class MainForm : Form
 
     private readonly List<TransferList> _lists = new();
     private TransferList? _activeList;
-    private ComboBox _listSelector = null!;
-    private ToolStripButton _newListButton = null!;
-    private ToolStripButton _deleteListButton = null!;
-    private ToolStripButton _removeFromListButton = null!;
+    /// <summary>Lista sobre la que está trabajando el motor ahora mismo (null si está parado).</summary>
+    private TransferList? _runningList;
 
     public MainForm(StartupRequest request)
     {
@@ -162,6 +170,32 @@ public sealed partial class MainForm : Form
         _settings = _store.Load();
         _history = _store.LoadHistory();
         _palette = Palette.For(_settings.DarkTheme);
+        Current = this;
+    }
+
+    /// <summary>
+    /// Avisa de un fallo interno SIN abrir un cuadro modal: lo anota en el registro y lo
+    /// enseña en la barra de estado. Un modal aquí deja la ventana sin atender y la copia
+    /// en curso se queda parada esperando a que alguien pulse «Aceptar».
+    /// </summary>
+    public void ReportBackgroundError(Exception error)
+    {
+        try
+        {
+            if (IsDisposed || !IsHandleCreated) return;
+            void Show()
+            {
+                try
+                {
+                    SetStatus("Ha fallado algo dentro de XoPy (" + error.GetType().Name + "). " +
+                              "La copia sigue; el detalle está en el registro: Ayuda → Ver registro.");
+                }
+                catch { }
+            }
+            if (InvokeRequired) BeginInvoke(new Action(Show));
+            else Show();
+        }
+        catch { }
     }
 
     // ---------------------------------------------------------------- interfaz
@@ -169,7 +203,8 @@ public sealed partial class MainForm : Form
     private void BuildUi()
     {
         SuspendLayout();
-        Text = "XoPy — Copiar, mover y verificar";
+        // Como SuperCopier: el título dice para qué sirve el programa.
+        Text = "XoPy — reemplazo del copiador de Windows";
         Icon = Icons.AppIcon();
         BackColor = _palette.Canvas;
         ForeColor = _palette.Text;
@@ -217,13 +252,91 @@ public sealed partial class MainForm : Form
         DragDrop += (_, e) => DropPaths(e);
         Shown += (_, _) =>
         {
+            LayoutRootRows();
             ResizeColumns();
             SelectTab(0);
             ApplyDarkScrollbars();
+            // Último repaso: cualquier control que se haya quedado con los colores de
+            // Windows (ese gris casi blanco de fábrica) se pinta con la paleta, y las
+            // barras de desplazamiento nativas se oscurecen. Es lo que acaba con las
+            // «barras blancas» sueltas que veía el usuario.
+            Ui.PaintAll(this, _palette);
+            Ui.DarkScrollbars(this, _palette);
         };
     }
 
     private void ToggleCompactView() => ApplyCompactView(!_compactView, persist: true);
+
+    // Alturas fijas de las franjas de la ventana (en píxeles de cliente).
+    private const int RowMenuHeight = 24;
+    private const int RowToolbarHeight = 48;
+    // Cabecera: línea del archivo (24) + su barra (12) + línea del total (24) + su barra
+    // (16) + 8 de relleno. Ni un píxel de más: lo que sobra se ve como franja vacía.
+    private const int RowHeaderHeight = 84;
+    private const int RowTabsHeight = 34;
+    // Pie: línea del archivo en curso (17) + gráfico de velocidad (35) + línea de estado
+    // (28) + relleno (16). La barra de progreso ya no está aquí.
+    private const int RowFooterNormal = 96;
+    // Pie de la vista reducida: NADA. El progreso, la velocidad y el tiempo restante están
+    // en la cabecera, que siempre se ve; dejar una franja aquí era hueco desperdiciado.
+    private const int RowFooterCompact = 0;
+    private const int RowContentMin = 110;
+
+    /// <summary>
+    /// Cuánto hay que agrandar las medidas fijas. Todas las alturas de arriba están
+    /// escritas en píxeles «al 100 %», pero las letras y los iconos los agranda Windows
+    /// cuando el usuario pone el tamaño del texto al 125 % o al 150 %: sin este factor,
+    /// la barra de 48 px seguía midiendo 48 con botones de 60 y el texto salía cortado
+    /// («Actualiz», «Abrir el archivo de»), y la ventana reducida se quedaba corta.
+    /// </summary>
+    private float UiScale => DeviceDpi > 0 ? DeviceDpi / 96f : 1f;
+
+    /// <summary>Convierte una medida «al 100 %» en píxeles reales de esta pantalla.</summary>
+    private int Px(int logical) => (int)Math.Round(logical * UiScale);
+
+    /// <summary>
+    /// Reparte el alto de la ventana a mano. Hacía falta: con la fila del contenido en
+    /// «porcentaje», TableLayoutPanel le daba el alto que PEDÍA la pestaña más grande
+    /// (la de Estado) y se lo quitaba a las demás franjas — por eso desaparecía la barra de
+    /// pestañas y el pie salía cortado por la mitad. Aquí se calcula y se fija.
+    /// </summary>
+    private void LayoutRootRows()
+    {
+        if (_rootLayout is null || _rootLayout.RowStyles.Count < 6) return;
+
+        var menu = _settings.ShowMenuBar ? Px(RowMenuHeight) : 0;
+        var tabs = _compactView ? 0 : Px(RowTabsHeight);
+        var footer = _compactView ? RowFooterCompact : Px(RowFooterNormal);
+        var available = _rootLayout.ClientSize.Height;
+        if (available <= 0) available = ClientSize.Height;
+        var content = available - menu - Px(RowToolbarHeight) - Px(RowHeaderHeight) - tabs - footer;
+        if (content < Px(RowContentMin)) content = Px(RowContentMin);
+        // LISTA OCULTA: la franja del contenido se va a cero de verdad. Antes la vista
+        // reducida seguía reservando sitio para la lista, así que el botón decía «Ocultar»
+        // y la lista no se iba a ninguna parte.
+        if (_compactView) content = 0;
+
+        var changed = false;
+        void Set(int index, float height)
+        {
+            var style = _rootLayout.RowStyles[index];
+            if (style.SizeType == SizeType.Absolute && Math.Abs(style.Height - height) < 0.5f) return;
+            style.SizeType = SizeType.Absolute;
+            style.Height = height;
+            changed = true;
+        }
+
+        _rootLayout.SuspendLayout();
+        Set(0, menu);
+        Set(1, Px(RowToolbarHeight));
+        Set(2, Px(RowHeaderHeight));
+        Set(3, tabs);
+        Set(4, content);
+        Set(5, footer);
+        // Solo se vuelve a repartir si de verdad ha cambiado algo: esto se llama en cada
+        // repaso del temporizador de tamaño y un PerformLayout por tick parpadea.
+        _rootLayout.ResumeLayout(changed);
+    }
 
     private void ApplyCompactView(bool compact, bool persist)
     {
@@ -231,99 +344,239 @@ public sealed partial class MainForm : Form
         if (_rootLayout is not null)
         {
             _rootLayout.SuspendLayout();
-            _rootLayout.RowStyles[1].Height = compact ? 44 : 48;
-            // 24+16+24+16 = 80 de contenido + relleno vertical de la cabecera.
-            _rootLayout.RowStyles[2].Height = 90;
-            // En reducido se ocultan las pestañas (como TeraCopy: solo metadatos y lista) y
-            // la lista SÍ queda a la vista: ahí está la barra de progreso de cada archivo.
-            // Sin pestañas en reducido: la fila se queda a cero (antes dejaba un hueco de 34 px).
-            _rootLayout.RowStyles[3].Height = compact ? 0 : 34;
+            // En reducido se ocultan las pestañas (como TeraCopy: solo la lista y el progreso);
+            // la lista SÍ queda a la vista, que es donde va la barra de cada archivo.
             if (_tabBar is not null) _tabBar.Visible = !compact;
-            _rootLayout.RowStyles[4].SizeType = SizeType.Percent;
-            _rootLayout.RowStyles[4].Height = 100;
-            // En reducido no hay pestañas que mostrar: la lista ocupa todo el ancho.
-            if (_contentGrid is not null && _contentGrid.ColumnStyles.Count >= 2)
-                _contentGrid.ColumnStyles[0].Width = compact ? 0 : 228;
-            // El pie necesita 90 px de filas + 16 de relleno: con menos, se recortaba.
-            _rootLayout.RowStyles[5].Height = 106;
+            // En reducido el historial de listas se repliega y la lista ocupa todo el ancho.
+            // Antes esto peleaba con SetJobsVisible: la vista reducida ponía la columna a 0 y
+            // el ajuste guardado la devolvía a 228 justo después, así que al abrir salía media
+            // ventana reducida (sin pestañas) y media completa (con el panel TRABAJOS).
+            ApplyJobsLayout();
+            // VISTA REDUCIDA: el pie se queda SOLO con la barra de progreso y la línea de
+            // estado. El gráfico de velocidad y la línea «quedan N archivos» repiten lo que
+            // ya dice la cabecera (porcentaje, velocidad y tiempo restante) y era otra de las
+            // cosas repetidas que señaló el usuario.
+            if (_footerLayout is not null && _footerLayout.RowStyles.Count >= 4)
+            {
+                _footerLayout.RowStyles[0].Height = compact ? 0 : Px(17);
+                _footerLayout.RowStyles[1].Height = compact ? 0 : Px(35);
+                _footerLayout.RowStyles[2].Height = 0;
+                // En reducido la línea de estado se va del todo: «Transferencia en pausa» ya
+                // se ve en el botón (que pasa a decir «Reanudar») y en la cabecera, y esa
+                // franja era el hueco desperdiciado de la ventana pequeña.
+                _footerLayout.RowStyles[3].Height = compact ? 0 : Px(28);
+                if (_footerLayout.Parent is not null) _footerLayout.Visible = !compact;
+                if (_currentLabel is not null) _currentLabel.Visible = !compact;
+                if (_footerGraph is not null) _footerGraph.Visible = !compact;
+                if (_statusRow is not null) _statusRow.Visible = !compact;
+                // La velocidad y el tiempo restante salen ya en la segunda línea de la
+                // cabecera: en reducido se ocultan aquí para no decirlo dos veces.
+                if (_speedLabel is not null) _speedLabel.Visible = !compact;
+            }
             if (_transferHeader is not null && _transferHeader.RowStyles.Count >= 4)
             {
-                // Las dos líneas (origen y destino) y sus barras siguen visibles en compacto,
-                // con la misma altura que en la ventana completa para que la barra se vea.
-                _transferHeader.RowStyles[0].Height = 24;
-                _transferHeader.RowStyles[1].Height = 16;
-                _transferHeader.RowStyles[2].Height = 24;
-                _transferHeader.RowStyles[3].Height = 16;
+                // Las dos líneas con sus dos barras se ven igual en reducido: en ese modo
+                // son lo único que queda, así que tienen que estar completas. El orden es
+                // el de BuildTransferHeader: Total + su barra, y debajo el archivo con la
+                // suya (si estos altos no coinciden con los de allí, una de las dos barras
+                // se queda a medio pintar).
+                _transferHeader.RowStyles[0].Height = Px(24);
+                _transferHeader.RowStyles[1].Height = Px(14);
+                _transferHeader.RowStyles[2].Height = Px(24);
+                _transferHeader.RowStyles[3].Height = Px(14);
             }
+            if (compact && _tabIndex != 0) SelectTab(0);
+            // La lista (con sus pestañas y el panel de trabajos) se esconde ENTERA, y con
+            // ella la propia lista: la barra de desplazamiento de un ListView es una
+            // ventana de Windows que se queda pintada si solo se encoge su contenedor, y
+            // eso es la «franja blanca» que quedaba debajo al ocultar la lista.
+            if (_contentGrid is not null) _contentGrid.Visible = !compact;
+            if (_tabsHost is not null) _tabsHost.Visible = !compact;
+            if (_list is not null) _list.Visible = !compact;
+            // Mientras la lista está escondida no se repasa (sería trabajo invisible): al
+            // volver a enseñarla hay que ponerla al día de una vez.
+            if (!compact && _uiReady) { try { SyncRows(); } catch { } }
             UpdateToolbarForCompact(compact);
             if (_compactButton is not null)
             {
-                _compactButton.Image = Icons.Glyph(compact ? Icons.ChevronDown : Icons.ChevronRight, _palette.Text, 18);
-                _compactButton.Text = compact ? "Mostrar" : "Ocultar";
+                // CON TEXTO y con el fondo encendido cuando la lista está escondida: este
+                // botón es el ÚNICO camino de vuelta y tiene que cantar. Esconder algo sin
+                // dejar a la vista cómo recuperarlo ya dejó al usuario atrapado una vez.
+                _compactButton.Image = Icons.Glyph(compact ? Icons.ChevronRight : Icons.ChevronDown,
+                    compact ? Color.White : _palette.Text, 18);
+                _compactButton.Text = compact ? "Mostrar lista" : "Ocultar lista";
+                _compactButton.BackColor = compact ? _palette.Accent : _palette.Surface;
+                _compactButton.ForeColor = compact ? Color.White : _palette.Text;
+                _compactButton.Font = compact ? _barFontBold : _barFont;
                 _compactButton.ToolTipText = compact
-                    ? "Mostrar la lista de copia"
-                    : "Ocultar la lista y dejar visibles los controles y el progreso";
+                    ? "Volver a mostrar la lista de archivos"
+                    : "Ocultar la lista de archivos y dejar solo los controles y el progreso";
                 _compactButton.AccessibleName = _compactButton.ToolTipText;
             }
             _rootLayout.ResumeLayout(true);
+            LayoutRootRows();
+            // Repintado completo: sin esto Windows deja a medias lo que había donde estaba
+            // la lista (ese resto claro que se veía al reducir la ventana).
+            try { _rootLayout.Invalidate(true); Invalidate(true); Update(); }
+            catch { }
+        }
+
+        // EL TAMAÑO DE ANTES SE APUNTA SIEMPRE, aunque el cambio no sea definitivo: al
+        // pegar con Ctrl+V la ventana se recoge sin «persist», y sin esto, al volver a
+        // enseñar la lista, XoPy no sabía a qué tamaño devolverla.
+        if (compact && _expandedBounds.Width == 0 && WindowState != FormWindowState.Minimized)
+        {
+            _expandedWasMaximized = WindowState == FormWindowState.Maximized;
+            _expandedBounds = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
         }
 
         // La ventana NUNCA se ajusta sola: se recortaba. Como en TeraCopy, es redimensionable
         // a mano en los dos modos y el tamaño mínimo se calcula para que quepa todo lo visible.
         AutoSize = false;
-        // La lista ya está visible en la vista reducida, así que el mínimo crece para que
-        // quepan las cuatro filas sin recortar la cabecera ni el pie.
-        MinimumSize = compact ? new Size(620, 430) : new Size(820, 560);
+        // Con la lista oculta solo quedan la barra y la cabecera: el mínimo es ese alto
+        // exacto, para que no quede ni un dedo de ventana vacía por debajo.
+        MinimumSize = compact ? new Size(560, CompactWindowHeight()) : new Size(820, 560);
+        // …Y EL MÁXIMO, EL MISMO. La vista reducida es una banda: si se puede estirar hacia
+        // abajo, debajo de la cabecera queda un rectángulo negro enorme con nada dentro
+        // (lo que el usuario fotografió). Se bloquea el alto —el ancho se sigue pudiendo
+        // cambiar— y se quita el botón de maximizar, que hacía lo mismo de un clic.
+        if (compact)
+        {
+            MaximumSize = CompactMaximum();
+            if (MaximizeBox) MaximizeBox = false;
+        }
+        else
+        {
+            if (MaximumSize != Size.Empty) MaximumSize = Size.Empty;
+            if (!MaximizeBox) MaximizeBox = true;
+        }
         if (persist)
         {
+            // LA VENTANA NO SE MUEVE DE SITIO. Solo cambia de alto, y crece o encoge hacia
+            // abajo desde la esquina en la que está: antes se recolocaba sola por la
+            // pantalla cada vez que se mostraba o se escondía la lista.
             if (compact)
             {
-                _expandedWasMaximized = WindowState == FormWindowState.Maximized;
-                _expandedBounds = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
-                WindowState = FormWindowState.Normal;
 
-                // La altura se calcula sumando lo que sigue siendo visible (menú, barra,
-                // cabecera de progreso y pie), de modo que quepa TODO sin recortar nada.
-                var height = 0;
-                if (_rootLayout is not null)
+                // MAXIMIZADA NO SE QUEDA MAXIMIZADA. Con la lista escondida, una ventana a
+                // pantalla completa deja debajo de la cabecera un enorme rectángulo vacío
+                // (lo que el usuario señaló en la captura): la vista reducida es una banda
+                // y punto. Se sale de maximizado conservando el ancho que tenía.
+                if (WindowState == FormWindowState.Maximized)
                 {
-                    // Se suman TODAS las filas visibles (la lista incluida, con sus cuatro filas).
-                    foreach (var index in new[] { 0, 1, 2, 5 })
-                    {
-                        var style = _rootLayout.RowStyles[index];
-                        var value = style.SizeType == SizeType.Absolute ? style.Height : 0;
-                        height += (int)value;
-                    }
-                    // La fila 3 (pestañas) desaparece en reducido; la 4 es la lista y crece.
-                    height += compact ? 0 : (int)_rootLayout.RowStyles[3].Height;
+                    // LA BANDA SE QUEDA DONDE ESTABA LA VENTANA GRANDE. Antes se usaban las
+                    // coordenadas guardadas de la ventana «normal» (RestoreBounds), que
+                    // podían ser de otra pantalla, de una resolución anterior o estar
+                    // directamente fuera del escritorio: la ventana desaparecía y no había
+                    // manera de recuperarla. Ahora se parte del rectángulo que ocupa la
+                    // ventana maximizada y se recorta al área visible.
+                    var screen = Screen.FromControl(this).WorkingArea;
+                    var wide = Math.Clamp(Width, 560, Math.Max(560, screen.Width));
+                    var band = new Rectangle(screen.X + Math.Max(0, (screen.Width - wide) / 2),
+                        screen.Y, wide, CompactWindowHeight());
+                    MinimumSize = new Size(560, CompactWindowHeight());
+                    MaximumSize = CompactMaximum();
+                    WindowState = FormWindowState.Normal;
+                    Bounds = ClampToWorkArea(band);
                 }
-                height += SystemInformation.FrameBorderSize.Height * 2 + SystemInformation.CaptionHeight;
-                // Se acerca al tamaño justo, pero nunca por debajo de lo que necesita el contenido.
-                Height = Math.Max(height, MinimumSize.Height);
-                Width = Math.Max(Width, MinimumSize.Width);
+                else if (WindowState == FormWindowState.Normal)
+                {
+                    // La altura es EXACTAMENTE la de lo que se sigue viendo (menú, barra y
+                    // cabecera de progreso). Ni un píxel más: el alto mínimo de 300 que
+                    // había antes dejaba una franja negra vacía debajo de todo, que es el
+                    // hueco que el usuario señala una y otra vez en la ventana reducida.
+                    var height = CompactWindowHeight();
+                    // El mínimo se ajusta ANTES de mover la ventana: si no, Math.Max con el
+                    // mínimo anterior volvía a estirarla y reaparecía el hueco.
+                    MinimumSize = new Size(560, height);
+                    MaximumSize = CompactMaximum();
+                    // Una sola asignación de Bounds: cambiar Height y Width por separado
+                    // provocaba dos recolocaciones y el típico salto de la ventana.
+                    Bounds = ClampToWorkArea(new Rectangle(Left, Top, Math.Max(Width, 560), height));
+                }
             }
             else if (_expandedBounds.Width > 0)
             {
                 AutoSize = false;
-                Bounds = new Rectangle(_expandedBounds.X, _expandedBounds.Y,
-                    Math.Max(MinimumSize.Width, _expandedBounds.Width), Math.Max(MinimumSize.Height, _expandedBounds.Height));
-                if (_expandedWasMaximized) WindowState = FormWindowState.Maximized;
+                if (_expandedWasMaximized)
+                {
+                    if (WindowState != FormWindowState.Maximized) WindowState = FormWindowState.Maximized;
+                }
+                else if (WindowState == FormWindowState.Normal)
+                {
+                    // Vuelve al alto que tenía, EN EL MISMO SITIO en el que está ahora: si el
+                    // usuario movió la ventana con la lista escondida, no se la devolvemos de
+                    // un salto a las coordenadas antiguas.
+                    Bounds = ClampToWorkArea(new Rectangle(Left, Top,
+                        Math.Max(MinimumSize.Width, _expandedBounds.Width),
+                        Math.Max(MinimumSize.Height, _expandedBounds.Height)));
+                }
                 _expandedBounds = Rectangle.Empty;
                 _expandedWasMaximized = false;
             }
             _settings.CompactView = compact;
+            _settings.ShowList = !compact;
             _store.Save(_settings);
+            // Último repaso: pase lo que pase, la ventana TIENE que seguir viéndose.
+            RescueOffScreen();
+            SetStatus(compact
+                ? "Lista oculta. Pulsa «Mostrar lista» en la barra para recuperarla."
+                : "Lista visible.");
         }
+    }
+
+    /// <summary>
+    /// Tamaño MÁXIMO de la vista reducida: alto el de la banda y ancho «el que quieras».
+    /// OJO CON EL CERO: en WinForms un MaximumSize con ancho 0 NO significa «sin límite»
+    /// —eso solo vale cuando los dos valores son cero—, sino un ancho máximo de cero, y
+    /// Windows dejaba la ventana en los 136 px que mide un marco con sus botones. Por eso
+    /// aquí se pone un ancho enorme en vez de un cero.
+    /// </summary>
+    private Size CompactMaximum()
+    {
+        var wide = 4096;
+        try { wide = Math.Max(wide, SystemInformation.VirtualScreen.Width * 2); }
+        catch { }
+        return new Size(wide, CompactWindowHeight());
+    }
+
+    /// <summary>
+    /// Mete un rectángulo DENTRO de la pantalla en la que cae. Es la red de seguridad que
+    /// impide que la ventana acabe fuera del escritorio (y, por tanto, imposible de
+    /// recuperar): pasaba al esconder la lista con la ventana maximizada.
+    /// </summary>
+    private static Rectangle ClampToWorkArea(Rectangle bounds)
+    {
+        try
+        {
+            var area = Screen.FromRectangle(bounds).WorkingArea;
+            var width = Math.Min(bounds.Width, area.Width);
+            var height = Math.Min(bounds.Height, area.Height);
+            var x = Math.Clamp(bounds.X, area.Left, Math.Max(area.Left, area.Right - width));
+            var y = Math.Clamp(bounds.Y, area.Top, Math.Max(area.Top, area.Bottom - height));
+            return new Rectangle(x, y, Math.Max(200, width), Math.Max(80, height));
+        }
+        catch { return bounds; }
+    }
+
+    /// <summary>
+    /// Alto EXACTO de la ventana reducida: lo que miden las franjas que se siguen viendo
+    /// más el marco y la barra de título. Sin huecos.
+    /// </summary>
+    private int CompactWindowHeight()
+    {
+        var client = (_settings.ShowMenuBar ? Px(RowMenuHeight) : 0) + Px(RowToolbarHeight) + Px(RowHeaderHeight) + 4;
+        return client + (Height - ClientSize.Height is var chrome && chrome > 0 && chrome < 120
+            ? chrome
+            : SystemInformation.FrameBorderSize.Height * 2 + SystemInformation.CaptionHeight);
     }
 
     /// <summary>Muestra u oculta la barra de menús superior y devuelve el alto a la lista.</summary>
     private void ApplyMenuBarSetting()
     {
         if (_menu is null || _rootLayout is null) return;
-        var show = _settings.ShowMenuBar;
-        _menu.Visible = show;
-        _rootLayout.RowStyles[0].Height = show ? 24 : 0;
-        _rootLayout.PerformLayout();
+        _menu.Visible = _settings.ShowMenuBar;
+        LayoutRootRows();
     }
 
     private void UpdateToolbarForCompact(bool compact)
@@ -338,9 +591,6 @@ public sealed partial class MainForm : Form
         _pauseButton.Visible = true;
         _skipButton.Visible = true;
         _stopButton.Visible = true;
-        if (_listSelector is not null) _listSelector.Visible = false;
-        if (_newListButton is not null) _newListButton.Visible = false;
-        if (_deleteListButton is not null) _deleteListButton.Visible = false;
     }
 
     private MenuStrip BuildMenu()
@@ -379,31 +629,25 @@ public sealed partial class MainForm : Form
         var queue = new ToolStripMenuItem("Cola");
         queue.DropDownItems.Add(MenuItem("Subir el elemento  (Alt+↑)", (_, _) => MoveSelected(-1)));
         queue.DropDownItems.Add(MenuItem("Bajar el elemento  (Alt+↓)", (_, _) => MoveSelected(1)));
+        queue.DropDownItems.Add(MenuItem("Llevar al principio  (Alt+Inicio)", (_, _) => MoveSelectedToEdge(top: true)));
+        queue.DropDownItems.Add(MenuItem("Llevar al final  (Alt+Fin)", (_, _) => MoveSelectedToEdge(top: false)));
         queue.DropDownItems.Add(new ToolStripSeparator());
-        // Un solo submenú «Ordenar» en vez de ocho líneas sueltas: así el menú Cola queda
-        // corto y ordenado, como el menú contextual de TeraCopy.
+        // UN SOLO sitio donde se escriben las opciones de ordenar (ver FillSortItems): el
+        // menú Cola y el botón «Ordenar» de la lista enseñaban dos listas distintas, con
+        // entradas repetidas y casi iguales entre sí.
         var sortMenu = SubMenu("Ordenar");
-        sortMenu.DropDownItems.Add(MenuItem("Nombre (A → Z)", (_, _) => SortQueue(QueueSortField.Name)));
-        sortMenu.DropDownItems.Add(MenuItem("Nombre (Z → A)", (_, _) => SortQueue(QueueSortField.Name, invert: true)));
-        sortMenu.DropDownItems.Add(new ToolStripSeparator());
-        sortMenu.DropDownItems.Add(MenuItem("Tamaño, dentro de cada carpeta", (_, _) => SortQueue(QueueSortField.Size)));
-        sortMenu.DropDownItems.Add(MenuItem("Tamaño total de la carpeta", (_, _) => SortQueue(QueueSortField.FolderSize, invert: true)));
-        sortMenu.DropDownItems.Add(MenuItem("TODOS los archivos por tamaño (menor → mayor)", (_, _) => SortAllFilesBySize(false)));
-        sortMenu.DropDownItems.Add(MenuItem("TODOS los archivos por tamaño (mayor → menor)", (_, _) => SortAllFilesBySize(true)));
-        sortMenu.DropDownItems.Add(new ToolStripSeparator());
-        sortMenu.DropDownItems.Add(MenuItem("Tipo de archivo", (_, _) => SortQueue(QueueSortField.Type)));
-        sortMenu.DropDownItems.Add(MenuItem("Carpeta de destino", (_, _) => SortQueue(QueueSortField.Destination)));
-        sortMenu.DropDownItems.Add(MenuItem("Carpeta de origen", (_, _) => SortQueue(QueueSortField.Source)));
-        sortMenu.DropDownItems.Add(MenuItem("Estado", (_, _) => SortQueue(QueueSortField.State)));
+        FillSortItems(sortMenu.DropDownItems);
         queue.DropDownItems.Add(sortMenu);
 
         var viewMenu = SubMenu("Ver lista");
         viewMenu.DropDownItems.Add(MenuItem("Expandir todo", (_, _) => ExpandAll(true)));
         viewMenu.DropDownItems.Add(MenuItem("Contraer todo", (_, _) => ExpandAll(false)));
         viewMenu.DropDownItems.Add(new ToolStripSeparator());
-        viewMenu.DropDownItems.Add(MenuItem("Ocultar o mostrar la lista de copia", (_, _) => ToggleCompactView()));
-        viewMenu.DropDownItems.Add(MenuItem("Ocultar o mostrar el historial de listas", (_, _) => SetJobsVisible(!_jobsVisible, persist: true)));
-        viewMenu.DropDownItems.Add(MenuItem("Mostrar u ocultar la columna de trabajos", (_, _) => ToggleJobsPanel()));
+        viewMenu.DropDownItems.Add(MenuItem("Ocultar o mostrar la lista de archivos (F9)", (_, _) => ToggleCompactView(), Keys.F9));
+        viewMenu.DropDownItems.Add(MenuItem("Mostrar la ruta completa de cada archivo", (_, _) => ToggleFullPath()));
+        // Antes había dos entradas («historial de listas» y «columna de trabajos») que
+        // llamaban a lo mismo con nombres distintos. Una sola, con atajo.
+        viewMenu.DropDownItems.Add(MenuItem("Ocultar o mostrar la columna de listas (F8)", (_, _) => ToggleJobsPanel(), Keys.F8));
         queue.DropDownItems.Add(viewMenu);
         queue.DropDownItems.Add(new ToolStripSeparator());
         queue.DropDownItems.Add(MenuItem("Quitar seleccionados", (_, _) => RemoveSelected()));
@@ -413,7 +657,14 @@ public sealed partial class MainForm : Form
         tools.DropDownItems.Add(MenuItem("Preferencias…", (_, _) => ShowOptions()));
         tools.DropDownItems.Add(MenuItem("Integración con el Explorador…", (_, _) => ShowExplorerIntegration()));
         tools.DropDownItems.Add(MenuItem("Abrir el registro de transferencias", (_, _) => OpenLogFile()));
+        tools.DropDownItems.Add(MenuItem("Guardar informe para enviar…", (_, _) => ExportDiagnosticReport()));
         tools.DropDownItems.Add(MenuItem("Reiniciar XoPy como administrador", (_, _) => RestartElevated()));
+        // La protección contra ransomware de Windows («Acceso controlado a carpetas») es la
+        // causa del «Acceso denegado (error 5)» al copiar al Escritorio o a Documentos.
+        tools.DropDownItems.Add(MenuItem("Permitir XoPy en el acceso controlado a carpetas…", (_, _) => AllowControlledFolderAccess()));
+        // El Explorador guarda en memoria la DLL del menú: tras actualizar XoPy sigue
+        // enseñando el texto de la versión anterior hasta que se reinicia.
+        tools.DropDownItems.Add(MenuItem("Refrescar el menú del Explorador…", (_, _) => RepairExplorerMenu()));
         tools.DropDownItems.Add(new ToolStripSeparator());
         tools.DropDownItems.Add(MenuItem("Historial de transferencias…", (_, _) => ShowHistory()));
 
@@ -439,16 +690,23 @@ public sealed partial class MainForm : Form
 
     private Control BuildToolbar()
     {
+        // Relleno de 6 arriba y abajo: con 8, los botones de 36 px pedían 52 y la franja mide
+        // 48, así que Windows les recortaba la base (se veía media fila de iconos).
         var bar = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            ColumnCount = 1,
+            ColumnCount = 2,
             BackColor = _palette.Surface,
-            Padding = new Padding(10, 8, 10, 8),
+            Padding = new Padding(10, 6, 10, 6),
             RowCount = 1
         };
         bar.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        // Izquierda: las acciones, que se recogen en el desplegable « » si la ventana se
+        // estrecha. Derecha: los botones de ESTADO (multihilo y ocultar lista) en una
+        // columna que se mide sola, así que NUNCA se recogen. Esto importa: el botón de
+        // «Mostrar lista» es el camino de vuelta y no puede esconderse en un menú.
         bar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        bar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
 
         // Acciones de la lista con icono (el texto va en el tooltip): así caben todas en una
         // sola fila. Con texto completo no cabían y, sin desplegable, desaparecían.
@@ -461,69 +719,31 @@ public sealed partial class MainForm : Form
         _skipButton = BarButton("Saltar", Icons.ChevronRight, (_, _) => SkipCurrent());
         _stopButton = BarButton("Detener", Icons.Stop, (_, _) => StopTransfer());
         // Un solo botón que activa o desactiva el multihilo (el NÚMERO de hilos se ajusta
-        // en Preferencias). Antes era un desplegable con «Multihilo · 4 a la vez», que
-        // ocupaba mucho y no se entendía.
+        // en Preferencias). CON TEXTO: en modo solo icono no había forma de saber si estaba
+        // activado sin acertar con el color del rayo, que es justo lo que el usuario pedía
+        // ver de un vistazo. El estado se nota tres veces: texto, color de fondo y rayo.
         _multiThreadButton = BarButton(MultiThreadLabel(), Icons.Lightning,
-            (_, _) => ToggleMultiThread(), iconOnly: true);
+            (_, _) => ToggleMultiThread());
+        _multiThreadButton.AutoSize = false;
+        _multiThreadButton.Size = new Size(BarLabelWidth(MultiThreadButtonWidth, "Multihilo · 16", "Multihilo: no"), 36);
         _multiThreadButton.ToolTipText = MultiThreadTooltip();
 
         // «Verificar» y el resto de opciones viven en Preferencias: aquí solo lo esencial.
-        _compactButton = BarButton("Ocultar", Icons.ChevronRight, (_, _) => ToggleCompactView(), iconOnly: true);
+        // El botón de ocultar la lista TAMBIÉN lleva texto: es el único camino de vuelta
+        // cuando la lista está escondida y tiene que verse desde el otro lado de la sala.
+        _compactButton = BarButton("Ocultar lista", Icons.ChevronDown, (_, _) => ToggleCompactView());
+        _compactButton.AutoSize = false;
+        _compactButton.Size = new Size(BarLabelWidth(ListToggleButtonWidth, "Ocultar lista", "Mostrar lista"), 36);
         _compactButton.Margin = new Padding(2, 0, 4, 0);
-        _compactButton.ToolTipText = "Ocultar la lista y dejar visibles los controles y el progreso";
+        _compactButton.ToolTipText = "Ocultar la lista de archivos y dejar solo los controles y el progreso";
         // Único acceso a Preferencias (el menú «⋯» tenía la misma opción y sobraba).
         _optionsButton = BarButton("Opciones", Icons.Settings, (_, _) => ShowOptions(), false, true);
         _optionsButton.ToolTipText = "Preferencias…";
         _optionsButton.Margin = new Padding(6, 0, 4, 0);
-        _menuButton = BarButton("Menú", Icons.More, (_, _) => ShowMainMenu(), false, true);
-        _menuButton.Margin = new Padding(0);
-
-        // Igual que el modo: ComboBox normal para que el texto no se recorte.
-        _listSelector = new ComboBox
-        {
-            DropDownStyle = ComboBoxStyle.DropDownList,
-            FlatStyle = FlatStyle.Flat,
-            Font = new Font("Segoe UI", 8.75f),
-            BackColor = _palette.Raised,
-            ForeColor = _palette.Text,
-            Width = 176,
-            Height = 26,
-            IntegralHeight = false
-        };
-        _listSelector.DisplayMember = nameof(TransferList.DisplayName);
-        _listSelector.SelectedIndexChanged += (_, _) =>
-        {
-            if (_refreshingSelector) return;
-            if (_listSelector.SelectedItem is TransferList list) SwitchToList(list);
-        };
-        var listHost = new ToolStripControlHost(_listSelector)
-        {
-            AutoSize = false,
-            Margin = new Padding(2, 3, 4, 0),
-            Size = new Size(176, 26),
-            ToolTipText = "Lista de copia activa. Cada instancia externa se agrega como una lista independiente en esta misma pestaña."
-        };
-
-        _newListButton = BarButton("Nueva lista", Icons.Add, (_, _) =>
-        {
-            var dest = _destination.Text.Trim();
-            if (!Directory.Exists(dest) && _activeList is not null && Directory.Exists(_activeList.Destination))
-                dest = _activeList.Destination;
-            AddNewList(dest);
-        }, iconOnly: true);
-        _newListButton.Width = 40;
-        _newListButton.ToolTipText = "Crear una nueva lista de copia independiente";
-
-        // Dos acciones distintas con iconos distintos: antes ambas usaban la papelera y
-        // parecían «eliminar archivos» duplicado.
-        _deleteListButton = BarButton("Borrar lista", Icons.ClearList, (_, _) => DeleteActiveList(), iconOnly: true);
-        _deleteListButton.Width = 40;
-        _deleteListButton.ToolTipText = "Cerrar esta lista de copia del listado (no borra archivos del disco)";
-
-        _removeFromListButton = BarButton("Quitar selección", Icons.Remove, (_, _) => RemoveSelected(), iconOnly: true);
-        _removeFromListButton.Width = 40;
-        _removeFromListButton.ToolTipText = "Quitar los elementos seleccionados de la lista (no borra nada del disco)";
-
+        // El selector de listas y los botones de «nueva / borrar lista» ya NO viven en esta
+        // barra: estaban creados pero nunca se añadían, así que no se veían. Todo lo de las
+        // listas de copia está ahora en el panel TRABAJOS, que es donde se distinguen por
+        // color el estado de cada una.
         var left = new ToolStrip
         {
             Dock = DockStyle.Fill,
@@ -544,18 +764,31 @@ public sealed partial class MainForm : Form
             _addFilesButton, _addFolderButton, _copyButton, _moveButton, _testButton
         });
 
-        // Una sola barra: las acciones (iconos), el modo, la verificación y la transferencia
-        // en el mismo ToolStrip. Con dos columnas la izquierda podía quedarse a cero y los
-        // botones desaparecían; así solo se recoge lo que de verdad no quepa.
+        // Los controles de la transferencia siguen con las acciones: si no caben, se
+        // recogen en el desplegable, pero mientras haya sitio van en su orden natural.
         left.Items.AddRange(new ToolStripItem[]
         {
-            _multiThreadButton,
             new ToolStripSeparator(),
-            _pauseButton, _skipButton, _stopButton,
-            new ToolStripSeparator(),
-            _compactButton, _optionsButton
+            _pauseButton, _skipButton, _stopButton
         });
+
+        // Barra derecha: siempre visible, nunca se recoge.
+        var right = new ToolStrip
+        {
+            Dock = DockStyle.Fill,
+            GripStyle = ToolStripGripStyle.Hidden,
+            LayoutStyle = ToolStripLayoutStyle.HorizontalStackWithOverflow,
+            CanOverflow = false,
+            AutoSize = true,
+            BackColor = _palette.Surface,
+            Font = new Font("Segoe UI", 8.75f, FontStyle.Bold),
+            Renderer = new DarkMenuRenderer(_palette),
+            Padding = new Padding(0)
+        };
+        right.Items.AddRange(new ToolStripItem[] { _multiThreadButton, _compactButton, _optionsButton });
+
         bar.Controls.Add(left, 0, 0);
+        bar.Controls.Add(right, 1, 0);
         bar.Paint += (_, e) =>
         {
             using var pen = new Pen(_palette.Border);
@@ -564,12 +797,39 @@ public sealed partial class MainForm : Form
         return bar;
     }
 
+    /// <summary>Ancho fijo del botón de multihilo: su texto cambia y el botón no debe bailar.</summary>
+    private const int MultiThreadButtonWidth = 128;
+
+    /// <summary>Ancho fijo del botón que oculta y muestra la lista.</summary>
+    private const int ListToggleButtonWidth = 124;
+
+    /// <summary>
+    /// Ancho de un botón de la barra cuyo texto CAMBIA (multihilo, ocultar/mostrar lista):
+    /// se mide el más largo de los textos posibles, para que el botón no baile al cambiar
+    /// y para que con la letra de Windows al 125 % siga cabiendo entero. Los anchos fijos
+    /// de antes cortaban el texto en cuanto se agrandaba la letra del sistema.
+    /// </summary>
+    private static int BarLabelWidth(int minimum, params string[] labels)
+    {
+        var width = minimum;
+        try
+        {
+            using var font = new Font("Segoe UI", 8.75f, FontStyle.Bold);
+            foreach (var label in labels)
+                width = Math.Max(width, TextRenderer.MeasureText(label, font).Width + 46);
+        }
+        catch { }
+        return width;
+    }
+
     private ToolStripButton BarButton(string text, string glyph, EventHandler click, bool accent = false, bool iconOnly = false)
     {
         var foreground = accent ? Color.White : _palette.Text;
         var font = new Font("Segoe UI", 8.75f, FontStyle.Bold);
-        // Más holgura: con +44 el texto quedaba pegado al borde y «Verificar» se recortaba.
-        var width = iconOnly ? 40 : TextRenderer.MeasureText(text, font).Width + 58;
+        // Holgura justa: con +58 los tres botones de la transferencia no cabían junto a los
+        // de estado y «Detener» acababa escondido en el desplegable « ». Con +46 el texto
+        // sigue sin tocar el borde (los iconos miden 18 px y el relleno es de 8).
+        var width = iconOnly ? 38 : TextRenderer.MeasureText(text, font).Width + 46;
         var button = new ToolStripButton(text)
         {
             Image = Icons.Glyph(glyph, foreground, 18),
@@ -743,7 +1003,9 @@ public sealed partial class MainForm : Form
         };
         panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));
         panel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
+        // 46, no 36: el botón «Historial» mide 38 de alto (Ui.ToolButton) y con 36 se veía
+        // cortado por abajo, como en la captura del informe.
+        panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 46));
 
         // Cabecera con el título y el botón que oculta/muestra el historial completo de
         // listas de copia. El estado se guarda, así que al reabrir se mantiene.
@@ -758,11 +1020,38 @@ public sealed partial class MainForm : Form
         var title = Ui.Label("TRABAJOS", _palette, 8f, true, _palette.Muted);
         title.Anchor = AnchorStyles.Left;
         title.Margin = new Padding(2, 5, 0, 0);
-        _jobsToggleButton = Ui.IconButton("\u00AB", _palette, "Ocultar el historial de listas de copia");
+
+        // Crear y cerrar listas de copia se hace aquí, junto a las listas: antes estos dos
+        // botones estaban en la barra de arriba y no llegaban a verse nunca.
+        var newListButton = Ui.IconButton(Icons.Add, _palette, "Nueva lista de copia");
+        newListButton.Size = new Size(22, 22);
+        newListButton.Margin = new Padding(4, 2, 0, 0);
+        newListButton.Click += (_, _) =>
+        {
+            var dest = _destination.Text.Trim();
+            if (!Directory.Exists(dest) && _activeList is not null && Directory.Exists(_activeList.Destination))
+                dest = _activeList.Destination;
+            AddNewList(dest);
+        };
+
+        var closeListButton = Ui.IconButton(Icons.ClearList, _palette,
+            "Cerrar esta lista de copia (no borra ningún archivo del disco).\n"
+            + "Con la tecla Mayús pulsada se cierra directamente, sin preguntar.");
+        closeListButton.Size = new Size(22, 22);
+        closeListButton.Margin = new Padding(2, 2, 0, 0);
+        // Mayús = «ya sé lo que hago»: cierra la lista sin el cuadro de confirmación. Es
+        // para limpiar varias listas seguidas sin tener que contestar una y otra vez.
+        closeListButton.Click += (_, _) => DeleteList(_activeList, ask: ModifierKeys != Keys.Shift);
+
+        _jobsToggleButton = Ui.IconButton("\u00AB", _palette, "Ocultar la columna de listas (F8)");
+        _jobsToggleButton.Image = null;
+        _jobsToggleButton.Text = "\u00AB";
         _jobsToggleButton.Size = new Size(22, 22);
-        _jobsToggleButton.Margin = new Padding(4, 2, 0, 0);
+        _jobsToggleButton.Margin = new Padding(2, 2, 0, 0);
         _jobsToggleButton.Click += (_, _) => SetJobsVisible(!_jobsVisible, persist: true);
         headerRow.Controls.Add(title);
+        headerRow.Controls.Add(newListButton);
+        headerRow.Controls.Add(closeListButton);
         headerRow.Controls.Add(_jobsToggleButton);
 
         _jobsList = new ListBox
@@ -773,9 +1062,42 @@ public sealed partial class MainForm : Form
             ForeColor = _palette.Text,
             Font = new Font("Segoe UI", 8.75f),
             IntegralHeight = false,
-            Margin = new Padding(0)
+            Margin = new Padding(0),
+            DrawMode = DrawMode.OwnerDrawFixed,
+            ItemHeight = 19
         };
+        // Cada lista se pinta con el color de su estado: azul la que copia ahora, naranja la
+        // que está en pausa, verde las terminadas y gris las que esperan turno.
+        _jobsList.DrawItem += JobsDrawItem;
+        // Un clic cambia a esa lista de copia; el doble clic abre el historial.
+        _jobsList.Click += (_, _) => ActivateSelectedJob();
         _jobsList.DoubleClick += (_, _) => ShowHistory();
+        // Supr cierra la lista marcada (preguntando); Mayús+Supr la cierra sin preguntar.
+        _jobsList.KeyDown += (_, e) =>
+        {
+            if (e.KeyCode != Keys.Delete) return;
+            e.Handled = true;
+            DeleteList(SelectedJobList(), ask: !e.Shift);
+        };
+        // Menú del botón derecho sobre el panel: lo que se puede hacer con una lista, dicho
+        // con todas las letras y con el atajo al lado.
+        var jobsMenu = new ContextMenuStrip();
+        Ui.StyleMenu(jobsMenu, _palette);
+        jobsMenu.Items.Add(MenuItem("Abrir esta lista", (_, _) => ActivateSelectedJob()));
+        jobsMenu.Items.Add(new ToolStripSeparator());
+        jobsMenu.Items.Add(MenuItem("Nueva lista de copia", (_, _) => AddNewList(_destination.Text.Trim())));
+        jobsMenu.Items.Add(MenuItem("Cerrar esta lista…  (Supr)", (_, _) => DeleteList(SelectedJobList(), ask: true)));
+        jobsMenu.Items.Add(MenuItem("Cerrar sin preguntar  (Mayús+Supr)", (_, _) => DeleteList(SelectedJobList(), ask: false)));
+        jobsMenu.Opening += (_, e) =>
+        {
+            // El botón derecho no marca la línea en un ListBox: hay que marcarla a mano o el
+            // menú actuaría sobre otra lista distinta de la que se ha señalado.
+            var point = _jobsList.PointToClient(Cursor.Position);
+            var index = _jobsList.IndexFromPoint(point);
+            if (index >= 0 && index < _jobsList.Items.Count) _jobsList.SelectedIndex = index;
+            if (SelectedJobList() is null) e.Cancel = true;
+        };
+        _jobsList.ContextMenuStrip = jobsMenu;
 
         var buttons = new FlowLayoutPanel
         {
@@ -786,7 +1108,9 @@ public sealed partial class MainForm : Form
             Padding = new Padding(0, 6, 0, 0)
         };
         var historyButton = Ui.ToolButton("Historial", Icons.History, _palette);
-        historyButton.Size = new Size(112, 30);
+        // El ancho lo pone el texto; el alto es el de la fila menos el hueco de arriba.
+        Ui.Fit(historyButton, 120, 36);
+        historyButton.Height = 36;
         historyButton.Margin = new Padding(0);
         historyButton.Click += (_, _) => ShowHistory();
         buttons.Controls.Add(historyButton);
@@ -795,6 +1119,47 @@ public sealed partial class MainForm : Form
         panel.Controls.Add(_jobsList, 0, 1);
         panel.Controls.Add(buttons, 0, 2);
         return panel;
+    }
+
+    private Font? _jobsBoldFont;
+
+    private void JobsDrawItem(object? sender, DrawItemEventArgs e)
+    {
+        if (_jobsList is null || e.Index < 0 || e.Index >= _jobsList.Items.Count) return;
+        var value = _jobsList.Items[e.Index];
+        var selected = (e.State & DrawItemState.Selected) == DrawItemState.Selected;
+        using (var background = new SolidBrush(selected ? _palette.Selection : _palette.Surface))
+            e.Graphics.FillRectangle(background, e.Bounds);
+
+        var text = value?.ToString() ?? string.Empty;
+        var color = _palette.Text;
+        var font = _jobsList.Font;
+        if (value is JobLine line)
+        {
+            text = line.Title;
+            color = line.IsDetail ? _palette.Muted : StageColor(line.Stage);
+            // La lista que se está viendo va en negrita. La fuente se crea una sola vez: en
+            // un DrawItem se repinta decenas de veces por segundo y crearla aquí agotaba
+            // los recursos de GDI.
+            if (!line.IsDetail && line.List is not null && line.List == _activeList)
+                font = _jobsBoldFont ??= new Font(_jobsList.Font, FontStyle.Bold);
+        }
+        TextRenderer.DrawText(e.Graphics, text, font, Rectangle.Inflate(e.Bounds, -4, 0), color,
+            TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+    }
+
+    /// <summary>La lista de copia señalada en el panel de trabajos, si hay alguna.</summary>
+    private TransferList? SelectedJobList()
+        => _jobsList?.SelectedItem is JobLine line ? line.List : null;
+
+    /// <summary>Al pulsar una línea del panel de trabajos se pasa a esa lista de copia.</summary>
+    private void ActivateSelectedJob()
+    {
+        if (_jobsList?.SelectedItem is not JobLine line || line.List is null) return;
+        if (line.List == _activeList) return;
+        SwitchToList(line.List);
+        RebuildRows();
+        UpdateFooter();
     }
 
     private Control BuildTransferHeader()
@@ -806,30 +1171,35 @@ public sealed partial class MainForm : Form
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 4,
+            RowCount = 3,
             BackColor = _palette.Surface,
             Padding = new Padding(10, 5, 10, 3),
             Margin = new Padding(0, 0, 0, 0)
         };
         _transferHeader = host;
-        // La barra ocupa 12 px de alto (antes 4, prácticamente invisible).
+        // DOS BARRAS, cada una debajo de su línea y sin lugar a dudas:
+        //   línea 1 «Total …»     + barra del TOTAL de la copia (la grande, arriba)
+        //   línea 2 «Copiando …»  + barra del ARCHIVO que se está copiando ahora
+        // El porcentaje de cada línea es el de SU barra. El total va PRIMERO: es el dato
+        // que se mira de reojo, y así coincide con el orden de FlashCopy Pro.
+        host.RowCount = 4;
         host.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
-        host.RowStyles.Add(new RowStyle(SizeType.Absolute, 16));
+        host.RowStyles.Add(new RowStyle(SizeType.Absolute, 14));
         host.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
-        host.RowStyles.Add(new RowStyle(SizeType.Absolute, 16));
+        host.RowStyles.Add(new RowStyle(SizeType.Absolute, 14));
 
-        host.Controls.Add(BuildHeaderLine("Copiando", out _hdrCopyState, out _hdrCopyPath, out _hdrCopyInfo, out _hdrCopyPercent), 0, 0);
-        host.Controls.Add(BuildHeaderBar(out _hdrCopyBar), 0, 1);
-        host.Controls.Add(BuildHeaderLine("Destino", out _hdrTargetState, out _hdrTargetPath, out _hdrTargetInfo, out _hdrTargetPercent), 0, 2);
-        host.Controls.Add(BuildHeaderBar(out _hdrTargetBar), 0, 3);
+        host.Controls.Add(BuildHeaderLine("Total", out _hdrTargetState, out _hdrTargetPath, out _hdrTargetInfo, out _hdrTargetPercent), 0, 0);
+        host.Controls.Add(BuildHeaderBar(out _hdrCopyBar, 14), 0, 1);
+        host.Controls.Add(BuildHeaderLine("Copiando", out _hdrCopyState, out _hdrCopyPath, out _hdrCopyInfo, out _hdrCopyPercent), 0, 2);
+        host.Controls.Add(BuildHeaderBar(out _hdrFileBar, 12), 0, 3);
         return host;
     }
 
-    private Control BuildHeaderBar(out ProgressStrip bar)
+    private Control BuildHeaderBar(out ProgressStrip bar, int height)
     {
-        var host = new Panel { Dock = DockStyle.Fill, BackColor = _palette.Surface, Margin = new Padding(0, 2, 0, 3), Padding = new Padding(0) };
-        // 14 px de alto: las barras de 4 px no se veían y parecían una raya del borde.
-        bar = new ProgressStrip(_palette) { Dock = DockStyle.Fill, Height = 14, MinimumSize = new Size(0, 10) };
+        var host = new Panel { Dock = DockStyle.Fill, BackColor = _palette.Surface, Margin = new Padding(0, 1, 0, 2), Padding = new Padding(0) };
+        // Las barras de 4 px no se veían y parecían una raya del borde.
+        bar = new ProgressStrip(_palette) { Dock = DockStyle.Fill, Height = height, MinimumSize = new Size(0, 8) };
         host.Controls.Add(bar);
         return host;
     }
@@ -846,7 +1216,10 @@ public sealed partial class MainForm : Form
         };
         row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 84));
         row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 214));
+        // AL TAMAÑO DEL TEXTO, no a un ancho fijo. En la línea «Total» va todo lo que hay
+        // que saber —«1.234 de 3.222 archivos · 2,3 GB de 2,9 GB · 88 MB/s · quedan 6 s»— y
+        // con 320 px fijos se cortaba por la mitad. Lo que sobra se lo queda la ruta.
+        row.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 56));
 
         // Píldora redondeada con el estado, como en TeraCopy.
@@ -866,14 +1239,15 @@ public sealed partial class MainForm : Form
         info = new Label
         {
             Text = string.Empty,
-            AutoSize = false,
-            Dock = DockStyle.Fill,
+            // AutoSize: la columna se mide por el texto (ver ColumnStyles), así nunca se
+            // corta «quedan 6 s» ni los megabytes que faltan.
+            AutoSize = true,
+            Anchor = AnchorStyles.Right,
             TextAlign = ContentAlignment.MiddleRight,
             ForeColor = _palette.Muted,
             Font = new Font("Segoe UI", 8.25f),
-            AutoEllipsis = true,
             UseMnemonic = false,
-            Margin = new Padding(0, 0, 8, 0)
+            Margin = new Padding(0, 4, 8, 0)
         };
         percent = new Label
         {
@@ -899,26 +1273,41 @@ public sealed partial class MainForm : Form
     {
         var menu = new ContextMenuStrip { ShowImageMargin = false };
         Ui.StyleMenu(menu, _palette);
+        FillSortItems(menu.Items);
+        menu.Show(anchor, new Point(0, anchor.Height));
+    }
+
+    /// <summary>
+    /// LAS OPCIONES DE ORDENAR, EN UN SOLO SITIO. Antes había dos listas distintas (el
+    /// menú Cola y el botón «Ordenar» de la lista) con entradas repetidas y otras que
+    /// hacían casi lo mismo con nombres diferentes: «Tamaño, dentro de cada carpeta»,
+    /// «Tamaño de TODOS los archivos», «Tamaño de carpeta por el total de su contenido»…
+    /// Ahora son nueve líneas claras y cada una hace algo distinto. La primera es la que
+    /// pedía el usuario: los archivos MÁS GRANDES primero, uno a uno, sin importar de qué
+    /// carpeta salgan, que es lo que marca el orden real de la copia.
+    /// </summary>
+    private void FillSortItems(ToolStripItemCollection items)
+    {
         void Add(string text, Action action)
         {
             var item = new ToolStripMenuItem(text);
             item.Click += (_, _) => action();
-            menu.Items.Add(item);
+            items.Add(item);
         }
+        void Separator() => items.Add(new ToolStripSeparator());
+
+        Add("Archivos más grandes primero", () => SortAllFilesBySize(invert: true));
+        Add("Archivos más pequeños primero", () => SortAllFilesBySize(invert: false));
+        Add("Tamaño total de cada carpeta (las mayores primero)", () => SortQueue(QueueSortField.FolderSize, invert: true));
+        Separator();
         Add("Nombre (A → Z)", () => SortQueue(QueueSortField.Name));
-        Add("Nombre (Z → A)", () => SortQueue(QueueSortField.Name, invert: true));
-        Add("Tamaño (menor → mayor)", () => SortQueue(QueueSortField.Size));
-        Add("Tamaño (mayor → menor)", () => SortQueue(QueueSortField.Size, invert: true));
-        Add("Tamaño de carpeta, por el total de su contenido", () => SortQueue(QueueSortField.FolderSize, invert: true));
-        Add("Tamaño de TODOS los archivos (menor → mayor)", () => SortAllFilesBySize(false));
-        Add("Tamaño de TODOS los archivos (mayor → menor)", () => SortAllFilesBySize(true));
-        Add("Tipo de archivo (A → Z)", () => SortQueue(QueueSortField.Type));
-        Add("Carpeta de destino (A → Z)", () => SortQueue(QueueSortField.Destination));
-        Add("Carpeta de destino (Z → A)", () => SortQueue(QueueSortField.Destination, invert: true));
-        Add("Carpeta de origen (A → Z)", () => SortQueue(QueueSortField.Source));
-        Add("Carpeta de origen (Z → A)", () => SortQueue(QueueSortField.Source, invert: true));
+        Add("Fecha de modificación (más nuevos primero)", () => SortQueue(QueueSortField.Modified, invert: true));
+        Add("Tipo de archivo", () => SortQueue(QueueSortField.Type));
+        Add("Carpeta de destino", () => SortQueue(QueueSortField.Destination));
+        Add("Carpeta de origen", () => SortQueue(QueueSortField.Source));
         Add("Estado de la copia", () => SortQueue(QueueSortField.State));
-        menu.Show(anchor, new Point(0, anchor.Height));
+        Separator();
+        Add("Invertir el orden actual", InvertCurrentSort);
     }
 
     private Control BuildFooter()
@@ -931,9 +1320,12 @@ public sealed partial class MainForm : Form
             Padding = new Padding(12, 8, 12, 8),
             RowCount = 4
         };
+        // La fila de la barra de progreso se queda en 0: LA BARRA DEL TOTAL ES LA DE LA
+        // CABECERA, y solo hay una. Tener otra aquí abajo era la «segunda barra de progreso
+        // total» que no había manera de distinguir de la primera.
         footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 17));
         footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 35));
-        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 10));
+        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 0));
         footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
 
         _currentLabel = new Label
@@ -949,7 +1341,9 @@ public sealed partial class MainForm : Form
         };
 
         _footerGraph = new SpeedGraph(_palette) { Dock = DockStyle.Fill, Height = 32, Margin = new Padding(0, 1, 0, 2) };
-        _progress = new ProgressStrip(_palette) { Dock = DockStyle.Fill, Height = 10, Margin = new Padding(0, 0, 0, 1) };
+        // Sigue existiendo (hay código que le pone el valor), pero no se ve: la única barra
+        // de progreso total de la ventana es la de la cabecera.
+        _progress = new ProgressStrip(_palette) { Dock = DockStyle.Fill, Height = 10, Margin = new Padding(0, 0, 0, 1), Visible = false };
 
         _statusLabel = new Label
         {
@@ -998,11 +1392,13 @@ public sealed partial class MainForm : Form
         statusRow.Controls.Add(_statusLabel, 0, 0);
         statusRow.Controls.Add(_summaryLabel, 1, 0);
         statusRow.Controls.Add(_speedLabel, 2, 0);
+        _statusRow = statusRow;
 
         footer.Controls.Add(_currentLabel, 0, 0);
         footer.Controls.Add(_footerGraph, 0, 1);
         footer.Controls.Add(_progress, 0, 2);
         footer.Controls.Add(statusRow, 0, 3);
+        _footerLayout = footer;
         return footer;
     }
 
@@ -1020,20 +1416,48 @@ public sealed partial class MainForm : Form
         shell.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
         shell.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
+        // Tres columnas: las dos pestañitas de la lista (ancho justo), el recuento (lo que
+        // sobre, con puntos suspensivos si no cabe) y los botones de la derecha (ancho justo).
+        // Con dos columnas, el recuento vivía dentro del FlowLayoutPanel de las pestañitas y
+        // se cortaba a media palabra («4 archivo(s) · 22.0» en la captura).
         var header = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            ColumnCount = 2,
+            ColumnCount = 3,
             BackColor = _palette.SurfaceAlt,
             RowCount = 1
         };
         header.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
+        header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
 
-        _countLabel = Ui.Label("Lista vacía — arrastra archivos o carpetas aquí", _palette, 9f, true, _palette.Muted);
-        _countLabel.Anchor = AnchorStyles.Left;
-        _countLabel.Margin = new Padding(10, 9, 0, 0);
+        // Dos vistas, como pidió el usuario: la lista por defecto enseña SOLO lo que falta por
+        // copiar y lo terminado se va a «Finalizados». Así, al ordenar por tamaño, no se
+        // mezclan los archivos ya copiados con los que quedan.
+        _viewQueueButton = ViewTab("En cola", () => SetQueueView(false));
+        _viewDoneButton = ViewTab("Finalizados", () => SetQueueView(true));
+
+        // Etiqueta de UNA línea: el Label normal partía «4 archivo(s) · 22.0 KB» en dos
+        // renglones dentro de una franja de 36 px.
+        _countLabel = Ui.OneLine(string.Empty, _palette, 8.5f, false, _palette.Muted);
+        _countLabel.Dock = DockStyle.Fill;
+        _countLabel.TextAlign = ContentAlignment.MiddleLeft;
+        _countLabel.Margin = new Padding(10, 0, 6, 0);
+
+        var viewRow = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            WrapContents = false,
+            FlowDirection = FlowDirection.LeftToRight,
+            BackColor = _palette.SurfaceAlt,
+            Padding = new Padding(6, 4, 0, 0),
+            Margin = new Padding(0)
+        };
+        viewRow.Controls.Add(_viewQueueButton);
+        viewRow.Controls.Add(_viewDoneButton);
 
         _upButton = Ui.IconButton(Icons.Up, _palette, "Subir el elemento seleccionado (Alt+↑)");
         _upButton.Click += (_, _) => MoveSelected(-1);
@@ -1049,6 +1473,7 @@ public sealed partial class MainForm : Form
         {
             Dock = DockStyle.Fill,
             AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
             WrapContents = false,
             FlowDirection = FlowDirection.RightToLeft,
             BackColor = _palette.SurfaceAlt,
@@ -1056,10 +1481,18 @@ public sealed partial class MainForm : Form
         };
         // Icono nativo de «Segoe MDL2 Assets»: U+21C5 no existe en esa fuente y salía
         // rasterizado como un amasijo de puntos.
-        _sortButton = Ui.IconButton(Icons.SortAsc, _palette, "Ordenar la cola por nombre, tamaño, tipo o carpeta de destino");
+        _sortButton = Ui.IconButton(Icons.SortAsc, _palette,
+            "Ordenar la lista por nombre, tamaño, fecha de modificación, destino u origen");
         _sortButton.Click += (_, _) => ShowSortMenu(_sortButton);
 
-        _collapseButton = Ui.IconButton("\u00AB", _palette, "Mostrar u ocultar la columna de trabajos");
+        // Único interruptor que queda a la vista cuando la columna de listas se esconde: por eso
+        // al ocultarla se le pone texto («Listas») en vez de dejar solo el chevrón.
+        _collapseButton = Ui.IconButton("\u00AB", _palette, "Ocultar la columna de listas (F8)");
+        // « y » no están en la fuente de iconos: se pintan como TEXTO. Si además se deja la
+        // imagen del glifo, WinForms superpone las dos cosas y queda un borrón.
+        _collapseButton.Image = null;
+        _collapseButton.Text = "\u00AB";
+        _collapseButton.Font = new Font("Segoe UI", 9f, FontStyle.Bold);
         _collapseButton.Click += (_, _) => ToggleJobsPanel();
         tools.Controls.Add(_collapseButton);
         tools.Controls.Add(_clearButton);
@@ -1068,8 +1501,9 @@ public sealed partial class MainForm : Form
         tools.Controls.Add(_upButton);
         tools.Controls.Add(_sortButton);
 
-        header.Controls.Add(_countLabel, 0, 0);
-        header.Controls.Add(tools, 1, 0);
+        header.Controls.Add(viewRow, 0, 0);
+        header.Controls.Add(_countLabel, 1, 0);
+        header.Controls.Add(tools, 2, 0);
 
         _list = new ListView
         {
@@ -1089,11 +1523,17 @@ public sealed partial class MainForm : Form
             ShowItemToolTips = true,
             Font = new Font("Segoe UI", 8.5f),
             Margin = new Padding(0),
-            LabelEdit = true,
+            // RENOMBRAR SOLO CUANDO SE PIDE. Con esto en true, un segundo clic sobre una fila
+            // ya marcada abría la cajita de edición él solo: bastaba volver a pulsar un
+            // archivo (o empezar a arrastrarlo despacio) para que XoPy diera por renombrado
+            // algo que nadie había tocado. Ahora se enciende en F2 / «Renombrar» y se apaga
+            // en cuanto se termina.
+            LabelEdit = false,
             GridLines = false
         };
-        _list.Columns.Add("Nombre", 380);
-        _list.Columns.Add("Destino", 240);
+        _list.Columns.Add(_settings.ShowFullPath ? "Archivo y ruta" : "Nombre", 380);
+        // «Subcarpeta», no «Destino»: la carpeta de destino sale una sola vez, en la cabecera.
+        _list.Columns.Add("Subcarpeta", 150);
         _list.Columns.Add("Tamaño", 92, HorizontalAlignment.Right);
         _list.Columns.Add("Estado", 128);
         _list.Columns.Add("Progreso", 190);
@@ -1117,6 +1557,10 @@ public sealed partial class MainForm : Form
         _scrollCover = new Panel { BackColor = _palette.Surface, Visible = false };
         Controls.Add(_scrollCover);
 
+        // La franja de cabecera que sobra a la derecha de la última columna la pinta
+        // Windows de blanco; este enganche la repinta siempre (defecto de la barra blanca).
+        _headerTail = new ListHeaderTail(_list, _palette.SurfaceAlt, _palette.Border);
+
         _list.DrawColumnHeader += ListDrawColumnHeader;
         _list.DrawItem += (_, e) => { if (_list.View != View.Details) e.DrawDefault = true; };
         _list.DrawSubItem += ListDrawSubItem;
@@ -1124,9 +1568,18 @@ public sealed partial class MainForm : Form
         // así la aparición de la barra de desplazamiento no provoca un bucle de redimensionado.
         Resize += (_, _) => ScheduleColumnUpdate();
         Shown += (_, _) => ScheduleColumnUpdate();
+        // Cualquier cambio de ancho de la LISTA (no solo de la ventana) vuelve a repartir
+        // las columnas: plegar la columna de listas, mostrar u ocultar la barra de menús o
+        // que aparezca la barra de desplazamiento la ensanchan o la estrechan, y el hueco
+        // sobrante a la derecha de la última columna se pintaba de blanco.
+        _list.ClientSizeChanged += (_, _) => ScheduleColumnUpdate();
+        // Y si el usuario arrastra el borde de una columna a mano, el hueco que deje se
+        // reparte igual: antes quedaba a la derecha una franja sin columna (blanca).
+        _list.ColumnWidthChanged += (_, _) => ScheduleColumnUpdate();
         _list.KeyDown += ListKeyDown;
         _list.DoubleClick += ListDoubleClick;
         _list.AfterLabelEdit += ListAfterLabelEdit;
+        _list.BeforeLabelEdit += (_, e) => { if (!_renameRequested) e.CancelEdit = true; };
         _list.MouseDown += ListMouseDown;
         _list.ItemDrag += ListItemDrag;
         _list.DragEnter += ListDragEnter;
@@ -1136,6 +1589,7 @@ public sealed partial class MainForm : Form
         {
             UpdateButtons();
             ShowSelectedError();
+            UpdateHighlightChain();
         };
         _list.ColumnClick += ListColumnClick;
 
@@ -1153,6 +1607,30 @@ public sealed partial class MainForm : Form
         shell.Controls.Add(header, 0, 0);
         shell.Controls.Add(_list, 0, 1);
         return shell;
+    }
+
+    /// <summary>Pestañita plana de la cabecera de la lista («En cola» / «Finalizados»).</summary>
+    private Button ViewTab(string text, Action click)
+    {
+        var button = new Button
+        {
+            Text = text,
+            AutoSize = false,
+            // 98 px: con 116 las dos pestañitas se comían el sitio del recuento, que salía
+            // recortado («4 archivo(s) · …»).
+            Size = new Size(98, 26),
+            FlatStyle = FlatStyle.Flat,
+            BackColor = _palette.Raised,
+            ForeColor = _palette.Muted,
+            Font = new Font("Segoe UI", 8.5f, FontStyle.Bold),
+            Margin = new Padding(0, 0, 6, 0),
+            TabStop = false,
+            UseVisualStyleBackColor = false
+        };
+        button.FlatAppearance.BorderSize = 1;
+        button.FlatAppearance.BorderColor = _palette.Border;
+        button.Click += (_, _) => click();
+        return button;
     }
 
     private static ImageList BuildRowImageList()
@@ -1178,6 +1656,8 @@ public sealed partial class MainForm : Form
         _listMenu.Items.Add("Expandir / contraer", null, (_, _) => ToggleSelectedFolders());
         _listMenu.Items.Add("Subir", null, (_, _) => MoveSelected(-1));
         _listMenu.Items.Add("Bajar", null, (_, _) => MoveSelected(1));
+        _listMenu.Items.Add("Llevar al principio de la lista", null, (_, _) => MoveSelectedToEdge(top: true));
+        _listMenu.Items.Add("Llevar al final de la lista", null, (_, _) => MoveSelectedToEdge(top: false));
 
         // «Enviar a»: cambio de carpeta de destino de lo seleccionado, igual que en TeraCopy.
         var sendTo = new ToolStripMenuItem("Enviar a");
@@ -1197,16 +1677,39 @@ public sealed partial class MainForm : Form
         _listMenu.Items.Add("Quitar de la lista (Supr)", null, (_, _) => RemoveSelected());
         _listMenu.Items.Add("Reintentar los fallidos", null, (_, _) => RetryFailed());
         _listMenu.Items.Add(new ToolStripSeparator());
+        // Ordenar desde el propio menú del botón derecho, con LAS MISMAS opciones que el
+        // menú Cola y el botón «Ordenar» de la lista (ver FillSortItems).
+        var sortItem = new ToolStripMenuItem("Ordenar la lista");
+        FillSortItems(sortItem.DropDownItems);
+        _listMenu.Items.Add(sortItem);
+        _fullPathMenuItem = new ToolStripMenuItem("Mostrar la ruta completa")
+        {
+            CheckOnClick = true,
+            Checked = _settings.ShowFullPath
+        };
+        _fullPathMenuItem.Click += (_, _) => ToggleFullPath();
+        _listMenu.Items.Add(_fullPathMenuItem);
         _listMenu.Items.Add("Mostrar los hashes", null, (_, _) => ToggleHashes());
     }
 
-    private void ShowMainMenu()
+    /// <summary>
+    /// Enseña u oculta la ruta completa del origen delante del nombre de cada elemento de
+    /// primer nivel. Encendido de fábrica: el usuario quería ver de dónde sale cada archivo
+    /// sin tener que pasar el ratón por encima.
+    /// </summary>
+    private void ToggleFullPath()
     {
-        var menu = BuildMainMenu();
-        if (_menuButton.Owner is ToolStrip owner)
-            menu.Show(owner, new Point(_menuButton.Bounds.Left, _menuButton.Bounds.Bottom));
-        else
-            menu.Show(Cursor.Position);
+        _settings.ShowFullPath = !_settings.ShowFullPath;
+        _store.Save(_settings);
+        if (_fullPathMenuItem is not null) _fullPathMenuItem.Checked = _settings.ShowFullPath;
+        if (_list is not null)
+        {
+            _list.Columns[0].Text = _settings.ShowFullPath ? "Archivo y ruta" : "Nombre";
+            _list.Invalidate();
+        }
+        SetStatus(_settings.ShowFullPath
+            ? "La lista muestra la ruta completa de cada origen."
+            : "La lista muestra solo el nombre.");
     }
 
     private ContextMenuStrip BuildMainMenu()
@@ -1289,7 +1792,7 @@ public sealed partial class MainForm : Form
     private void ApplyDarkScrollbars()
     {
         if (!_settings.DarkTheme) return;
-        foreach (var control in new Control?[] { _list, _logBox, _targetList, _jobsList, _optionsScroll })
+        foreach (var control in new Control?[] { _list, _logBox, _targetList, _jobsList, _optionsScroll, _statusScroll })
         {
             try
             {
@@ -1365,7 +1868,32 @@ public sealed partial class MainForm : Form
 
         StartPosition = FormStartPosition.Manual;
         Location = new Point(posX, posY);
-        if (_settings.WindowMaximized && !_compactView) WindowState = FormWindowState.Maximized;
+
+        // NUNCA se abre maximizada. El usuario lo pidió expresamente: XoPy arranca en su
+        // ventana normal (el tamaño que tenía la última vez, si cabe en la pantalla) y
+        // maximiza quien quiera, cuando quiera.
+        WindowState = FormWindowState.Normal;
+        if (_compactView)
+        {
+            // VISTA REDUCIDA AL ARRANCAR: el alto tiene que ser EXACTAMENTE el de lo que se
+            // ve (barra + cabecera). ApplyCompactView solo encogía la ventana cuando el
+            // usuario pulsaba el botón («persist»), así que al abrir el programa la ventana
+            // conservaba su alto grande y quedaba media pantalla negra debajo: ese es el
+            // hueco que el usuario señala en cada captura.
+            var compactHeight = CompactWindowHeight();
+            var compactWidth = Math.Max(560, Math.Min(
+                _settings.WindowWidth > 400 ? _settings.WindowWidth : Width, workingArea.Width));
+            MinimumSize = new Size(560, compactHeight);
+            try { Size = new Size(compactWidth, compactHeight); }
+            catch { }
+        }
+        else if (_settings.WindowWidth > 400 && _settings.WindowHeight > 300)
+        {
+            var width = Math.Min(_settings.WindowWidth, workingArea.Width);
+            var height = Math.Min(_settings.WindowHeight, workingArea.Height);
+            try { Size = new Size(width, height); }
+            catch { }
+        }
     }
 
     /// <summary>
@@ -1381,12 +1909,68 @@ public sealed partial class MainForm : Form
     {
         var report = new List<string>();
         var ok = true;
+        var finished = false;
         var folder = Path.Combine(Path.GetTempPath(), "xopy-colatest");
+
+        // Red de seguridad: si algún paso se queda colgado (un escaneo de carpeta esperando
+        // al hilo de la interfaz, por ejemplo), a los 45 s se guarda lo conseguido hasta ese
+        // momento y se sale con error. Antes la prueba moría sin dejar informe y no había
+        // manera de saber en qué línea se había parado.
+        var watchdog = new Thread(() =>
+        {
+            Thread.Sleep(45000);
+            if (finished) return;
+            try
+            {
+                var partial = report.ToList();
+                partial.Add("error=la prueba se quedó colgada");
+                partial.Add("resultado=FALLO");
+                File.WriteAllLines(reportPath, partial);
+            }
+            catch { }
+            Environment.Exit(1);
+        })
+        { IsBackground = true };
+        watchdog.Start();
+
         try
         {
             Directory.CreateDirectory(folder);
             for (var i = 1; i <= 3; i++)
                 File.WriteAllBytes(Path.Combine(folder, $"archivo{i}.bin"), new byte[i * 1024]);
+
+            // XoPy ARRANCA EN VISTA REDUCIDA, y en ese modo la lista y sus botones (↑ ↓
+            // quitar, ordenar) están escondidos. «PerformClick» no hace nada sobre un botón
+            // que no se ve, así que la prueba daba «el boton subir no movio nada» aunque el
+            // reordenado funcionase. Lo primero que hace la prueba es, por tanto, lo mismo
+            // que haría el usuario: mostrar la lista.
+            ApplyCompactView(false, persist: false);
+
+            // ── Rutas de destino que antes daban «Carpeta de destino no válida» ───────
+            var sucia = "  \"" + folder + "\\destino \"  ";
+            var limpia = PathTools.CleanFolder(sucia);
+            report.Add("ruta_limpia=" + limpia);
+            if (!string.Equals(limpia, Path.Combine(folder, "destino"), StringComparison.OrdinalIgnoreCase))
+            { report.Add("error=no se limpiaron las comillas ni el espacio final del destino"); ok = false; }
+            if (!string.Equals(PathTools.CleanFolder("C:/fotos//2025"), @"C:\fotos\2025", StringComparison.OrdinalIgnoreCase))
+            { report.Add("error=no se normalizaron las barras del destino"); ok = false; }
+            if (PathTools.FirstForbiddenChar(@"C:\fotos|raras") is null)
+            { report.Add("error=no se detectó un carácter prohibido en la ruta"); ok = false; }
+            if (PathTools.FirstForbiddenChar(@"C:\fotos\2025") is not null)
+            { report.Add("error=se dio por mala una ruta correcta"); ok = false; }
+
+            // ── Línea de comandos ROTA POR LAS COMILLAS ───────────────────────────────
+            // Pegar en la raíz de un disco mandaba «--to "E:\"»: la barra final escapa la
+            // comilla de cierre y Windows entrega un único argumento con todo pegado
+            // («E:" --lista C:\...\xopXXXX.tmp»). Salía «Carpeta de destino no válida» con
+            // la orden entera dentro. Se comprueba que XoPy la desenreda.
+            var listaFalsa = Path.Combine(folder, "lista-prueba.txt");
+            File.WriteAllLines(listaFalsa, new[] { Path.Combine(folder, "archivo1.bin") });
+            var rescatada = StartupRequest.Parse(new[] { "--copy", "--to", "E:\" --lista " + listaFalsa });
+            report.Add($"rescate_comillas={rescatada.Destination}|archivos={rescatada.Paths.Count}");
+            if (!string.Equals(rescatada.Destination, "E:\\", StringComparison.OrdinalIgnoreCase)
+                || rescatada.Paths.Count != 1)
+            { report.Add("error=no se rescató la carpeta de una línea de comandos mal entrecomillada"); ok = false; }
 
             EnsureDefaultList();
             _settings.Destination = Path.Combine(folder, "destino");
@@ -1394,7 +1978,7 @@ public sealed partial class MainForm : Form
             _destination.Text = _settings.Destination;
 
             var paths = Enumerable.Range(1, 3).Select(i => Path.Combine(folder, $"archivo{i}.bin")).ToList();
-            AddPathsAsync(paths, askDestination: false).GetAwaiter().GetResult();
+            WaitForQueueTask(AddPathsAsync(paths, askDestination: false));
 
             var initial = _items.Where(item => item.Kind == ItemKind.File).Select(item => item.Name).ToList();
             report.Add("inicial=" + string.Join(",", initial));
@@ -1429,6 +2013,29 @@ public sealed partial class MainForm : Form
             if (afterSort.Count > 0 && afterSort[0] != "archivo3.bin")
             { report.Add("error=el orden por tamano no puso primero al mayor"); ok = false; }
 
+            // ── «Los más grandes primero» CRUZANDO CARPETAS ──────────────────────────
+            // Un archivo grande metido en una carpeta tiene que adelantar a los sueltos más
+            // pequeños. Antes no pasaba: al estar la carpeta plegada, la lista volvía a
+            // juntar su contenido y deshacía el orden por tamaño (y la copia iba igual de
+            // mal ordenada que la lista).
+            var pesada = Path.Combine(folder, "pesada");
+            Directory.CreateDirectory(pesada);
+            File.WriteAllBytes(Path.Combine(pesada, "grande.bin"), new byte[9 * 1024]);
+            ClearList();
+            WaitForQueueTask(AddPathsAsync(new[] { pesada, Path.Combine(folder, "archivo1.bin") },
+                askDestination: false));
+            SortAllFilesBySize(invert: true);
+            var conCarpeta = _list.Items.Cast<ListViewItem>()
+                .Select(row => (row.Tag as TransferItem)?.Name ?? "?")
+                .Where(name => name.EndsWith(".bin", StringComparison.OrdinalIgnoreCase)).ToList();
+            report.Add("tamano_cruzando_carpetas=" + string.Join(",", conCarpeta));
+            if (conCarpeta.FirstOrDefault() != "grande.bin")
+            { report.Add("error=el archivo grande de dentro de una carpeta no quedó el primero"); ok = false; }
+            ClearList();
+            WaitForQueueTask(AddPathsAsync(
+                Enumerable.Range(1, 3).Select(i => Path.Combine(folder, $"archivo{i}.bin")).ToList(),
+                askDestination: false));
+
             // ── Regresión del informe: archivos de RAÍCES DISTINTAS en una lista plana ──
             // Cada uno debe conservar su ruta al reordenar (el destino no cambia) y tiene que
             // poder cruzarse con los de la otra carpeta, no solo con sus hermanos.
@@ -1440,10 +2047,10 @@ public sealed partial class MainForm : Form
             File.WriteAllBytes(Path.Combine(rootA, "a2.bin"), new byte[2048]);
             File.WriteAllBytes(Path.Combine(rootB, "b1.bin"), new byte[2048]);
             ClearList();
-            AddPathsAsync(new[]
+            WaitForQueueTask(AddPathsAsync(new[]
             {
                 Path.Combine(rootA, "a1.bin"), Path.Combine(rootA, "a2.bin"), Path.Combine(rootB, "b1.bin")
-            }, askDestination: false).GetAwaiter().GetResult();
+            }, askDestination: false));
 
             var mixed = _list.Items.Cast<ListViewItem>().Select(row => row.Tag as TransferItem).OfType<TransferItem>().ToList();
             report.Add("planas=" + string.Join(",", mixed.Select(item => item.Name)));
@@ -1494,10 +2101,10 @@ public sealed partial class MainForm : Form
             // El informe decía que reordenar «no funcionaba de ninguna forma»: se comprueban
             // los mismos botones que pulsa el usuario, dos veces, y con archivos de otra raíz.
             ClearList();
-            AddPathsAsync(new[]
+            WaitForQueueTask(AddPathsAsync(new[]
             {
                 Path.Combine(rootA, "a1.bin"), Path.Combine(rootB, "b1.bin"), Path.Combine(rootA, "a2.bin")
-            }, askDestination: false).GetAwaiter().GetResult();
+            }, askDestination: false));
             var rowsNow = _list.Items.Cast<ListViewItem>().Select(row => row.Tag as TransferItem)
                 .OfType<TransferItem>().ToList();
             var last = rowsNow.LastOrDefault();
@@ -1530,8 +2137,8 @@ public sealed partial class MainForm : Form
             // quitar una fila y añadir otra sin tocar la copia en curso (el motor trabaja
             // sobre su propia instantánea).
             ClearList();
-            AddPathsAsync(new[] { Path.Combine(rootA, "a1.bin"), Path.Combine(rootA, "a2.bin") },
-                askDestination: false).GetAwaiter().GetResult();
+            WaitForQueueTask(AddPathsAsync(new[] { Path.Combine(rootA, "a1.bin"), Path.Combine(rootA, "a2.bin") },
+                askDestination: false));
             {
                 var beforeEdit = _items.Count(item => item.Kind == ItemKind.File);
                 var victim = _list.Items.Cast<ListViewItem>().Select(row => row.Tag as TransferItem)
@@ -1542,8 +2149,7 @@ public sealed partial class MainForm : Form
                 if (afterRemove != beforeEdit - 1)
                 { report.Add("error=no se pudo quitar una fila durante la copia"); ok = false; }
 
-                AddPathsAsync(new[] { Path.Combine(rootB, "b1.bin") }, askDestination: false)
-                    .GetAwaiter().GetResult();
+                WaitForQueueTask(AddPathsAsync(new[] { Path.Combine(rootB, "b1.bin") }, askDestination: false));
                 var afterAdd = _items.Count(item => item.Kind == ItemKind.File);
                 report.Add("anadir_copiando=" + afterAdd);
                 if (afterAdd != afterRemove + 1)
@@ -1555,6 +2161,12 @@ public sealed partial class MainForm : Form
             var after = _items.Count(item => item.Kind == ItemKind.File);
             report.Add($"quitados={before - after}");
             if (before - after != before) { report.Add("error=no se quitaron todos"); ok = false; }
+
+            // Prueba del ÁRBOL: carpetas con archivos dentro, orden libre entre carpetas,
+            // cabeceras repetidas y plegado. No toca el disco (son rutas inventadas).
+            var arbol = QueueSelfTest();
+            report.Add("arbol=" + arbol.Replace("\r", string.Empty).Replace("\n", " | "));
+            if (!arbol.StartsWith("OK", StringComparison.Ordinal)) ok = false;
         }
         catch (Exception ex)
         {
@@ -1562,6 +2174,7 @@ public sealed partial class MainForm : Form
             ok = false;
         }
 
+        finished = true;
         report.Add(ok ? "resultado=OK" : "resultado=FALLO");
         try { File.WriteAllLines(reportPath, report); } catch { }
         return ok;
@@ -1593,7 +2206,7 @@ public sealed partial class MainForm : Form
             // Archivos sueltos: es lo que hace el usuario al arrastrarlos, y evita depender
             // de que el escaneo de una carpeta haya terminado en este contexto sin ventana.
             var files = Directory.GetFiles(source, "*.bin");
-            AddPathsAsync(files, askDestination: false).GetAwaiter().GetResult();
+            WaitForQueueTask(AddPathsAsync(files, askDestination: false));
 
             StartTransfer(OperationType.Copy);
             WaitForEngineIdle(60000);
@@ -1653,7 +2266,7 @@ public sealed partial class MainForm : Form
             _settings.Destination = dest3;
             _destination.Text = dest3;
             ClearList();
-            AddPathsAsync(Directory.GetFiles(source2, "*.bin"), askDestination: false).GetAwaiter().GetResult();
+            WaitForQueueTask(AddPathsAsync(Directory.GetFiles(source2, "*.bin"), askDestination: false));
             StartTransfer(OperationType.Copy);
             WaitForEngineIdle(60000);
             var copiadosC = Directory.Exists(dest3) ? Directory.GetFiles(dest3, "*.bin", SearchOption.AllDirectories).Length : 0;
@@ -1718,6 +2331,24 @@ public sealed partial class MainForm : Form
         report.Add(ok ? "resultado=OK" : "resultado=FALLO");
         try { File.WriteAllLines(reportPath, report); } catch { }
         return ok;
+    }
+
+    /// <summary>
+    /// Espera a una tarea de la lista SIN congelar la ventana. Añadir una carpeta lanza un
+    /// escaneo en segundo plano que, al terminar, necesita volver al hilo de la interfaz;
+    /// si aquí se bloquease ese hilo con GetResult(), el escaneo no podría continuar nunca
+    /// y la prueba se quedaba colgada hasta que el CI la mataba (sin dejar informe).
+    /// </summary>
+    private static void WaitForQueueTask(Task task, int milliseconds = 20000)
+    {
+        var deadline = Environment.TickCount64 + milliseconds;
+        while (!task.IsCompleted && Environment.TickCount64 < deadline)
+        {
+            Application.DoEvents();
+            Thread.Sleep(10);
+        }
+        if (!task.IsCompleted) throw new TimeoutException("El análisis de la lista no terminó a tiempo.");
+        task.GetAwaiter().GetResult();
     }
 
     /// <summary>Espera a que el motor termine (o al tiempo límite) sin bloquear el bombeo de mensajes.</summary>
@@ -1785,6 +2416,18 @@ public sealed partial class MainForm : Form
                     CaptureDialogPng(() => new OptionsDialog(_settings, _palette), target);
                     break;
 
+                case "compact":
+                    // La ventana pequeña, tal cual la ve el usuario al abrir XoPy.
+                    ApplyCompactView(true, persist: false);
+                    // Y con su alto real: si la ventana se queda con el alto grande, la
+                    // foto enseña el hueco negro que precisamente hay que vigilar.
+                    try { Bounds = new Rectangle(Left, Top, Math.Max(Width, 560), CompactWindowHeight()); }
+                    catch { }
+                    Application.DoEvents();
+                    Update();
+                    SaveWindowPng(target);
+                    break;
+
                 case "advanced":
                     // Regresión del informe: «Opciones avanzadas» lanzaba
                     // «No se puede agregar 'Button' a 'TabControl'». Se abre de verdad y se
@@ -1793,10 +2436,12 @@ public sealed partial class MainForm : Form
                     break;
 
                 case "conflict":
-                    CaptureDialogPng(() => new PromptDialog(_palette, "Archivo ya existente",
-                        "El archivo «informe.pdf» ya existe en la carpeta de destino. ¿Qué quieres hacer?",
-                        "Puedes aplicar la decisión a todos los archivos de esta transferencia.",
-                        new[] { "Sobrescribir", "Omitir", "Cambiar nombre", "Cancelar" }, null), target);
+                    // La ventana REAL de conflicto (ConflictDialog), no el cuadro de texto
+                    // antiguo: así la captura enseña lo que de verdad ve el usuario.
+                    CaptureDialogPng(() => new ConflictDialog(_palette, new ConflictPrompt(
+                        @"C:\xopytest\informe.pdf", @"C:\xopytest\destino\informe.pdf",
+                        10_240, 7_168,
+                        new DateTime(2026, 11, 20, 18, 42, 0), new DateTime(2025, 4, 3, 9, 15, 0))), target);
                     break;
 
                 case "history":
@@ -2170,6 +2815,12 @@ public sealed partial class MainForm : Form
         }
     }
 
+    /// <summary>
+    /// Texto del icono del área de notificación. Se muestra «(reemplazo del copiador de
+    /// Windows)», igual que SuperCopier, para que se sepa de un vistazo qué hace XoPy.
+    /// </summary>
+    internal const string TrayBaseText = "XoPy (reemplazo del copiador de Windows)";
+
     private void BuildTray()
     {
         // Idempotente: si ya está construida (EnsureTrayIcon puede llamarla otra vez)
@@ -2183,7 +2834,9 @@ public sealed partial class MainForm : Form
 
         _baseIcon ??= Icons.AppIcon();
         _tray.Icon = _baseIcon;
-        _tray.Text = "XoPy";
+        // Igual que SuperCopier: el icono junto al reloj dice para qué sirve el programa.
+        // NotifyIcon.Text admite como mucho 63 caracteres.
+        _tray.Text = TrayBaseText;
         _tray.Visible = true;
         _tray.DoubleClick += (_, _) => RestoreWindow();
         _tray.MouseClick += (_, e) =>
@@ -2262,14 +2915,24 @@ public sealed partial class MainForm : Form
             Program.Log("MF2. LoadSettingsIntoUi done");
 
             Program.Log("MF3. ApplyCompactView");
-            // Modo de ventana de Preferencias: 0 reducida (por defecto, como TeraCopy),
-            // 1 completa, 2 automático (completa si hay archivos, reducida si no).
+            // Modo de ventana de Preferencias: 0 reducida, 1 completa (por defecto) y
+            // 2 automático. «Automático» usa la reducida SOLO cuando XoPy se abre para copiar
+            // algo (pegado, menú contextual, --to): ahí interesa una ventanita de progreso.
+            // Abierto a mano se ve la ventana entera, porque la vista reducida esconde las
+            // pestañas y no habría forma de llegar a Destino, Opciones, Estado ni Registro.
+            var startingTransfer = _startupRequest.Paths.Count > 0 || _startupRequest.Operation is not null;
             var compactOnStart = _settings.WindowMode switch
             {
-                1 => false,
-                2 => _startupRequest.Paths.Count == 0 && _startupRequest.Operation is null,
-                _ => true
+                0 => true,
+                2 => startingTransfer,
+                _ => false
             };
+            // En modo captura nunca se usa la vista reducida: las imágenes de documentación
+            // tienen que enseñar la ventana completa, con sus pestañas. La excepción es
+            // «--screenshot-compact», que existe justamente para fotografiar la ventana
+            // pequeña con la que XoPy arranca.
+            if (_startupRequest.Screenshot)
+                compactOnStart = string.Equals(_startupRequest.ScreenshotMode, "compact", StringComparison.Ordinal);
             ApplyCompactView(compactOnStart, persist: false);
             Program.Log("MF3. ApplyCompactView done");
 
@@ -2497,7 +3160,24 @@ public sealed partial class MainForm : Form
 
     private async Task HandleExternalAsync(StartupRequest request, bool isStartup)
     {
-        if (!isStartup) RestoreWindow();
+        if (!isStartup)
+        {
+            // FORMATO MÍNIMO AL PEGAR. Lo que llega de fuera (Ctrl+V, el menú del
+            // Explorador, arrastrar y soltar) es una copia, y para una copia el usuario
+            // pidió la ventanita de progreso. Si XoPy ya estaba abierto con la lista
+            // desplegada, se recoge ANTES de enseñarla: así no se ve primero la ventana
+            // grande y después el salto a la pequeña (el parpadeo del informe).
+            var traeTrabajo = request.Paths.Count > 0 || request.PasteFromClipboard
+                              || request.Operation is not null;
+            var quiereReducida = _settings.WindowMode switch
+            {
+                0 => true,
+                2 => traeTrabajo,
+                _ => false
+            };
+            if (quiereReducida && traeTrabajo && !_compactView) ApplyCompactView(true, persist: false);
+            RestoreWindow();
+        }
 
         // El destino pedido con --to se aplica a la lista y al cuadro de destino antes de
         // añadir los archivos, para que la transferencia arranque sin preguntar nada.
@@ -2519,7 +3199,10 @@ public sealed partial class MainForm : Form
             await HandleExternalFiles(request.Paths, request.Destination, request.Operation == OperationType.Move);
         else if (!string.IsNullOrWhiteSpace(request.Destination))
         {
-            _destination.Text = request.Destination!;
+            // Mismo cuidado que arriba: con la ventana a medio construir esto era un
+            // «Object reference not set» y la pantalla se llenaba de cuadros de error
+            // encima de una copia que ya estaba corriendo.
+            if (_destination is not null) _destination.Text = request.Destination!;
             UpdateTargetTab();
         }
         if (request.PasteFromClipboard) await PasteFromClipboardAsync(request.Destination);
@@ -2554,7 +3237,7 @@ public sealed partial class MainForm : Form
             {
                 StartTransfer(op.Value);
             }
-            else if (request.AskDestination || string.IsNullOrWhiteSpace(_destination.Text.Trim()))
+            else if (request.AskDestination || string.IsNullOrWhiteSpace(_destination?.Text?.Trim()))
             {
                 PromptDestinationAndStart(op.Value);
             }
@@ -2618,81 +3301,104 @@ public sealed partial class MainForm : Form
     /// Borra la lista de copia activa del listado. Nunca toca los archivos del disco:
     /// sólo quita la entrada de la lista y sus referencias en memoria.
     /// </summary>
-    private void DeleteActiveList()
+    /// <summary>
+    /// Cierra una lista de copia. Con <paramref name="ask"/> en falso no sale el cuadro de
+    /// confirmación: es lo que hace la tecla Mayús para limpiar varias listas seguidas.
+    /// Cerrar una lista NUNCA borra archivos del disco.
+    /// </summary>
+    private void DeleteList(TransferList? list, bool ask = true)
     {
-        if (_activeList is null) return;
-        if (_engine.IsRunning)
+        if (list is null) return;
+        // Solo se bloquea si la lista que se quiere cerrar es LA QUE SE ESTÁ COPIANDO: las
+        // demás se pueden cerrar aunque el motor esté trabajando en otra.
+        if (_engine.IsRunning && list == _runningList)
         {
-            SetStatus("Detén la transferencia antes de borrar una lista.");
+            SetStatus("Esta lista se está copiando ahora mismo: detén la copia para cerrarla.");
             return;
         }
 
-        var answer = MessageBox.Show(this,
-            $"¿Borrar la lista «{_activeList.DisplayName}»?\n\n" +
-            "Esto sólo elimina la lista del listado de XoPy. No borra ningún archivo del disco.",
-            "XoPy", MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2);
-        if (answer != DialogResult.Yes) return;
+        if (ask)
+        {
+            var answer = MessageBox.Show(this,
+                $"¿Cerrar la lista «{list.DisplayName}»?\n\n" +
+                "Esto sólo la quita del panel de la izquierda. No borra ningún archivo del disco.\n\n" +
+                "Atajo: con la tecla Mayús pulsada se cierra sin preguntar.",
+                "XoPy", MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2);
+            if (answer != DialogResult.Yes) return;
+        }
 
-        _lists.Remove(_activeList);
+        var name = list.DisplayName;
+        var wasActive = list == _activeList;
+        _lists.Remove(list);
         if (_lists.Count == 0)
         {
+            _activeList = null;
             EnsureDefaultList();
+            ResetVisualOrder();
+            RebuildRows();
+            UpdateFooter();
         }
-        else
+        else if (wasActive)
         {
             SwitchToList(_lists[0]);
         }
-        SetStatus("Lista borrada del listado.");
+        _jobsSignature = string.Empty;
+        UpdateJobs();
+        SetStatus($"Lista «{name}» cerrada. No se ha borrado ningún archivo del disco.");
     }
 
+    /// <summary>
+    /// Cambia la lista que se está viendo. Se puede hacer CON LA COPIA EN MARCHA: el motor
+    /// sigue trabajando sobre su lista (_runningList) y la ventana simplemente enseña otra.
+    /// Antes se forzaba a volver a la lista activa, así que era imposible preparar una copia
+    /// nueva mientras había una en curso.
+    /// </summary>
     private void SwitchToList(TransferList? list)
     {
         if (list is null) return;
-        if (_engine.IsRunning && list != _activeList)
-        {
-            SetStatus("Hay una transferencia en curso: los archivos se añaden a la lista activa.");
-            list = _activeList;
-            if (list is null) return;
-        }
 
         _activeList = list;
         _items = list.Items;
+        ResetVisualOrder();
 
-        if (!string.IsNullOrWhiteSpace(list.Destination))
-        {
-            _destination.Text = list.Destination;
-        }
+        // La caja del destino enseña SIEMPRE el destino de esta lista, aunque esté vacío.
+        // Si no, al pasar a una lista sin destino se quedaba a la vista el de la lista
+        // anterior y la copia salía hacia esa otra carpeta sin preguntar nada.
+        var listDestination = list.Destination ?? string.Empty;
+        if (!string.Equals(_destination.Text, listDestination, StringComparison.Ordinal))
+            _destination.Text = listDestination;
         list.UpdatedAt = DateTime.Now;
         RefreshListSelector();
         UpdateTargetTab();
         UpdateButtons();
-        SyncRows();
-        SetStatus($"Lista activa: {list.DisplayName} ({list.Items.Count} archivo(s))");
+        RebuildRows();
+        UpdateJobs();
+
+        var running = _engine.IsRunning && list == _runningList;
+        var files = list.Items.Count(item => item.Kind != ItemKind.Folder);
+        SetStatus(running
+            ? $"Lista «{list.DisplayName}» · copiando ahora ({Format.Files(files)})"
+            : _engine.IsRunning
+                ? $"Lista «{list.DisplayName}» · la copia en marcha es otra lista"
+                : $"Lista «{list.DisplayName}» · {Format.Files(files)}");
     }
 
     private bool _refreshingSelector;
 
+    /// <summary>
+    /// Mantiene al día el panel TRABAJOS, que es donde se eligen las listas de copia.
+    /// </summary>
     private void RefreshListSelector()
     {
-        if (_listSelector is null) return;
-        if (_refreshingSelector) return; // prevenir reentrancy / bucle infinito
+        if (_refreshingSelector) return; // evita la reentrada SwitchToList → refresco → …
         _refreshingSelector = true;
         try
         {
-            var current = _listSelector.SelectedItem as TransferList;
-            _listSelector.Items.Clear();
-            foreach (var list in _lists) _listSelector.Items.Add(list);
-            // No establecer SelectedItem aquí para no disparar SelectedIndexChanged
-            // que llamaría a SwitchToList → RefreshListSelector → bucle infinito.
-            if (_activeList is not null && _lists.Contains(_activeList))
+            if (_activeList is null || !_lists.Contains(_activeList))
             {
-                _listSelector.SelectedItem = _activeList;
+                if (_lists.Count > 0) _activeList = _lists[0];
             }
-            else if (_lists.Count > 0)
-            {
-                _listSelector.SelectedItem = _lists[0];
-                _activeList = _lists[0];
-            }
+            UpdateJobs();
         }
         catch (Exception ex)
         {
@@ -2709,6 +3415,43 @@ public sealed partial class MainForm : Form
     /// Pregunta al usuario a qué lista de copia añadir los archivos recibidos. Respeta el estilo
     /// visual de la aplicación. Devuelve null si el usuario cancela.
     /// </summary>
+    /// <summary>
+    /// Decide SOLA dónde van los archivos que llegan de fuera (pegar con Ctrl+V o con
+    /// «Pegar» del menú del Explorador) y no enseña ningún cuadro: es el comportamiento de
+    /// fábrica que pidió el usuario — pulsar Pegar y que empiece con lo que hay.
+    ///   · lista activa vacía          → se usa esa misma lista
+    ///   · mismo destino que la activa → se añaden al final y sigue la copia
+    ///   · destino distinto            → lista NUEVA, para no mezclar dos destinos
+    /// Quien prefiera que pregunte lo marca en Preferencias («Preguntar al pegar…»).
+    /// </summary>
+    private (TransferList List, bool ChangeDestination)? AutoListDecision(string detectedDestination)
+    {
+        EnsureDefaultList();
+        var active = _activeList;
+        if (active is null || active.Items.Count == 0)
+        {
+            if (active is null) return null;
+            return (active, true);
+        }
+
+        var sameDestination = active.Destination.Length > 0
+            && string.Equals(active.Destination, detectedDestination, StringComparison.OrdinalIgnoreCase);
+        if (sameDestination) return (active, false);
+
+        // SIN DESTINO CONOCIDO (archivos arrastrados a la ventana): van a la lista que se
+        // está mirando, que es donde el usuario los ha soltado. Antes se creaba una lista
+        // nueva en silencio y los archivos «desaparecían» de la vista.
+        if (string.IsNullOrWhiteSpace(detectedDestination)) return (active, false);
+
+        var fresh = new TransferList
+        {
+            Name = $"Lista de copia {_lists.Count + 1}",
+            Destination = detectedDestination
+        };
+        _lists.Add(fresh);
+        return (fresh, true);
+    }
+
     private (TransferList List, bool ChangeDestination)? AskListDecision(
         IReadOnlyList<string> files, string detectedDestination, bool move)
     {
@@ -2718,16 +3461,25 @@ public sealed partial class MainForm : Form
             BackColor = _palette.Canvas,
             ForeColor = _palette.Text,
             StartPosition = FormStartPosition.CenterParent,
-            FormBorderStyle = FormBorderStyle.FixedDialog,
+            // Redimensionable: las rutas largas se leen enteras ensanchando el cuadro, que es
+            // mejor que una barra de desplazamiento horizontal (la que salía blanca abajo).
+            FormBorderStyle = FormBorderStyle.Sizable,
             MinimizeBox = false,
             MaximizeBox = false,
-            ClientSize = new Size(600, 380),
+            ShowInTaskbar = false,
+            MinimumSize = new Size(520, 210),
+            // El tamaño DEFINITIVO se calcula abajo con las opciones que haya: este cuadro
+            // enseña dos o tres líneas y antes ocupaba media pantalla.
+            ClientSize = new Size(560, 240),
         };
 
         var verb = move ? "mover" : "copiar";
+        var destinoTexto = string.IsNullOrWhiteSpace(detectedDestination)
+            ? "sin detectar — se preguntará al empezar"
+            : detectedDestination;
         var message = new Label
         {
-            Text = $"{files.Count} elemento(s) listos para {verb}.\nDestino detectado: {detectedDestination}",
+            Text = $"{Format.Files(files.Count)} {Format.Plural(files.Count, "listo", "listos")} para {verb}.\nDestino detectado: {destinoTexto}",
             AutoSize = false,
             Dock = DockStyle.Fill,
             Padding = new Padding(16, 14, 16, 0),
@@ -2736,15 +3488,21 @@ public sealed partial class MainForm : Form
             Font = new Font("Segoe UI", 9.5f),
         };
 
-        var options = new FlowLayoutPanel
+        // Una columna que ocupa TODO el ancho y crece hacia abajo. Antes era un
+        // FlowLayoutPanel con desplazamiento en las dos direcciones: las líneas largas
+        // sacaban una barra horizontal que el tema oscuro pintaba de blanco (la franja
+        // blanca del fondo del cuadro) y además cortaban el texto por la derecha.
+        var options = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            FlowDirection = FlowDirection.TopDown,
+            ColumnCount = 1,
             AutoScroll = true,
             Padding = new Padding(12, 8, 12, 8),
             BackColor = _palette.Canvas,
             AutoSize = false,
         };
+        options.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        var optionTips = new ToolTip { AutoPopDelay = 20000, InitialDelay = 400 };
 
         var defaultDestination = detectedDestination;
         var sameDestination = _activeList is not null
@@ -2754,58 +3512,77 @@ public sealed partial class MainForm : Form
         TransferList? chosen = null;
         Action? RefreshAddButton = null;
 
-        void AddOption(TransferList list, bool changeToDetected, string text)
+        // Las casillas se crean SIN marcar y se añaden al cuadro; la marca se pone al final,
+        // en una sola de ellas. Marcarlas al construirlas (antes de tener padre) saltaba el
+        // «solo una a la vez» de Windows y salían DOS opciones marcadas a la vez.
+        var choices = new List<RadioButton>();
+
+        RadioButton AddOption(TransferList? list, string text, bool bold = false)
         {
             var rb = new RadioButton
             {
                 Text = text,
-                AutoSize = true,
-                Margin = new Padding(4, 6, 4, 2),
+                AutoSize = false,
+                Dock = DockStyle.Fill,
+                Height = 30,
+                Margin = new Padding(4, 3, 4, 3),
                 ForeColor = _palette.Text,
                 BackColor = _palette.Canvas,
-                Font = new Font("Segoe UI", 9f),
-                Checked = list == _activeList && sameDestination && !changeToDetected,
+                Font = new Font("Segoe UI", 9f, bold ? FontStyle.Bold : FontStyle.Regular),
+                // El texto que no quepa se corta con puntos suspensivos y se lee entero en
+                // el globo de ayuda: así el cuadro nunca saca barra de desplazamiento lateral.
+                AutoEllipsis = true,
+                UseMnemonic = false
             };
+            optionTips.SetToolTip(rb, text);
             rb.CheckedChanged += (_, _) =>
             {
                 if (!rb.Checked) return;
                 chosen = list;
                 RefreshAddButton?.Invoke();
             };
-            options.Controls.Add(rb);
+            options.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
+            options.Controls.Add(rb, 0, choices.Count);
+            choices.Add(rb);
+            return rb;
         }
 
         // LISTA NUEVA primero y marcada por defecto: es lo que menos sorprende y lo que el
         // usuario pide cuando arrastra algo mientras ya hay una copia en marcha.
         var nueva = new TransferList { Name = $"Lista de copia {_lists.Count + 1}", Destination = detectedDestination };
-        var newOption = new RadioButton
-        {
-            Text = $"Abrir en una lista NUEVA (destino: {detectedDestination})",
-            AutoSize = true,
-            Margin = new Padding(4, 6, 4, 10),
-            ForeColor = _palette.Text,
-            BackColor = _palette.Canvas,
-            Font = new Font("Segoe UI", 9f, FontStyle.Bold),
-            Checked = true,
-        };
-        newOption.CheckedChanged += (_, _) => { if (newOption.Checked) { chosen = nueva; RefreshAddButton?.Invoke(); } };
-        options.Controls.Add(newOption);
-        options.Controls.SetChildIndex(newOption, 0);
+        var newOption = AddOption(nueva, $"Abrir en una lista NUEVA (destino: {destinoTexto})", bold: true);
         chosen = nueva;
+        RadioButton? preferred = null;
 
         // Enumerable.Reverse: List<T>.Reverse() invierte la lista EN EL SITIO y devuelve void
         // (reordenaría de verdad las listas del usuario).
         foreach (var list in Enumerable.Reverse(_lists))
         {
             var same = string.Equals(list.Destination, detectedDestination, StringComparison.OrdinalIgnoreCase);
-            AddOption(list, false,
-                $"Añadir a «{list.DisplayName}» (destino: {list.Destination})" + (same ? " · mismo destino" : string.Empty));
+            // Cada lista dice EN QUÉ ESTADO está: copiando ahora, en pausa, esperando turno o
+            // ya terminada. Así se distingue a simple vista dónde se están metiendo los
+            // archivos, que es justo lo que pedía el usuario.
+            var running = _engine.IsRunning && list == _runningList;
+            var estado = TransferList.StageText(list.Stage(running, running && _engine.IsPaused));
+            var option = AddOption(list,
+                $"Añadir a «{list.DisplayName}»  [{estado}]  ·  destino: {list.Destination}"
+                + (same ? "  · mismo destino" : string.Empty));
+            if (list == _activeList && sameDestination) preferred = option;
             if (!same)
             {
-                AddOption(list, true,
-                    $"Añadir a «{list.DisplayName}» con el destino detectado (cambiar destino a: {detectedDestination})");
+                AddOption(list,
+                    $"Añadir a «{list.DisplayName}» cambiando su destino a: {detectedDestination}");
             }
         }
+
+        // UNA SOLA MARCA, y siempre después de que todas tengan padre.
+        foreach (var rb in choices) rb.Checked = false;
+        (preferred ?? newOption).Checked = true;
+
+        // VENTANA A MEDIDA: alto = texto de arriba + una fila por opción + los botones.
+        // Nada de 400 px fijos para enseñar dos líneas.
+        var optionsHeight = Math.Min(choices.Count * 36 + 16, 340);
+        dlg.ClientSize = new Size(560, 56 + optionsHeight + 52);
 
         var buttons = new FlowLayoutPanel
         {
@@ -2817,17 +3594,11 @@ public sealed partial class MainForm : Form
             AutoSizeMode = AutoSizeMode.GrowAndShrink,
         };
 
-        var cancel = new Button { Text = "Cancelar", Width = 96, Height = 32, DialogResult = DialogResult.Cancel };
-        var add = new Button
-        {
-            Text = $"Añadir a «{(chosen?.DisplayName ?? "la lista")}»",
-            Width = 220, Height = 32,
-            BackColor = _palette.Accent,
-            ForeColor = Color.White,
-            FlatStyle = FlatStyle.Flat,
-            Font = new Font("Segoe UI", 9f, FontStyle.Bold),
-        };
-        add.FlatAppearance.BorderSize = 0;
+        var cancel = Ui.DialogButton("Cancelar", _palette);
+        cancel.Width = 110;
+        cancel.DialogResult = DialogResult.Cancel;
+        var add = Ui.DialogButton($"Añadir a «{(chosen?.DisplayName ?? "la lista")}»", _palette, primary: true);
+        add.Width = 230;
         // El botón dice exactamente lo que va a pasar, para no dejar dudas entre «lista
         // actual» y «lista nueva».
         void SyncAddButton()
@@ -2853,7 +3624,26 @@ public sealed partial class MainForm : Form
         host.Controls.Add(buttons, 0, 2);
         dlg.Controls.Add(host);
 
-        if (dlg.ShowDialog(this) != DialogResult.OK) return null;
+        // Si XoPy estaba en la bandeja hay que sacarlo: un cuadro de diálogo colgando de una
+        // ventana oculta es justo lo que hace que parezca que el pegado «no hizo nada».
+        if (!Visible || WindowState == FormWindowState.Minimized)
+        {
+            try { RestoreWindow(); } catch { }
+        }
+
+        // Este cuadro se construye a mano (no hereda de los de Dialogs.cs): hay que pedirle
+        // a Windows la barra de título oscura y repasar los colores igual que en los demás.
+        dlg.HandleCreated += (_, _) => Ui.DarkFrame(dlg, _palette);
+        dlg.Shown += (_, _) =>
+        {
+            Ui.PaintAll(dlg, _palette);
+            Ui.DarkScrollbars(dlg, _palette);
+        };
+        using (dlg)
+        using (optionTips)
+        {
+            if (dlg.ShowDialog(this) != DialogResult.OK) return null;
+        }
         var target = chosen ?? _activeList;
         if (target is null) return null;
         if (!_lists.Contains(target)) _lists.Add(target);
@@ -2886,15 +3676,19 @@ public sealed partial class MainForm : Form
         var validDetected = !string.IsNullOrWhiteSpace(detectedDestination)
             && Directory.Exists(detectedDestination);
 
-        // SIEMPRE se pregunta qué hacer al añadir archivos desde fuera (arrastrar, pegar,
-        // menú contextual), como TeraCopy: añadir a la lista actual, abrir una lista NUEVA o
-        // cancelar. Antes solo se preguntaba con 2+ listas y, con una sola, los archivos se
-        // apilaban al final sin avisar. La excepción es que la lista activa esté VACÍA: no
-        // tiene sentido preguntar si no hay nada que conservar.
+        // PEGAR EMPIEZA SOLO. De fábrica no se enseña ningún cuadro al recibir archivos de
+        // fuera (pegado, menú del Explorador, segunda instancia): XoPy elige la lista por su
+        // cuenta y arranca. Ese «paso intermedio» era justo lo que el usuario no quería.
+        // Quien prefiera decidir cada vez marca «Preguntar al pegar…» en Preferencias.
         var activeListEmpty = _activeList is null || _activeList.Items.Count == 0;
-        if (!activeListEmpty && (_lists.Count >= 1 || validDetected))
+        // En modo captura no se abre ningún cuadro: bloquearía la generación de la imagen.
+        // En modo captura no se toca la lista activa: la imagen tiene que salir con los
+        // archivos que se le han pasado, no con una lista nueva vacía.
+        if (!activeListEmpty && !_startupRequest.Screenshot && (_lists.Count >= 1 || validDetected))
         {
-            var decision = AskListDecision(files, detectedDestination!, move);
+            var decision = _settings.AskWhenPasting
+                ? AskListDecision(files, detectedDestination!, move)
+                : AutoListDecision(detectedDestination ?? string.Empty);
             if (decision is null) return;
             target = decision.Value.List;
             changeDestination = decision.Value.ChangeDestination;
@@ -2906,13 +3700,6 @@ public sealed partial class MainForm : Form
             changeDestination = true;
         }
 
-        if (target != _activeList && _engine.IsRunning)
-        {
-            SetStatus("Transferencia en curso: los archivos se añaden a la lista activa.");
-            target = _activeList;
-            changeDestination = false;
-        }
-
         SwitchToList(target);
         if (changeDestination && !string.IsNullOrEmpty(resolvedDestination) && target is not null)
         {
@@ -2921,18 +3708,59 @@ public sealed partial class MainForm : Form
             UpdateTargetTab();
         }
 
-        // El destino ya lo eligió el Explorer/--to: no se vuelve a preguntar.
+        // El destino ya lo eligió el Explorer/--to: no se vuelve a preguntar. Pero si los
+        // archivos llegan ARRASTRADOS a la ventana no hay destino ninguno, y entonces sí hay
+        // que preguntar a dónde van antes de empezar a copiar (defecto: se copiaba a la
+        // carpeta de la lista anterior sin decir nada).
+        var needsFolder = !validDetected
+            && target is not null
+            && string.IsNullOrWhiteSpace(target.Destination)
+            && !_startupRequest.Screenshot;
         await AddPathsAsync(files, askDestination: false);
+        if (needsFolder && _activeList is { } pending && string.IsNullOrWhiteSpace(pending.Destination))
+        {
+            PromptDestinationForList(pending, sayNothingIfCancelled: true);
+            if (string.IsNullOrWhiteSpace(pending.Destination))
+            {
+                SetStatus("Archivos añadidos. Elige la carpeta de destino y pulsa Copiar.");
+                return;
+            }
+        }
 
         // En modo captura solo se rellena la lista para la imagen: no se abre el selector de
         // carpeta ni se arranca una copia (eso bloqueaba la captura y salía vacía).
         if (_startupRequest.Screenshot) return;
+
+        var operation = move ? OperationType.Move : OperationType.Copy;
         if (!_engine.IsRunning)
-            StartTransfer(move ? OperationType.Move : OperationType.Copy);
+        {
+            StartTransfer(operation);
+        }
+        else if (target is not null && target != _runningList)
+        {
+            // Ya hay una copia en marcha y esto es una lista NUEVA: se pone a esperar turno y
+            // arranca sola al terminar la de delante. Sin preguntar otra vez: la elección ya
+            // se hizo en el cuadro anterior.
+            target.Queued = true;
+            target.QueuedOperation = operation;
+            UpdateJobs();
+            SetStatus($"«{target.DisplayName}» esperará turno: empezará al terminar la copia actual.");
+        }
+        else
+        {
+            _followUpOperation = operation;
+            SetStatus("Se copiarán en cuanto termine la transferencia en curso.");
+        }
     }
 
     private void PromptDestinationAndStart(OperationType operation)
     {
+        // Si la ventana está en la bandeja, se saca antes de preguntar la carpeta.
+        if (!Visible || WindowState == FormWindowState.Minimized)
+        {
+            try { RestoreWindow(); } catch { }
+        }
+
         // Siempre se abre el selector vacío: nunca se propone una carpeta guardada ni
         // Descargas, que es el «destino prefijado» que el usuario no quiere.
         var verb = operation == OperationType.Move ? "mover" : "copiar";
@@ -2979,12 +3807,15 @@ public sealed partial class MainForm : Form
 
         var move = ShellPasteHook.ClipboardIsCut();
 
-        // Se pregunta igual que al arrastrar (lista actual vs. lista nueva), pero solo si la
-        // lista activa ya tiene algo: si está vacía no hay nada que conservar.
+        // Igual que al arrastrar: si la lista activa ya tiene algo hay que decidir dónde van
+        // los archivos nuevos. De fábrica lo decide XoPy solo (sin cuadro) y la copia
+        // arranca; solo pregunta si está marcado «Preguntar al pegar…» en Preferencias.
         if (!string.IsNullOrWhiteSpace(destination) && Directory.Exists(destination)
             && _activeList is not null && _activeList.Items.Count > 0)
         {
-            var decision = AskListDecision(files, destination, move);
+            var decision = _settings.AskWhenPasting
+                ? AskListDecision(files, destination, move)
+                : AutoListDecision(destination);
             if (decision is null) return;
             SwitchToList(decision.Value.List);
             if (decision.Value.ChangeDestination)

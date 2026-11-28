@@ -38,6 +38,23 @@ internal static class Program
             Log("2. ApplicationConfiguration.Initialize");
             ApplicationConfiguration.Initialize();
 
+            // MODO OSCURO DE WINDOWS PARA LAS PARTES QUE PINTA EL SISTEMA. Las barras de
+            // desplazamiento, los menús nativos y los bordes internos los dibuja Windows,
+            // y salen BLANCOS mientras la aplicación no diga que prefiere el modo oscuro.
+            // Es la franja blanca que asomaba a la derecha de las opciones avanzadas.
+            // La función no tiene nombre público (solo número de orden), así que puede no
+            // existir en Windows antiguos: por eso va envuelta en su try.
+            // Solo si el usuario tiene puesto el tema oscuro (el de fábrica): con el tema
+            // claro, unas barras negras quedarían igual de mal que las blancas de ahora.
+            Log("2b. Modo oscuro del sistema");
+            try
+            {
+                var darkTheme = true;
+                try { darkTheme = new SettingsStore().Load().DarkTheme; } catch { }
+                if (darkTheme) NativeTheme.PreferDarkMode();
+            }
+            catch { }
+
             Log("3. SetUnhandledExceptionMode");
             Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
 
@@ -46,7 +63,15 @@ internal static class Program
             {
                 Log("6. ThreadException: " + e.Exception.GetType().Name + " - " + e.Exception.Message);
                 try { File.AppendAllText(_logPath, e.Exception.ToString() + "\n"); } catch { }
-                try { MessageBox.Show("XoPy error: " + e.Exception.Message, "XoPy", MessageBoxButtons.OK, MessageBoxIcon.Error); } catch { }
+                try { FileLog.Write("FALLO en la ventana: " + e.Exception); } catch { }
+                // NADA DE CUADROS MODALES AQUÍ. Un cuadro de error se queda esperando una
+                // respuesta y, mientras tanto, la ventana no atiende a nadie: el motor de
+                // copia, que necesita la ventana para preguntar y para pintar el avance, se
+                // queda clavado y la copia parece «lentísima» o parada del todo (pasaba con
+                // dos cuadros apilados detrás de la ventana). El fallo se anota en el
+                // registro y se avisa en la barra de estado, sin detener la copia.
+                try { MainForm.Current?.ReportBackgroundError(e.Exception); }
+                catch { }
             };
 
             Log("5. UnhandledException handler");
@@ -72,7 +97,14 @@ internal static class Program
             var mutex = new Mutex(true, Ipc.MutexName, out var isFirstInstance);
 
             Log("10. Verificar primera instancia");
-            if (!isFirstInstance)
+            // --multi: ventana aparte a propósito. Pasar por el IPC aquí era el fallo de
+            // «copiar a la vez»: la petición acababa en la ventana que ya estaba copiando,
+            // que añadía los archivos al final de SU lista y no abría nada.
+            if (!isFirstInstance && request.SeparateWindow)
+            {
+                Log("10b. --multi: se abre una ventana aparte sin tocar la instancia abierta");
+            }
+            else if (!isFirstInstance)
             {
                 Log("11. No es primera instancia, intentar IPC");
                 // Se espera un poco al servidor: si la primera instancia aún está arrancando,
@@ -103,7 +135,9 @@ internal static class Program
             using var form = new MainForm(request);
 
             Log("14. Iniciar IpcServer");
-            IpcServer.Start(form);
+            // La ventana aparte NO escucha: la tubería es de uno en uno y, si la robara,
+            // los pegados del Explorador dejarían de llegar a la ventana principal.
+            if (isFirstInstance || !request.SeparateWindow) IpcServer.Start(form);
 
             Log("15. Application.Run");
             Application.Run(form);

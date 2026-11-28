@@ -12,14 +12,19 @@ namespace XoPy;
 public sealed partial class MainForm
 {
     private readonly Font _headerFont = new("Segoe UI", 8.5f, FontStyle.Bold);
-    private readonly Font _glyphFont = new("Segoe MDL2 Assets", 11f, FontStyle.Regular, GraphicsUnit.Pixel);
-    private readonly Font _chevronFont = new("Segoe MDL2 Assets", 9f, FontStyle.Regular, GraphicsUnit.Pixel);
+    private readonly Font _glyphFont = new(Icons.IconFamily, 11f, FontStyle.Regular, GraphicsUnit.Pixel);
+    private readonly Font _chevronFont = new(Icons.IconFamily, 9f, FontStyle.Regular, GraphicsUnit.Pixel);
     private readonly Font _percentFont = new("Segoe UI", 8f, FontStyle.Bold);
+    // Las dos fuentes del botón de multihilo, creadas UNA vez: generarlas en cada cambio de
+    // estado era una fuga de recursos GDI (el mismo fallo que ya costó dos rondas).
+    private readonly Font _barFont = new("Segoe UI", 8.75f, FontStyle.Regular);
+    private readonly Font _barFontBold = new("Segoe UI", 8.75f, FontStyle.Bold);
     private readonly Font _smallFont = new("Segoe UI", 8.25f);
     private readonly Font _monoFont = new("Consolas", 8.25f);
 
     private Label _targetPathLabel = null!;
     private Panel _optionsScroll = null!;
+    private Panel _statusScroll = null!;
     private bool _syncingOptions;
     private List<HistoryEntry> _history = new();
 
@@ -27,9 +32,8 @@ public sealed partial class MainForm
 
     private Control BuildFilesPage()
     {
-        // Estilo TeraCopy 4: encima de la lista, un bloque de tres filas con la etiqueta en
-        // una cajita a la izquierda y el valor a la derecha. Es lo que hace que la ventana
-        // se reconozca al instante como TeraCopy, en lugar de solo una tabla suelta.
+        // Pestaña «Lista de archivos»: SOLO la lista. Todo lo que antes iba encima (origen,
+        // destino, archivo en curso, totales) ya está una única vez en la cabecera o en el pie.
         var page = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -39,90 +43,14 @@ public sealed partial class MainForm
             Padding = new Padding(0),
             Margin = new Padding(0)
         };
-        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 58));
+        // FUERA el bloque «Origen / Destino» que iba encima de la lista: la cabecera de la
+        // ventana ya muestra el archivo en curso y la carpeta de destino, y tenerlo dos veces
+        // era justo lo que el usuario señalaba («destino sigue apareciendo dos veces»).
+        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 0));
         page.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        page.Controls.Add(BuildMetaBlock(), 0, 0);
         page.Controls.Add(BuildListShell(), 0, 1);
         return page;
     }
-
-    /// <summary>
-    /// Resumen de la lista. Antes repetía «Origen» y «Destino» que ya están en la cabecera de
-    /// progreso (por eso salían duplicados) y una fila «Filtro · Todos los archivos» que no
-    /// hacía nada. Ahora solo lo que aporta: cuántos archivos hay y a dónde van.
-    /// </summary>
-    private Control BuildMetaBlock()
-    {
-        var block = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            ColumnCount = 3,
-            RowCount = 2,
-            BackColor = _palette.Surface,
-            Padding = new Padding(8, 5, 8, 3),
-            Margin = new Padding(0)
-        };
-        block.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 96));
-        block.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        block.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 96));
-        for (var i = 0; i < 2; i++) block.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
-
-        // Esta fila mostraba «N archivos listos para copiar», que es exactamente lo que ya
-        // dice el pie y la barra de estado. Ahora muestra el ORIGEN, que no estaba en
-        // ninguna otra parte de la ventana (y es el par natural de «Destino»).
-        block.Controls.Add(MetaTag("Origen"), 0, 0);
-        _metaFilter = MetaValue("Sin origen");
-        block.Controls.Add(_metaFilter, 1, 0);
-        _metaCount = MetaValue("0 archivo(s)");
-        _metaCount.TextAlign = ContentAlignment.MiddleRight;
-        _metaCount.ForeColor = _palette.Muted;
-        block.Controls.Add(_metaCount, 2, 0);
-
-        block.Controls.Add(MetaTag("Destino"), 0, 1);
-        _metaDestination = MetaValue("Sin destino: elige una carpeta");
-        block.Controls.Add(_metaDestination, 1, 1);
-        _metaDestinationSize = MetaValue(string.Empty);
-        _metaDestinationSize.TextAlign = ContentAlignment.MiddleRight;
-        _metaDestinationSize.ForeColor = _palette.Muted;
-        block.Controls.Add(_metaDestinationSize, 2, 1);
-
-        // Campos que usa el resto del código; se mantienen para no romper el resumen.
-        _metaOrigin = MetaValue(string.Empty);
-        _metaOriginSize = MetaValue(string.Empty);
-        _metaOrigin.Visible = false;
-        _metaOriginSize.Visible = false;
-        return block;
-    }
-
-    /// <summary>Etiqueta pequeña en caja, como «Origen» o «Destino» de TeraCopy.</summary>
-    private Control MetaTag(string text)
-    {
-        var tag = new Label
-        {
-            Text = text,
-            AutoSize = false,
-            Dock = DockStyle.Fill,
-            TextAlign = ContentAlignment.MiddleCenter,
-            ForeColor = _palette.Muted,
-            BackColor = _palette.Raised,
-            Font = new Font("Segoe UI", 8f),
-            Margin = new Padding(0, 3, 8, 3)
-        };
-        return tag;
-    }
-
-    private Label MetaValue(string text) => new()
-    {
-        Text = text,
-        AutoSize = false,
-        Dock = DockStyle.Fill,
-        TextAlign = ContentAlignment.MiddleLeft,
-        ForeColor = _palette.Text,
-        Font = new Font("Segoe UI", 8.75f),
-        AutoEllipsis = true,
-        UseMnemonic = false,
-        Margin = new Padding(0, 3, 8, 3)
-    };
 
     // ---------------------------------------------------------------- pestaña: destino
 
@@ -169,13 +97,13 @@ public sealed partial class MainForm
             Margin = new Padding(0)
         };
         var change = Ui.ToolButton("Cambiar…", Icons.Folder, _palette);
-        change.Size = new Size(112, 30);
+        Ui.Fit(change, 112, 30);
         change.Click += (_, _) => BrowseDestination();
         var open = Ui.ToolButton("Abrir", Icons.Open, _palette);
-        open.Size = new Size(96, 30);
+        Ui.Fit(open, 96, 30);
         open.Click += (_, _) => OpenFolder(_destination.Text.Trim());
         var save = Ui.ToolButton("Añadir a favoritos", Icons.Star, _palette);
-        save.Size = new Size(148, 30);
+        Ui.Fit(save, 148, 30);
         save.Click += (_, _) => AddFavorite();
         actions.Controls.AddRange(new Control[] { change, open, save });
 
@@ -289,16 +217,19 @@ public sealed partial class MainForm
         var title = Ui.Label("Opciones de la transferencia", _palette, 11f, true);
         AddWideRow(grid, title, 30);
 
+        // Las opciones dicen lo MISMO que los botones de la ventana de conflicto: antes aquí
+        // ponía «Sobrescribir / Omitir / Cambiar el nombre» y allí «Reemplazar / No copiar
+        // este / Quedarme con los dos», y parecían cosas distintas.
         _optConflict = new ChoiceButton(_palette, new[]
         {
             "Preguntar siempre",
-            "Sobrescribir",
-            "Omitir los existentes",
-            "Cambiar el nombre",
-            "Sobrescribir si el original es más reciente",
-            "Sobrescribir si el original es más pequeño"
+            "Reemplazar siempre",
+            "No copiar los repetidos",
+            "Quedarme con los dos",
+            "Reemplazar si el que copio es más nuevo",
+            "Reemplazar si el que copio es más pequeño"
         }, (int)_settings.Conflict);
-        AddRow(grid, "Si el destino ya existe:", _optConflict, 36, "Preguntar muestra un cuadro con Sobrescribir, Omitir, Cambiar nombre y la opción de aplicarlo a todos.");
+        AddRow(grid, "Si el destino ya existe:", _optConflict, 36, "«Preguntar» abre la ventana de conflicto, que compara los dos archivos.");
 
         _optError = new ChoiceButton(_palette, new[]
         {
@@ -334,7 +265,7 @@ public sealed partial class MainForm
             Width = 110, Font = new Font("Segoe UI", 9f)
         };
         Ui.StyleNumeric(_optBuffer, _palette);
-        AddRow(grid, "Búfer por archivo (KB):", _optBuffer, 32, "4096 KB (4 MB) es el valor recomendado con 24 GB de RAM; 1024 KB para equipos modestos.");
+        AddRow(grid, "Búfer por archivo (KB):", _optBuffer, 32, "4096 KB (4 MB) es lo recomendado; 1024 KB para equipos modestos.");
 
         _optRetries = new NumericUpDown
         {
@@ -379,7 +310,7 @@ public sealed partial class MainForm
             (int)_settings.Engine);
         _optEngine.SelectedIndexChanged += (_, _) => SaveQuickOptions();
         AddRow(grid, "Motor de copia:", _optEngine, 36,
-            "Nativo usa CopyFileEx de Windows. Robocopy va mejor con miles de archivos, redes y rutas largas. Administrado es el más compatible.");
+            "Nativo usa CopyFileEx. Robocopy va mejor con miles de archivos y redes. Administrado es el más compatible.");
 
         _optSecurePasses = new NumericUpDown
         {
@@ -388,7 +319,7 @@ public sealed partial class MainForm
         };
         Ui.StyleNumeric(_optSecurePasses, _palette);
         AddRow(grid, "Pasadas de borrado seguro:", _optSecurePasses, 32,
-            "0 borra de forma normal. Con 1 o 3 se sobrescribe el contenido antes de eliminar (no funciona en unidades de red).");
+            "0 borra de forma normal. Con 1 o 3 se sobrescribe el contenido antes de borrarlo (no vale en red).");
 
         var scriptPanel = new TableLayoutPanel
         {
@@ -411,12 +342,12 @@ public sealed partial class MainForm
             Margin = new Padding(0, 0, 8, 0)
         };
         var pickScript = Ui.ToolButton("Examinar…", Icons.Folder, _palette);
-        pickScript.Size = new Size(96, 28);
+        Ui.Fit(pickScript, 96, 28);
         pickScript.Click += (_, _) => PickCompletionScript();
         scriptPanel.Controls.Add(_optScript, 0, 0);
         scriptPanel.Controls.Add(pickScript, 1, 0);
         AddRow(grid, "Script al finalizar:", scriptPanel, 32,
-            "Se ejecuta al terminar y recibe: carpeta de destino, número de errores y operación. Admite .ps1, .bat, .cmd o .exe.");
+            "Recibe la carpeta de destino, los errores y la operación. Admite .ps1, .bat, .cmd o .exe.");
 
         var extraPanel = new TableLayoutPanel
         {
@@ -446,10 +377,10 @@ public sealed partial class MainForm
             Margin = new Padding(0, 4, 0, 0)
         };
         var addExtra = Ui.ToolButton("Añadir destino…", Icons.FolderAdd, _palette);
-        addExtra.Size = new Size(144, 26);
+        Ui.Fit(addExtra, 144, 26);
         addExtra.Click += (_, _) => AddExtraDestination();
         var removeExtra = Ui.ToolButton("Quitar", Icons.Remove, _palette);
-        removeExtra.Size = new Size(84, 26);
+        Ui.Fit(removeExtra, 84, 26);
         removeExtra.Click += (_, _) => RemoveExtraDestination();
         extraButtons.Controls.AddRange(new Control[] { addExtra, removeExtra });
         extraPanel.Controls.Add(_extraDestinations, 0, 0);
@@ -471,10 +402,10 @@ public sealed partial class MainForm
             Margin = new Padding(0, 8, 0, 0)
         };
         var all = Ui.ToolButton("Todas las preferencias…", Icons.Settings, _palette, _palette.Accent);
-        all.Size = new Size(196, 34);
+        Ui.Fit(all, 196, 34);
         all.Click += (_, _) => ShowOptions();
         var save = Ui.ToolButton("Guardar", Icons.Save, _palette);
-        save.Size = new Size(104, 34);
+        Ui.Fit(save, 104, 34);
         save.Click += (_, _) => SaveQuickOptions();
         buttons.Controls.AddRange(new Control[] { all, save });
         AddWideRow(grid, buttons, 46);
@@ -583,10 +514,11 @@ public sealed partial class MainForm
         var hintRow = grid.RowStyles.Count;
         grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 20));
         grid.RowCount = hintRow + 1;
-        var hintLabel = new Label
+        // Una sola línea: la fila mide 20 px y un Label normal parte el texto en dos
+        // renglones, así que la segunda mitad de la frase se quedaba fuera.
+        var hintLabel = new Ui.OneLineLabel
         {
             Text = hint,
-            AutoSize = false,
             Dock = DockStyle.Fill,
             ForeColor = _palette.Muted,
             BackColor = Color.Transparent,
@@ -666,31 +598,40 @@ public sealed partial class MainForm
 
     private Control BuildStatusPage()
     {
-        var page = new TableLayoutPanel
+        // Igual que la pestaña Opciones: el contenido tiene su alto natural y, si la ventana
+        // es pequeña, la pestaña se desplaza. Repartir el hueco a porcentajes dejaba las
+        // filas de la tabla en 14 px y los rótulos se montaban unos encima de otros.
+        _statusScroll = new Panel
         {
             Dock = DockStyle.Fill,
-            ColumnCount = 1,
-            RowCount = 9,
+            AutoScroll = true,
             BackColor = _palette.Surface,
             Padding = new Padding(16, 10, 16, 8)
         };
+        var scroll = _statusScroll;
+
+        var page = new TableLayoutPanel
+        {
+            Dock = DockStyle.Top,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            ColumnCount = 1,
+            RowCount = 6,
+            BackColor = _palette.Surface,
+            Padding = new Padding(0)
+        };
+        page.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         page.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));
         page.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
-        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
-        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
-        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 20));
-        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));
-        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
-        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 110));
+        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
+        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
+        page.RowStyles.Add(new RowStyle(SizeType.Absolute, 109));
         page.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
 
         var title = Ui.Label("Estado de la transferencia", _palette, 11f, true);
         title.Anchor = AnchorStyles.Left;
 
         _stOperation = StatusLine();
-        _stSource = StatusLine();
-        _stTarget = StatusLine();
-        _stTotals = StatusLine();
 
         var progressRow = new TableLayoutPanel
         {
@@ -716,7 +657,6 @@ public sealed partial class MainForm
 
         _stSpeed = StatusLine();
         _stEta = StatusLine();
-        _stErrors = StatusLine();
 
         var speedRow = new TableLayoutPanel
         {
@@ -734,24 +674,22 @@ public sealed partial class MainForm
 
         var categories = BuildCategoryGrid();
 
-        var hint = Ui.Label("Los hashes de cada archivo están en la pestaña Lista de archivos. El registro completo se guarda en %LOCALAPPDATA%\\XoPy\\transfer.log.",
+        var hint = Ui.OneLine("Los hashes están en la pestaña Lista de archivos; el registro, en %LOCALAPPDATA%\\XoPy\\transfer.log.",
             _palette, 8.5f, false, _palette.Muted);
         hint.Dock = DockStyle.Fill;
-        hint.AutoSize = false;
-        hint.AutoEllipsis = true;
         hint.TextAlign = ContentAlignment.MiddleLeft;
         hint.Margin = new Padding(0, 4, 0, 0);
 
+        // «Origen» y «Destino» NO están en esta pestaña: salen ya en la cabecera de la
+        // ventana, que está siempre a la vista. Eran dos de los datos repetidos.
         page.Controls.Add(title, 0, 0);
         page.Controls.Add(_stOperation, 0, 1);
-        page.Controls.Add(_stSource, 0, 2);
-        page.Controls.Add(_stTarget, 0, 3);
-        page.Controls.Add(_stTotals, 0, 4);
-        page.Controls.Add(progressRow, 0, 5);
-        page.Controls.Add(speedRow, 0, 6);
-        page.Controls.Add(categories, 0, 7);
-        page.Controls.Add(hint, 0, 8);
-        return page;
+        page.Controls.Add(progressRow, 0, 2);
+        page.Controls.Add(speedRow, 0, 3);
+        page.Controls.Add(categories, 0, 4);
+        page.Controls.Add(hint, 0, 5);
+        scroll.Controls.Add(page);
+        return scroll;
     }
 
     private Control BuildCategoryGrid()
@@ -777,7 +715,7 @@ public sealed partial class MainForm
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 22));
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 22));
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 16));
-        for (var row = 0; row < 5; row++) grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 20));
+        for (var row = 0; row < 5; row++) grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 21));
 
         var headers = new[] { "Categoría", "Archivos", "Bytes", "Tiempo" };
         for (var column = 0; column < 4; column++)
@@ -817,7 +755,14 @@ public sealed partial class MainForm
         if (_hdrCopyState is null) return;
 
         var running = _engine.IsRunning;
-        var stateText = running
+        // LA COPIA PARADA ESPERANDO UNA RESPUESTA SE DICE. Mientras hay un cuadro abierto
+        // (un conflicto o un error) el motor no toca el disco: el archivo en curso se
+        // quedaba clavado con «0 B/s» y «quedan 00:00» y parecía que XoPy se hubiera
+        // colgado. Ahora la píldora lo dice y el renglón explica qué hacer.
+        var waiting = running && _engine.IsWaitingForUser;
+        var stateText = waiting
+            ? "Esperando"
+            : running
             ? _lastOperation switch
             {
                 OperationType.Move => "Moviendo",
@@ -848,6 +793,10 @@ public sealed partial class MainForm
         // En la cabecera «Copiando» solo va el AVANCE (archivos terminados y tiempo que
         // queda). El total de archivos, el tamaño y el porcentaje ya están en el pie y en la
         // barra: repetirlos aquí era el duplicado de la captura 18.
+        else if (waiting)
+        {
+            _hdrCopyInfo.Text = "Contesta al aviso";
+        }
         else if (running && _engine.IsPaused)
         {
             _hdrCopyInfo.Text = "En pausa";
@@ -863,11 +812,24 @@ public sealed partial class MainForm
         {
             _hdrCopyInfo.Text = string.Empty;
         }
-        _hdrCopyBar.Value = percent;
-        _hdrCopyPercent.Text = leaves.Count == 0 ? "—" : $"{percent:0.0} %";
-        _hdrCopyBar.FillColor = _items.Any(item => item.State == ItemState.Failed) && !running ? _palette.Warning : _palette.Accent;
+        // PRIMERA LÍNEA = EL ARCHIVO EN CURSO. Su número y su barra son los del archivo que
+        // se está copiando ahora mismo, no los del total (el total va en la línea de abajo).
+        var fileNow = runningLeaf is { SizeBytes: > 0 }
+            ? Math.Clamp(runningLeaf.TransferredBytes * 100d / runningLeaf.SizeBytes, 0, 100)
+            : runningLeaf is not null ? 0 : 0;
+        _hdrFileBar.Value = running ? fileNow : 0;
+        // AZUL DE VERDAD, PERO MÁS APAGADO QUE EL DEL TOTAL. Con el azul casi negro de
+        // antes (#1F3D5C) el avance del archivo no se veía sobre la pista gris: parecía
+        // que XoPy no lo enseñaba. Ahora es un azul intermedio: se distingue de un
+        // vistazo y sigue sin competir con la barra grande de la copia entera.
+        _hdrFileBar.FillColor = Blend(_palette.Accent, _palette.AccentSoft, 0.35);
+        _hdrCopyPercent.Text = running && runningLeaf is not null ? $"{fileNow:0.0} %" : "—";
+        if (running && runningLeaf is { SizeBytes: > 0 })
+            _hdrCopyInfo.Text = $"{Format.Bytes(runningLeaf.TransferredBytes)} de {Format.Bytes(runningLeaf.SizeBytes)}"
+                                + (_engine.IsPaused ? "  ·  en pausa"
+                                    : waiting ? "  ·  esperando tu respuesta" : string.Empty);
 
-        _hdrTargetState.Text = "Destino";
+        _hdrTargetState.Text = "Total";
         if (_hdrTargetState is PillLabel pillTarget)
             pillTarget.Accent = running && !string.IsNullOrWhiteSpace(_destination.Text) ? _palette.AccentSoft : _palette.Raised;
         // Fila de en medio: la CARPETA REAL de destino del archivo en curso, no la raíz.
@@ -888,29 +850,102 @@ public sealed partial class MainForm
         var extras = _settings.ExtraDestinations.Count;
         _hdrTargetPath.Text = extras > 0 ? $"{destination}  (+{extras})" : destination;
 
-        if (running && _engine.IsPaused)
+        // CUÁNTOS ARCHIVOS VAN. Va en la línea «Total», que se ve en los dos modos: en la
+        // ventana reducida la lista está escondida y el pie no existe, así que este era el
+        // único sitio donde mirar cuánto queda por copiar.
+        var doneFiles = leaves.Count(item => item.State is ItemState.Completed or ItemState.Skipped);
+        var leftFiles = Math.Max(0, leaves.Count - doneFiles);
+        var leftBytes = Math.Max(0, total - done);
+        // CUÁNTOS VAN Y CUÁNTOS FALTAN, EN ARCHIVOS Y EN TAMAÑO, MÁS LA VELOCIDAD Y EL
+        // TIEMPO QUE QUEDA. Todo eso en una sola línea no cabe en la ventana reducida, así
+        // que se preparan tres versiones del mismo dato —larga, media y corta— y se usa la
+        // más completa que QUEPA de verdad en el hueco que hay (ver AjustarAlAncho).
+        string largo, medio, corto;
+        if (leaves.Count == 0 && total == 0)
         {
-            _hdrTargetInfo.Text = "En pausa · 0 B/s";
+            largo = medio = corto = string.Empty;
+        }
+        else
+        {
+            var files = leaves.Count > 0;
+            largo = (files ? $"{doneFiles} de {Format.Files(leaves.Count)} · faltan {leftFiles}" : string.Empty)
+                    + (files && total > 0 ? "  ·  " : string.Empty)
+                    + (total > 0 ? $"{Format.Bytes(done)} de {Format.Bytes(total)} · faltan {Format.Bytes(leftBytes)}" : string.Empty);
+            medio = (files ? $"{doneFiles}/{leaves.Count} · faltan {leftFiles}" : string.Empty)
+                    + (files && total > 0 ? "  ·  " : string.Empty)
+                    + (total > 0 ? $"{Format.Bytes(done)}/{Format.Bytes(total)} · faltan {Format.Bytes(leftBytes)}" : string.Empty);
+            corto = (files ? $"{doneFiles}/{leaves.Count}" : string.Empty)
+                    + (files && total > 0 ? " · " : string.Empty)
+                    + (total > 0 ? $"{Format.Bytes(done)}/{Format.Bytes(total)}" : string.Empty);
+        }
+
+        string cola, colaCorta;
+        if (waiting)
+        {
+            // Ni velocidad ni tiempo restante: los dos serían mentira mientras el motor
+            // está parado esperando a que alguien conteste.
+            cola = "parada: hay un aviso esperando respuesta";
+            colaCorta = "esperando";
+        }
+        else if (running && _engine.IsPaused)
+        {
+            cola = colaCorta = "en pausa";
         }
         else if (running)
         {
             var speed = _engine.SpeedBytesPerSecond;
             var remaining = _engine.Remaining;
-            _hdrTargetInfo.Text = speed > 0
-                ? $"{Format.Speed(speed)}  ·  {Format.Duration(_engine.ElapsedIncludingPauses)}  ·  quedan {Format.Duration(remaining)}"
-                : "Calculando la velocidad…";
+            cola = speed > 0 ? $"{Format.Speed(speed)}  ·  quedan {Format.Duration(remaining)}" : "calculando…";
+            colaCorta = speed > 0 ? $"{Format.Speed(speed)} · {Format.Duration(remaining)}" : "…";
         }
         else
         {
-            // Sin velocidad que mostrar no se repite el número de archivos: ya está en el pie.
-            _hdrTargetInfo.Text = string.Empty;
+            cola = colaCorta = string.Empty;
         }
 
-        var filePercent = runningLeaf is { SizeBytes: > 0 }
-            ? Math.Clamp(runningLeaf.TransferredBytes * 100d / runningLeaf.SizeBytes, 0, 100)
-            : 0;
-        _hdrTargetBar.Value = running ? filePercent : 0;
-        _hdrTargetPercent.Text = running ? $"{filePercent:0.0} %" : "—";
+        _hdrTargetInfo.Text = AjustarAlAncho(_hdrTargetInfo,
+            Unir(largo, cola, "  ·  "),
+            Unir(medio, cola, "  ·  "),
+            Unir(medio, colaCorta, " · "),
+            Unir(corto, colaCorta, " · "));
+
+        // SEGUNDA LÍNEA = EL TOTAL de la copia, con su barra justo debajo.
+        _hdrCopyBar.Value = percent;
+        _hdrCopyBar.FillColor = _items.Any(item => item.State == ItemState.Failed) && !running ? _palette.Warning : _palette.Accent;
+        _hdrTargetPercent.Text = leaves.Count == 0 ? "—" : $"{percent:0.0} %";
+    }
+
+    private static string Unir(string head, string tail, string separator) =>
+        head.Length > 0 && tail.Length > 0 ? head + separator + tail
+        : head.Length > 0 ? head : tail;
+
+    /// <summary>
+    /// Elige la versión MÁS COMPLETA del texto que de verdad cabe en el hueco del rótulo.
+    /// La línea «Total» tiene que enseñar archivos, megas, velocidad y tiempo restante, y
+    /// en la ventana reducida eso no cabe entero: en vez de cortarlo con puntos suspensivos
+    /// (que es como se perdía justo el final, el tiempo que queda) se acorta la redacción.
+    /// </summary>
+    private static string AjustarAlAncho(Label label, params string[] options)
+    {
+        if (options.Length == 0) return string.Empty;
+        try
+        {
+            // Hueco real: el ancho de la fila menos la píldora, el porcentaje y un trozo
+            // para la ruta de destino, que también tiene derecho a verse.
+            var row = label.Parent;
+            var available = (row?.ClientSize.Width ?? 0) - 84 - 56 - 24 - 150;
+            if (available <= 80) available = Math.Max(120, (row?.ClientSize.Width ?? 400) - 160);
+            var font = label.Font ?? SystemFonts.DefaultFont;
+            foreach (var option in options)
+            {
+                if (option.Length == 0) continue;
+                var size = TextRenderer.MeasureText(option, font, new Size(int.MaxValue, int.MaxValue),
+                    TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine);
+                if (size.Width <= available) return option;
+            }
+        }
+        catch { }
+        return options[^1];
     }
 
     private void UpdateCategories()
@@ -966,11 +1001,6 @@ public sealed partial class MainForm
         };
         _stOperation.Text = "Operación: " + operationText;
 
-        var first = _items.FirstOrDefault(item => item.Kind is ItemKind.File);
-        _stSource.Text = "Origen: " + (first?.SourcePath ?? "—");
-        _stTarget.Text = "Destino: " + (string.IsNullOrWhiteSpace(_destination.Text) ? "—" : _destination.Text.Trim());
-        var errorCount = _items.Count(item => item.State == ItemState.Failed);
-        _stTotals.Text = $"Total: {Format.Bytes(done)} de {Format.Bytes(total)}  ·  {percent:0.0} %  ·  {errorCount} error(es)";
         _stProgress.Value = percent;
         _stPercent.Text = $"{percent:0.0} %";
         _stProgress.FillColor = _items.Any(item => item.State == ItemState.Failed) && !running ? _palette.Warning : _palette.Accent;
@@ -983,7 +1013,6 @@ public sealed partial class MainForm
             _stSpeed.Text = $"Velocidad: {(speed > 0 ? Format.Speed(speed) : "calculando…")}"
                 + (_engine.IsPaused ? "  ·  en pausa" : string.Empty);
             _stEta.Text = "Tiempo restante: " + (remaining > TimeSpan.Zero ? Format.Duration(remaining) : "—");
-            _stErrors.Text = string.Empty;
         }
         else
         {
@@ -991,7 +1020,6 @@ public sealed partial class MainForm
                 ? $"Última transferencia: {Format.Speed(_sessionBytes / Math.Max(0.1, _sessionElapsed.TotalSeconds))}  ·  {Format.Duration(_sessionElapsed)}"
                 : "Velocidad: —";
             _stEta.Text = "Tiempo restante: —";
-            _stErrors.Text = string.Empty;
         }
     }
 
@@ -1036,12 +1064,18 @@ public sealed partial class MainForm
             BackColor = _palette.Surface
         };
         var refresh = Ui.ToolButton("Actualizar", Icons.Refresh, _palette);
-        refresh.Size = new Size(112, 32);
+        Ui.Fit(refresh, 112, 32);
         refresh.Click += (_, _) => RefreshLog();
         var open = Ui.ToolButton("Abrir el archivo de registro", Icons.Open, _palette);
-        open.Size = new Size(196, 32);
+        Ui.Fit(open, 196, 32);
         open.Click += (_, _) => OpenLogFile();
-        actions.Controls.AddRange(new Control[] { refresh, open });
+        // INFORME PARA MANDAR. Un solo archivo de texto con TODO lo que hace falta para
+        // diagnosticar un fallo sin estar delante del ordenador: versión, Windows, discos,
+        // ajustes, últimas transferencias, errores y el registro técnico completo.
+        var export = Ui.ToolButton("Guardar informe para enviar…", Icons.Save, _palette);
+        Ui.Fit(export, 226, 32);
+        export.Click += (_, _) => ExportDiagnosticReport();
+        actions.Controls.AddRange(new Control[] { refresh, open, export });
 
         page.Controls.Add(title, 0, 0);
         page.Controls.Add(_logBox, 0, 1);
@@ -1067,6 +1101,9 @@ public sealed partial class MainForm
 
     private static string ReadLogTail()
     {
+        // El registro se escribe con búfer: hay que volcarlo antes de leerlo o faltarían
+        // justo las últimas líneas, que son las interesantes.
+        FileLog.Flush();
         try
         {
             var path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "XoPy", "transfer.log");
@@ -1090,8 +1127,253 @@ public sealed partial class MainForm
         }
     }
 
+    /// <summary>
+    /// Guarda un informe completo en un archivo de texto y abre la carpeta donde queda.
+    /// Es el archivo que el usuario puede adjuntar cuando algo falla: lleva el estado del
+    /// programa y el registro, sin tener que buscar nada en %LOCALAPPDATA%.
+    /// </summary>
+    private void ExportDiagnosticReport()
+    {
+        try
+        {
+            // El registro se escribe con búfer: se vuelca para que el informe lleve también
+            // las últimas líneas (las del fallo que se quiere contar).
+            FileLog.Flush();
+            // EL INFORME SE ESCRIBE ANTES DE PREGUNTAR DÓNDE. Así, pase lo que pase con la
+            // carpeta elegida, el texto ya existe y nunca se guarda un archivo de 0 bytes
+            // (al usuario le salió uno vacío porque la escritura se cortó a medias).
+            var contents = BuildDiagnosticReport();
+
+            // La carpeta inicial es la PRIMERA en la que de verdad se puede escribir. Si se
+            // le ofrece el Escritorio y Windows lo tiene protegido (acceso controlado a
+            // carpetas, carpeta de empresa, OneDrive sin permiso), el cuadro de guardar del
+            // sistema suelta su propio aviso «No tiene permisos para guardar en esta
+            // ubicación. ¿Desea guardar en Documents?», que es el que veía el usuario.
+            var folder = FirstWritableFolder(
+                Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
+                Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                _store.DataFolder,
+                Path.GetTempPath());
+            var name = $"XoPy-informe-{DateTime.Now:yyyyMMdd-HHmm}.txt";
+            var target = Path.Combine(folder, name);
+
+            using (var save = new SaveFileDialog
+                   {
+                       Title = "Guardar el informe de XoPy (elige la carpeta que quieras)",
+                       Filter = "Informe de texto (*.txt)|*.txt|Todos los archivos (*.*)|*.*",
+                       FileName = name,
+                       InitialDirectory = folder,
+                       OverwritePrompt = true,
+                       // Sin comprobaciones del cuadro del sistema: la carpeta la elige el
+                       // usuario y los permisos los comprobamos nosotros al escribir, con un
+                       // mensaje que explica qué pasa y ofrece otra carpeta.
+                       CheckPathExists = true,
+                       RestoreDirectory = true,
+                       AddExtension = true,
+                       DefaultExt = "txt"
+                   })
+            {
+                if (save.ShowDialog(this) != DialogResult.OK) return;
+                target = save.FileName;
+            }
+
+            while (true)
+            {
+                if (TryWriteReport(target, contents, out var error))
+                {
+                    FileLog.Write("Informe guardado en " + target);
+                    SetStatus("Informe guardado: " + target);
+                    try { Process.Start(new ProcessStartInfo("explorer.exe", "/select,\"" + target + "\"") { UseShellExecute = true }); }
+                    catch { }
+                    return;
+                }
+
+                // No se pudo escribir ahí: se explica POR QUÉ y se ofrece una salida, en vez
+                // del aviso seco de Windows. La copia de seguridad siempre funciona porque
+                // va a la carpeta de datos del propio programa.
+                var fallbackFolder = Path.Combine(_store.DataFolder, "informes");
+                var fallback = Path.Combine(fallbackFolder, Path.GetFileName(target));
+                var choice = PromptDialog.Ask(this, _palette, "No se pudo guardar ahí",
+                    "Windows no deja escribir en esa carpeta:\n" + target,
+                    error + "\n\n" + AccessHint(Path.GetDirectoryName(target) ?? string.Empty) +
+                    "\n\nPuedes elegir otra carpeta o guardarlo en la carpeta de XoPy:\n" + fallbackFolder,
+                    new[] { "Elegir otra carpeta…", "Guardar en la carpeta de XoPy", "Cancelar" });
+                if (choice == 2) return;
+                if (choice == 1)
+                {
+                    Directory.CreateDirectory(fallbackFolder);
+                    target = fallback;
+                    continue;
+                }
+
+                using var again = new SaveFileDialog
+                {
+                    Title = "Guardar el informe de XoPy",
+                    Filter = "Informe de texto (*.txt)|*.txt|Todos los archivos (*.*)|*.*",
+                    FileName = Path.GetFileName(target),
+                    OverwritePrompt = true,
+                    RestoreDirectory = true,
+                    AddExtension = true,
+                    DefaultExt = "txt"
+                };
+                if (again.ShowDialog(this) != DialogResult.OK) return;
+                target = again.FileName;
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowError("No se pudo guardar el informe: " + ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Escribe el informe COMPLETO o no deja nada: primero se vuelca en un archivo
+    /// temporal de la misma carpeta y después se renombra. Si la escritura se corta a
+    /// medias (permisos, disco lleno, antivirus), el usuario no se queda con un archivo
+    /// de 0 bytes creyendo que tiene el informe.
+    /// </summary>
+    private static bool TryWriteReport(string target, string contents, out string error)
+    {
+        error = string.Empty;
+        var temp = target + ".tmp";
+        try
+        {
+            var folder = Path.GetDirectoryName(target);
+            if (!string.IsNullOrEmpty(folder)) Directory.CreateDirectory(folder);
+            File.WriteAllText(temp, contents, new UTF8Encoding(true));
+            if (new FileInfo(temp).Length <= 0) throw new IOException("El archivo se quedó vacío.");
+            if (File.Exists(target)) File.Delete(target);
+            File.Move(temp, target);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            error = CopyEngine.Describe(ex);
+            try { if (File.Exists(temp)) File.Delete(temp); } catch { }
+            return false;
+        }
+    }
+
+    /// <summary>Primera carpeta de la lista en la que este usuario puede escribir de verdad.</summary>
+    private static string FirstWritableFolder(params string[] candidates)
+    {
+        foreach (var candidate in candidates)
+        {
+            if (string.IsNullOrWhiteSpace(candidate)) continue;
+            if (CopyEngine.CanWriteInFolder(candidate)) return candidate;
+        }
+        return Path.GetTempPath();
+    }
+
+    /// <summary>Pista concreta cuando Windows no deja escribir en una carpeta.</summary>
+    private static string AccessHint(string folder)
+        => CopyEngine.ProtectedFolderHint(folder) ??
+           "Comprueba que la carpeta exista, que la unidad no esté llena ni en solo lectura y que tengas permiso de escritura.";
+
+    private string BuildDiagnosticReport()
+    {
+        var text = new StringBuilder();
+        void Line(string label, object? value) => text.AppendLine($"{label,-26}{value}");
+
+        text.AppendLine("================ INFORME DE XoPy ================");
+        Line("Fecha", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+        Line("Versión de XoPy", typeof(MainForm).Assembly.GetName().Version?.ToString() ?? "?");
+        Line("Programa", Application.ExecutablePath);
+        Line("Windows", Environment.OSVersion.VersionString);
+        Line("64 bits", Environment.Is64BitOperatingSystem);
+        Line("Equipo / usuario", Environment.MachineName + " / " + Environment.UserName);
+        Line("Procesadores", Environment.ProcessorCount);
+        Line("Idioma", System.Globalization.CultureInfo.CurrentUICulture.Name);
+        Line("Administrador", IsRunningAsAdmin());
+        text.AppendLine();
+
+        text.AppendLine("---------------- AJUSTES ----------------");
+        Line("Motor", _settings.Engine);
+        Line("Verificación", _settings.Verify);
+        Line("Copia multihilo", _settings.MultiThreadCopy);
+        Line("Hilos", _settings.Parallelism);
+        Line("Búfer (KiB)", _settings.BufferKiB);
+        Line("Reintentos", _settings.RetryCount);
+        Line("Si el archivo existe", _settings.Conflict);
+        Line("Si hay un error", _settings.OnError);
+        Line("Vista reducida", _settings.CompactView);
+        Line("Sustituye al copiador", _settings.ReplaceWindowsCopier);
+        Line("Cerrar al terminar", _settings.CloseWhenDone);
+        Line("Minimizar a la bandeja", _settings.MinimizeToTray);
+        text.AppendLine();
+
+        text.AppendLine("---------------- PERMISOS DE ESCRITURA ----------------");
+        Line("Acceso controlado", CopyEngine.ControlledFolderAccessEnabled() ? "ACTIVADO (protección contra ransomware)" : "apagado");
+        foreach (var special in new[]
+                 {
+                     Environment.SpecialFolder.Desktop, Environment.SpecialFolder.MyDocuments,
+                     Environment.SpecialFolder.MyPictures, Environment.SpecialFolder.UserProfile
+                 })
+        {
+            try
+            {
+                var path = Environment.GetFolderPath(special);
+                text.AppendLine($"  {(CopyEngine.CanWriteInFolder(path) ? "escribe  " : "DENEGADO ")}{path}");
+            }
+            catch { }
+        }
+        try
+        {
+            var current = _destination?.Text?.Trim() ?? string.Empty;
+            if (current.Length > 0)
+                text.AppendLine($"  {(CopyEngine.CanWriteInFolder(current) ? "escribe  " : "DENEGADO ")}{current}  (destino actual)");
+        }
+        catch { }
+        text.AppendLine();
+
+        text.AppendLine("---------------- DISCOS ----------------");
+        try
+        {
+            foreach (var drive in DriveInfo.GetDrives())
+            {
+                if (!drive.IsReady) { text.AppendLine($"{drive.Name}  (no disponible)"); continue; }
+                text.AppendLine($"{drive.Name}  {drive.DriveType}  {drive.DriveFormat}  " +
+                                $"libre {Format.Bytes(drive.AvailableFreeSpace)} de {Format.Bytes(drive.TotalSize)}");
+            }
+        }
+        catch (Exception ex) { text.AppendLine("(no se pudieron leer los discos: " + ex.Message + ")"); }
+        text.AppendLine();
+
+        text.AppendLine("---------------- LISTA ACTUAL ----------------");
+        Line("Elementos", _items.Count);
+        Line("Destino", _destination?.Text ?? "—");
+        var failed = _items.Where(item => item.State == ItemState.Failed).ToList();
+        Line("Con error", failed.Count);
+        foreach (var item in failed.Take(200))
+            text.AppendLine($"  ERROR  {item.SourcePath}  ->  {item.DestinationPath}  :  {item.Error}");
+        if (failed.Count > 200) text.AppendLine($"  (… y {failed.Count - 200} más)");
+        text.AppendLine();
+
+        text.AppendLine("---------------- ÚLTIMAS TRANSFERENCIAS ----------------");
+        if (_history.Count == 0) text.AppendLine("(todavía no hay transferencias)");
+        foreach (var entry in _history.Take(60)) text.AppendLine(entry.Summary);
+        text.AppendLine();
+
+        text.AppendLine("---------------- REGISTRO TÉCNICO ----------------");
+        text.AppendLine(ReadLogTail());
+        return text.ToString();
+    }
+
+    private static bool IsRunningAsAdmin()
+    {
+        try
+        {
+            using var identity = System.Security.Principal.WindowsIdentity.GetCurrent();
+            return new System.Security.Principal.WindowsPrincipal(identity)
+                .IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator);
+        }
+        catch { return false; }
+    }
+
     private void OpenLogFile()
     {
+        FileLog.Flush();
         var path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "XoPy", "transfer.log");
         try
         {
@@ -1110,19 +1392,27 @@ public sealed partial class MainForm
 
     // ---------------------------------------------------------------- pestañas
 
+    // Las dos fuentes de las pestañas se crean UNA vez: antes se creaba una por pestaña en
+    // cada cambio y no se liberaba ninguna (el mismo agotamiento de recursos de GDI que ya
+    // se corrigió en el panel de trabajos).
+    private Font? _tabFontActive;
+    private Font? _tabFontIdle;
+
     private void SelectTab(int index)
     {
         if (_pages.Length == 0) return;
         _tabIndex = Math.Clamp(index, 0, _pages.Length - 1);
         for (var i = 0; i < _pages.Length; i++) _pages[i].Visible = i == _tabIndex;
 
+        _tabFontActive ??= new Font("Segoe UI", 9f, FontStyle.Bold);
+        _tabFontIdle ??= new Font("Segoe UI", 9f, FontStyle.Regular);
         var buttons = new[] { _tabFiles, _tabTarget, _tabOptions, _tabStatus, _tabLog };
         for (var i = 0; i < buttons.Length; i++)
         {
             var active = i == _tabIndex;
             buttons[i].ForeColor = active ? _palette.Text : _palette.Muted;
             buttons[i].BackColor = active ? _palette.Surface : _palette.Canvas;
-            buttons[i].Font = new Font("Segoe UI", 9f, active ? FontStyle.Bold : FontStyle.Regular);
+            buttons[i].Font = active ? _tabFontActive : _tabFontIdle;
         }
         _tabFiles.Parent?.Invalidate();
         if (IsHandleCreated) BeginInvoke(new Action(ApplyDarkScrollbars));
@@ -1166,6 +1456,9 @@ public sealed partial class MainForm
     {
         _resizeDebounce.Stop();
         if (IsDisposed || _list is null) return;
+        // Primero el reparto de franjas de la ventana (barra, cabecera, pestañas, lista y
+        // pie) y después el de columnas: si no, las columnas se calculan con el alto viejo.
+        LayoutRootRows();
         // Si el tamaño no cambió de verdad, no se toca nada: evita repintados en bucle.
         if (_list.ClientSize == _lastSizedClient && _columnUpdatePending) return;
         _lastSizedClient = _list.ClientSize;
@@ -1209,11 +1502,16 @@ public sealed partial class MainForm
         if (_list.Columns.Count < 7) return;
         var wideEnough = _list.ClientSize.Width >= 900;
         var show = wideEnough && _settings.ShowHashes && (_settings.VerifyAfterCopy || _lastOperation == OperationType.Test);
-        // 0 = Nombre · 1 = Destino · 2 = Tamaño · 3 = Estado · 4 = Progreso · 5/6 = hashes
-        SetWidth(_list.Columns[1], 236);
-        SetWidth(_list.Columns[2], show ? 84 : 92);
-        SetWidth(_list.Columns[3], show ? 108 : 128);
-        SetWidth(_list.Columns[4], show ? 126 : 190);
+        // 0 = Nombre · 1 = Subcarpeta · 2 = Tamaño · 3 = Estado · 4 = Progreso · 5/6 = hashes
+        // La subcarpeta es corta (normalmente «—»): el espacio que antes se llevaba repetir
+        // la ruta de destino se lo queda la columna del nombre, donde está el árbol.
+        // Con la ruta completa a la vista, el resto de columnas ceden ancho: lo que importa
+        // es ver de dónde sale cada archivo, y la ruta es lo que más sitio necesita.
+        var path = _settings.ShowFullPath;
+        SetWidth(_list.Columns[1], path ? 100 : 150);
+        SetWidth(_list.Columns[2], show ? 84 : path ? 88 : 92);
+        SetWidth(_list.Columns[3], show ? 108 : path ? 112 : 128);
+        SetWidth(_list.Columns[4], show ? 126 : path ? 150 : 190);
         SetWidth(_list.Columns[5], show ? 138 : 0);
         SetWidth(_list.Columns[6], show ? 138 : 0);
     }
@@ -1229,54 +1527,163 @@ public sealed partial class MainForm
 
     // ---------------------------------------------------------------- trabajos
 
+    /// <summary>
+    /// Panel «TRABAJOS»: una línea por lista de copia, con un distintivo que diferencia las
+    /// ACTIVAS, las que están EN PAUSA, las que ESPERAN TURNO y las ANTIGUAS ya terminadas.
+    /// Pulsando una línea se cambia a esa lista.
+    /// </summary>
     private void UpdateJobs()
     {
         if (_jobsList is null) return;
-        var lines = new List<string>();
-        if (_engine.IsRunning)
-        {
-            var total = _engine.TotalBytes;
-            var percent = total > 0 ? _engine.DoneBytes * 100d / total : 0;
-            var verb = _lastOperation switch
-            {
-                OperationType.Move => "Moviendo",
-                OperationType.Delete => "Eliminando",
-                OperationType.Test => "Verificando",
-                _ => "Copiando"
-            };
-            lines.Add($"{(_engine.IsPaused ? "❚❚" : "▶")} {verb}  ·  {percent:0.0} %  ·  {Format.Speed(_engine.SpeedBytesPerSecond)}");
-        }
-        else if (_items.Count > 0)
-        {
-            lines.Add($"Lista preparada  ·  {_items.Count} elemento(s)");
-        }
-        else
-        {
-            lines.Add("Sin trabajos en curso");
-        }
 
-        if (_history.Count > 0)
+        var entries = new List<JobLine>();
+        foreach (var list in _lists)
         {
-            lines.Add(string.Empty);
-            lines.Add("Historial");
-            foreach (var entry in _history.Take(9))
-            {
-                var mark = entry.Errors == 0 ? "✓" : "!";
-                lines.Add($"{mark} {entry.FinishedAt:dd/MM HH:mm}  {entry.OperationText}  {entry.ResultText}");
-            }
-        }
+            var running = _engine.IsRunning && list == _runningList;
+            var stage = list.Stage(running, running && _engine.IsPaused);
+            var files = list.Items.Count(item => item.Kind != ItemKind.Folder);
+            var done = list.Items.Count(item => item.Kind != ItemKind.Folder
+                && item.State is ItemState.Completed or ItemState.Skipped);
 
-        var signature = string.Join("\n", lines);
+            var detail = running
+                ? $"{(_engine.TotalBytes > 0 ? _engine.DoneBytes * 100d / _engine.TotalBytes : 0):0} % · {Format.Speed(_engine.SpeedBytesPerSecond)}"
+                : files == 0 ? "vacía" : $"{done} de {Format.Files(files)}";
+
+            entries.Add(new JobLine(list,
+                $"{TransferList.StageGlyph(stage)}  {list.DisplayName}",
+                $"      {TransferList.StageText(stage)} · {detail}",
+                stage));
+        }
+        if (entries.Count == 0)
+            entries.Add(new JobLine(null, "Sin listas de copia", "      Arrastra archivos para empezar", ListStage.Preparada));
+
+        var signature = string.Join("\n", entries.Select(entry => entry.Title + entry.Detail))
+            + "|" + (_activeList?.Id.ToString() ?? string.Empty);
         if (string.Equals(signature, _jobsSignature, StringComparison.Ordinal)) return;
         _jobsSignature = signature;
 
+        // Mientras se copia, el detalle cambia cada segundo y el panel se rehace: hay que
+        // devolver la selección a su sitio o la línea marcada «salta» sola.
+        var selected = _jobsList.SelectedIndex;
         _jobsList.BeginUpdate();
         _jobsList.Items.Clear();
-        foreach (var line in lines) _jobsList.Items.Add(line);
+        foreach (var entry in entries)
+        {
+            _jobsList.Items.Add(entry);
+            _jobsList.Items.Add(new JobLine(entry.List, entry.Detail, string.Empty, entry.Stage) { IsDetail = true });
+        }
+        if (selected >= 0 && selected < _jobsList.Items.Count) _jobsList.SelectedIndex = selected;
         _jobsList.EndUpdate();
     }
 
+    /// <summary>Una línea del panel de trabajos.</summary>
+    private sealed class JobLine
+    {
+        public JobLine(TransferList? list, string title, string detail, ListStage stage)
+        {
+            List = list;
+            Title = title;
+            Detail = detail;
+            Stage = stage;
+        }
+
+        public TransferList? List { get; }
+        public string Title { get; }
+        public string Detail { get; }
+        public ListStage Stage { get; }
+        public bool IsDetail { get; init; }
+
+        public override string ToString() => Title;
+    }
+
+    /// <summary>Color con el que se pinta cada estado en el panel de trabajos.</summary>
+    private Color StageColor(ListStage stage) => stage switch
+    {
+        ListStage.Activa => _palette.Accent,
+        ListStage.Pausada => _palette.Warning,
+        ListStage.EnEspera => _palette.Muted,
+        ListStage.Terminada => _palette.Success,
+        ListStage.ConErrores => _palette.Danger,
+        _ => _palette.Text
+    };
+
     private string _jobsSignature = string.Empty;
+
+    /// <summary>
+    /// Elementos cuya línea de puntos va resaltada: el archivo marcado y TODAS sus carpetas
+    /// hasta la raíz. Es lo que permite seguir con la vista de dónde sale un archivo cuando
+    /// la lista se ha reordenado a mano.
+    /// </summary>
+    private readonly HashSet<Guid> _highlightChain = new();
+
+    /// <summary>
+    /// Tramos de la línea de puntos que hay que pintar resaltados, fila por fila y nivel a
+    /// nivel. NO BASTA CON RESALTAR LA CARPETA Y EL ARCHIVO: la línea que los une pasa POR
+    /// ENCIMA de las filas de los hermanos, y esas filas no pertenecen a la cadena, así que
+    /// el trazo quedaba partido (resaltada la ruta, pero no la línea, que es justo lo que
+    /// se veía en la captura). Aquí se marca, para cada fila por la que pasa el trazo, el
+    /// nivel concreto que debe ir en azul.
+    /// </summary>
+    private readonly Dictionary<Guid, HashSet<int>> _guideMarks = new();
+
+    private void UpdateHighlightChain()
+    {
+        var before = _highlightChain.Count;
+        _highlightChain.Clear();
+        _guideMarks.Clear();
+        var byId = new Dictionary<Guid, TransferItem>(_items.Count);
+        foreach (var candidate in _items) byId[candidate.Id] = candidate;
+
+        // Orden REAL de las filas en pantalla: es lo que permite saber por qué filas pasa
+        // la línea entre una carpeta y su archivo.
+        var order = new Dictionary<Guid, int>(_list.Items.Count);
+        var visible = new List<TransferItem>(_list.Items.Count);
+        foreach (ListViewItem row in _list.Items)
+        {
+            if (row.Tag is not TransferItem shown) continue;
+            order[shown.Id] = visible.Count;
+            visible.Add(shown);
+        }
+
+        void Mark(Guid id, int level)
+        {
+            if (level < 1 || level > 12) return;
+            if (!_guideMarks.TryGetValue(id, out var levels)) _guideMarks[id] = levels = new HashSet<int>();
+            levels.Add(level);
+        }
+
+        foreach (ListViewItem row in _list.SelectedItems)
+        {
+            if (row.Tag is not TransferItem item) continue;
+            var chain = new List<TransferItem>();
+            var node = item;
+            var guard = 0;
+            while (node is not null && guard++ < 64)
+            {
+                chain.Add(node);
+                _highlightChain.Add(node.Id);
+                if (node.ParentId is not { } parentId) break;
+                node = byId.TryGetValue(parentId, out var parent) ? parent : null;
+            }
+
+            // Todos los niveles de la propia fila marcada.
+            for (var level = 1; level <= Math.Clamp(item.Depth, 0, 12); level++) Mark(item.Id, level);
+
+            // Y el trazo vertical que va de cada padre a su hijo, fila por fila.
+            for (var index = 0; index + 1 < chain.Count; index++)
+            {
+                var child = chain[index];
+                var parent = chain[index + 1];
+                if (!order.TryGetValue(child.Id, out var childRow) || !order.TryGetValue(parent.Id, out var parentRow)) continue;
+                var level = Math.Clamp(child.Depth, 1, 12);
+                var from = Math.Min(parentRow, childRow);
+                var to = Math.Max(parentRow, childRow);
+                for (var position = from; position <= to; position++) Mark(visible[position].Id, level);
+            }
+        }
+        // Repintar solo cuando de verdad cambia algo: esto se dispara con cada flechita.
+        if (before > 0 || _highlightChain.Count > 0) _list.Invalidate();
+    }
 
     // ---------------------------------------------------------------- dibujado de la lista
 
@@ -1287,21 +1694,48 @@ public sealed partial class MainForm
         using var line = new Pen(_palette.Border);
         e.Graphics.DrawLine(line, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Right, e.Bounds.Bottom - 1);
         var headerText = e.Header?.Text ?? string.Empty;
+        // Flechita en la columna por la que está ordenada la lista: así se ve de un vistazo
+        // qué manda el orden y hacia dónde, igual que en el Explorador de Windows.
+        var sorted = e.ColumnIndex == SortedColumn();
+        if (sorted) headerText += _lastSortInverted ? "  \u25BC" : "  \u25B2";
         var alignment = e.Header?.TextAlign == HorizontalAlignment.Right ? TextFormatFlags.Right : TextFormatFlags.Left;
         TextRenderer.DrawText(e.Graphics, headerText, _headerFont,
-            Rectangle.Inflate(e.Bounds, -10, 0), _palette.Muted,
+            Rectangle.Inflate(e.Bounds, -10, 0), sorted ? _palette.Text : _palette.Muted,
             alignment | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+    }
+
+    /// <summary>Mezcla dos colores: 0 = todo <paramref name="a"/>, 1 = todo <paramref name="b"/>.</summary>
+    private static Color Blend(Color a, Color b, double amount)
+    {
+        amount = Math.Clamp(amount, 0, 1);
+        return Color.FromArgb(
+            (int)Math.Round(a.R + (b.R - a.R) * amount),
+            (int)Math.Round(a.G + (b.G - a.G) * amount),
+            (int)Math.Round(a.B + (b.B - a.B) * amount));
     }
 
     private void ListDrawSubItem(object? sender, DrawListViewSubItemEventArgs e)
     {
         if (e.Item is null) return;
         var selected = e.Item.Selected;
+        // RUTA COMPLETA DEL ARCHIVO MARCADO. Las carpetas de las que cuelga el archivo
+        // seleccionado se pintan con un fondo a medio camino entre la fila normal y la fila
+        // marcada, y con su propia banda (más estrecha) a la izquierda. Así la vista sube
+        // sola desde el archivo hasta la raíz, que es lo que pedía el usuario.
+        var onChain = !selected && e.Item.Tag is TransferItem chainItem && _highlightChain.Contains(chainItem.Id);
+        var stripes = e.ItemIndex % 2 == 0 ? _palette.Surface : _palette.SurfaceAlt;
         var background = selected
             ? _palette.Selection
-            : (e.ItemIndex % 2 == 0 ? _palette.Surface : _palette.SurfaceAlt);
+            : (onChain ? Blend(stripes, _palette.Selection, 0.45) : stripes);
         using (var brush = new SolidBrush(background))
             e.Graphics.FillRectangle(brush, e.Bounds);
+        // La fila marcada lleva además una banda de acento a la izquierda del todo: con la
+        // lista llena, el cambio de fondo solo no se distinguía bien.
+        if (e.ColumnIndex == 0 && (selected || onChain))
+        {
+            using var stripe = new SolidBrush(selected ? _palette.Accent : Blend(_palette.Accent, stripes, 0.45));
+            e.Graphics.FillRectangle(stripe, e.Bounds.Left, e.Bounds.Top, selected ? 3 : 2, e.Bounds.Height);
+        }
 
         if (e.Item.Tag is not TransferItem item) return;
         var flags = TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis;
@@ -1312,15 +1746,66 @@ public sealed partial class MainForm
         {
             case 0:
             {
-                // Lista plana: sin sangría por profundidad. La raíz se ve en la ruta de la fila.
-                var x = e.Bounds.Left + 8;
-                if (item.Kind == ItemKind.Folder)
+                // ÁRBOL: carpeta → subcarpeta → archivo. Cada nivel se sangra 18 px y las
+                // carpetas llevan su flecha para plegarse. Así se ve de un vistazo a qué
+                // carpeta pertenece cada archivo, sin repetir la ruta completa en cada fila.
+                var indent = Math.Clamp(item.Depth, 0, 12) * 18;
+                var x = e.Bounds.Left + 8 + indent;
+
+                // LÍNEAS DE PUNTOS QUE LLEVAN A LA RAÍZ. Cada nivel de carpeta deja su línea
+                // vertical discontinua, y del último nivel sale un codo hasta el icono del
+                // archivo: se sigue con el dedo de dónde cuelga cada fila aunque la lista
+                // esté reordenada a mano. Cuando la fila seleccionada pertenece a esa rama,
+                // TODA la línea se pinta en el color de acento (lo que pidió el usuario:
+                // ver de un vistazo la ruta completa del archivo marcado).
+                {
+                    var onPath = _highlightChain.Count > 0 && _highlightChain.Contains(item.Id);
+                    _guideMarks.TryGetValue(item.Id, out var marks);
+                    using var plain = new Pen(_palette.Border) { DashStyle = System.Drawing.Drawing2D.DashStyle.Dot };
+                    // Sobre la fila marcada el azul de acento se confunde con el fondo de
+                    // la selección: ahí la línea se pinta en claro para que se siga viendo.
+                    using var marked = new Pen(selected ? Blend(_palette.Accent, Color.White, 0.65)
+                        : _palette.Accent, 2f)
+                    { DashStyle = System.Drawing.Drawing2D.DashStyle.Dot };
+                    Pen GuideFor(int level) => marks is not null && marks.Contains(level) ? marked : plain;
+
+                    // Líneas de los niveles de los que CUELGA esta fila. Cada nivel elige su
+                    // pluma por separado: el trazo que lleva al archivo marcado va en azul
+                    // aunque la fila por la que pasa sea la de un hermano cualquiera.
+                    for (var level = 1; level <= item.Depth; level++)
+                    {
+                        var gx = e.Bounds.Left + 8 + (level - 1) * 18 + 8;
+                        e.Graphics.DrawLine(GuideFor(level), gx, top, gx, top + height);
+                    }
+                    if (item.Depth > 0)
+                    {
+                        // Codo: del último nivel al icono de esta fila.
+                        var elbowX = e.Bounds.Left + 8 + (item.Depth - 1) * 18 + 8;
+                        var middle = top + height / 2;
+                        e.Graphics.DrawLine(onPath ? marked : GuideFor(item.Depth), elbowX, middle, elbowX + 12, middle);
+                    }
+
+                    // LA LÍNEA NO SE CORTA EN LA CARPETA. Una carpeta con contenido abre su
+                    // propio nivel: desde la mitad de su fila baja el tramo que enlaza con
+                    // sus archivos. Sin esto, la línea de puntos empezaba por debajo de la
+                    // carpeta y la ruta del archivo marcado quedaba partida justo donde
+                    // hacía falta seguirla.
+                    if (item.Kind == ItemKind.Folder && ChildCount(item) > 0 && item.IsExpanded)
+                    {
+                        var ownX = e.Bounds.Left + 8 + item.Depth * 18 + 8;
+                        e.Graphics.DrawLine(GuideFor(item.Depth + 1), ownX, top + height / 2, ownX, top + height);
+                    }
+                }
+
+                var hasChildren = item.Kind == ItemKind.Folder && ChildCount(item) > 0;
+                if (hasChildren)
                 {
                     TextRenderer.DrawText(e.Graphics, item.IsExpanded ? Icons.ChevronDown : Icons.ChevronRight,
                         _chevronFont, new Rectangle(x, top, 14, height), _palette.Muted,
                         TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
-                    x += 16;
                 }
+                x += 16;
+
                 var glyph = item.Kind is ItemKind.Folder or ItemKind.DirectoryEntry ? Icons.Folder : Icons.File;
                 var glyphColor = item.Kind is ItemKind.Folder or ItemKind.DirectoryEntry
                     ? _palette.Warning
@@ -1333,57 +1818,73 @@ public sealed partial class MainForm
                 var nameColor = item.State switch
                 {
                     ItemState.Failed => _palette.Danger,
-                    ItemState.Completed => _palette.Text,
+                    ItemState.Completed => _palette.Success,
                     ItemState.Skipped => _palette.Muted,
                     _ => _palette.Text
                 };
                 if (item.Kind == ItemKind.DirectoryEntry) nameColor = _palette.Muted;
+                var nameFont = item.Kind == ItemKind.Folder ? _headerFont : _list.Font;
                 var baseName = item.Kind == ItemKind.DirectoryEntry ? e.Item.Text + "  (carpeta vacía)" : e.Item.Text;
 
-                // Como TeraCopy: cada fila muestra la ruta completa del archivo, para que al
-                // reordenar se vea de dónde sale cada cosa aunque vengan de carpetas distintas.
-                // La carpeta va en color atenuado y el nombre del archivo en el color normal.
-                // Ruta completa SIEMPRE: la carpeta donde está el archivo, tal cual (raíz
-                // incluida). Al arrastrar una carpeta se añaden todos sus archivos y cada uno
-                // muestra de qué subcarpeta viene; la ruta de destino no cambia al reordenar.
-                var folderPath = string.Empty;
-                try
+                // RUTA COMPLETA de cada elemento de primer nivel, como en FlashCopyPro: la
+                // fila dice «C:\Users\...\Fotos\» delante del nombre. Los elementos de dentro
+                // de una carpeta no la repiten: su sitio en el árbol ya lo cuenta.
+                // Cuando no cabe entera, lo que se recorta es la RUTA (con «…» en medio), no
+                // el nombre: antes la ruta simplemente desaparecía si faltaban 60 px.
+                var cell = Math.Max(0, e.Bounds.Right - x - 8);
+                if (item.ParentId is null && _settings.ShowFullPath)
                 {
-                    var full = Path.GetFullPath(item.SourcePath);
-                    folderPath = Path.GetDirectoryName(full) ?? string.Empty;
-                }
-                catch { }
-                if (folderPath.Length > 0)
-                {
-                    if (!folderPath.EndsWith(Path.DirectorySeparatorChar)) folderPath += Path.DirectorySeparatorChar;
-                    var folderWidth = TextRenderer.MeasureText(e.Graphics, folderPath, _list.Font, Size.Empty,
-                        TextFormatFlags.NoPrefix).Width;
-                    var roomForName = Math.Max(0, e.Bounds.Right - x - 8);
-                    if (folderWidth + 40 < roomForName)
+                    var folderPath = string.Empty;
+                    try
                     {
-                        TextRenderer.DrawText(e.Graphics, folderPath, _list.Font,
-                            new Rectangle(x, top, folderWidth + 2, height), _palette.Muted, flags);
-                        x += folderWidth + 2;
-                        roomForName = Math.Max(0, e.Bounds.Right - x - 8);
+                        var full = Path.GetFullPath(item.SourcePath);
+                        folderPath = Path.GetDirectoryName(full) ?? string.Empty;
+                    }
+                    catch { }
+                    if (folderPath.Length > 0)
+                    {
+                        if (!folderPath.EndsWith(Path.DirectorySeparatorChar)) folderPath += Path.DirectorySeparatorChar;
+                        var folderWidth = TextRenderer.MeasureText(e.Graphics, folderPath, _list.Font, Size.Empty,
+                            TextFormatFlags.NoPrefix).Width;
+                        var nameWidth = TextRenderer.MeasureText(e.Graphics, baseName, nameFont, Size.Empty,
+                            TextFormatFlags.NoPrefix).Width;
+
+                        if (folderWidth + nameWidth + 6 <= cell)
+                        {
+                            // Caben los dos: la carpeta en gris y el nombre en su color.
+                            TextRenderer.DrawText(e.Graphics, folderPath, _list.Font,
+                                new Rectangle(x, top, folderWidth + 2, height), _palette.Muted, flags);
+                            x += folderWidth + 2;
+                        }
+                        else
+                        {
+                            // NO caben: se pinta la ruta ENTERA en una sola pieza y Windows
+                            // recorta por el medio («C:\Users\…\foto.jpg»), que es como lo
+                            // hace FlashCopyPro. Así la ruta no desaparece por falta de sitio
+                            // y el nombre del archivo, que va al final, siempre se lee.
+                            TextRenderer.DrawText(e.Graphics, folderPath + baseName, nameFont,
+                                new Rectangle(x, top, cell, height), nameColor,
+                                TextFormatFlags.Left | TextFormatFlags.VerticalCenter
+                                | TextFormatFlags.PathEllipsis | TextFormatFlags.NoPrefix);
+                            break;
+                        }
                     }
                 }
 
-                TextRenderer.DrawText(e.Graphics, baseName, _list.Font,
+                TextRenderer.DrawText(e.Graphics, baseName, nameFont,
                     new Rectangle(x, top, Math.Max(0, e.Bounds.Right - x - 8), height),
                     nameColor, flags);
                 break;
             }
             case 1:
             {
-                // Carpeta de destino real de este elemento, para que se vea a dónde va cada cosa.
-                var destinationText = DestinationText(item);
-                var hasCustomTarget =
-                    (item.State is ItemState.Completed or ItemState.Running or ItemState.Verifying or ItemState.Paused)
-                    && !string.IsNullOrWhiteSpace(item.DestinationPath);
+                // Subcarpeta DENTRO del destino. La carpeta de destino completa está en la
+                // cabecera de la ventana: repetirla en cada fila era uno de los duplicados.
+                var relative = RelativeTargetText(item);
                 var color = item.State == ItemState.Failed ? _palette.Danger
-                    : hasCustomTarget ? _palette.Text
-                    : _palette.Muted;
-                TextRenderer.DrawText(e.Graphics, destinationText, _list.Font,
+                    : relative == "—" ? _palette.Muted
+                    : _palette.Text;
+                TextRenderer.DrawText(e.Graphics, relative, _list.Font,
                     new Rectangle(e.Bounds.Left + 4, top, Math.Max(0, e.Bounds.Width - 10), height),
                     color, TextFormatFlags.Left | TextFormatFlags.VerticalCenter
                            | TextFormatFlags.PathEllipsis | TextFormatFlags.NoPrefix);
@@ -1417,7 +1918,7 @@ public sealed partial class MainForm
                 var state = item.StateText;
                 if (item.Kind == ItemKind.Folder && item.State is ItemState.Pending or ItemState.Measuring)
                 {
-                    var count = Children(item).Count;
+                    var count = ChildCount(item);
                     if (count > 0) state += $" · {count}";
                 }
                 TextRenderer.DrawText(e.Graphics, state, _list.Font,
@@ -1428,10 +1929,26 @@ public sealed partial class MainForm
             case 4:
             {
                 var percent = RowPercent(item);
-                var bar = new Rectangle(e.Bounds.Left + 6, top + (height - 10) / 2, Math.Max(12, e.Bounds.Width - 68), 10);
-                Ui.DrawProgress(e.Graphics, bar, percent, _palette, StateColor(item));
-                TextRenderer.DrawText(e.Graphics, $"{percent:0} %", _percentFont,
-                    new Rectangle(bar.Right + 6, top, 54, height), _palette.Muted,
+                var text = $"{percent:0} %";
+                // EL NÚMERO MANDA: se mide el ancho que necesita «100 %» con la fuente real y
+                // ese hueco se le reserva entero. Con la caja fija de 54 px y la barra en
+                // Ancho-68, al estrechar la columna el porcentaje salía cortado («10…»).
+                var reserved = Math.Min(e.Bounds.Width - 18,
+                    TextRenderer.MeasureText(e.Graphics, "100 %", _percentFont,
+                        new Size(int.MaxValue, int.MaxValue), TextFormatFlags.NoPadding).Width + 8);
+                reserved = Math.Max(reserved, 0);
+                var barWidth = e.Bounds.Width - 12 - reserved - 6;
+                var textLeft = e.Bounds.Left + 6;
+                if (barWidth >= 12)
+                {
+                    var bar = new Rectangle(e.Bounds.Left + 6, top + (height - 10) / 2, barWidth, 10);
+                    Ui.DrawProgress(e.Graphics, bar, percent, _palette, StateColor(item));
+                    textLeft = bar.Right + 6;
+                }
+                // Si la columna es tan estrecha que no caben barra y número, se queda el
+                // número: es el dato, la barra es solo el adorno.
+                TextRenderer.DrawText(e.Graphics, text, _percentFont,
+                    new Rectangle(textLeft, top, Math.Max(0, e.Bounds.Right - textLeft - 6), height), _palette.Muted,
                     TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
                 break;
             }
@@ -1486,7 +2003,13 @@ public sealed partial class MainForm
             // Con filas solo se cubre el alto de la cabecera (debajo está el fondo de la lista
             // y, si hace falta, la barra de verdad, que no se debe ocultar). Con la lista
             // vacía se cubre entera, porque el control sigue dibujando el canal del pulgar.
-            var cover = width + 4;
+            // El ancho que se tapa es TODO lo que sobra a la derecha de la última columna,
+            // no solo el de la barra: si la lista se ensancha de golpe (al plegar la columna
+            // de listas, por ejemplo) ese hueco puede ser de cientos de píxeles y es justo
+            // el cuadrado blanco que salía en la esquina de la cabecera.
+            var columns = 0;
+            for (var index = 0; index < _list.Columns.Count; index++) columns += _list.Columns[index].Width;
+            var cover = Math.Max(width + 4, _list.ClientSize.Width - columns);
             var headerHeight = _list.Items.Count > 0
                 ? Math.Max(1, _list.Items[0].Bounds.Top)
                 : _list.ClientSize.Height;
@@ -1507,19 +2030,24 @@ public sealed partial class MainForm
         _updatingColumns = true;
         try
         {
-            // Se reserva el ancho de la barra vertical: si las columnas ocupan el ancho
-            // completo, el ListView activa el desplazamiento horizontal (una barra blanca).
-            var scrollbar = SystemInformation.VerticalScrollBarWidth;
+            // Se reserva el ancho de la barra vertical SOLO SI LA HAY. Reservarlo siempre
+            // dejaba a la derecha de la cabecera un hueco del ancho de la barra que Windows
+            // pinta de blanco: ese es el cuadrado blanco de la esquina que salía en las
+            // capturas, tanto con la lista llena como con dos filas.
+            var scrollbar = NativeTheme.HasVerticalScrollBar(_list) ? SystemInformation.VerticalScrollBarWidth : 0;
             var used = _list.Columns[1].Width + _list.Columns[2].Width + _list.Columns[3].Width
                        + _list.Columns[4].Width + _list.Columns[5].Width + _list.Columns[6].Width;
             var available = _list.ClientSize.Width - used - 4 - scrollbar;
             if (available < 300)
             {
-                // En ventanas pequeñas se reduce el resto para que quepa el nombre.
-                SetWidth(_list.Columns[1], 168);
+                // En ventanas pequeñas se reduce el resto para que quepa el nombre. Con la
+                // ruta completa encendida, la columna «Subcarpeta» se retira del todo: su
+                // dato (la subcarpeta DENTRO del destino) sigue en el globo de ayuda de la
+                // fila, y ese ancho es lo que permite leer la ruta de origen entera.
+                SetWidth(_list.Columns[1], _settings.ShowFullPath ? 0 : 110);
                 SetWidth(_list.Columns[2], 74);
-                SetWidth(_list.Columns[3], 112);
-                SetWidth(_list.Columns[4], 124);
+                SetWidth(_list.Columns[3], _settings.ShowFullPath ? 104 : 112);
+                SetWidth(_list.Columns[4], _settings.ShowFullPath ? 116 : 124);
                 used = _list.Columns[1].Width + _list.Columns[2].Width + _list.Columns[3].Width
                        + _list.Columns[4].Width + _list.Columns[5].Width + _list.Columns[6].Width;
                 available = _list.ClientSize.Width - used - 4 - scrollbar;
