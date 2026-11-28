@@ -324,6 +324,9 @@ internal sealed class OptionsDialog : Form
             SizeMode = TabSizeMode.Fixed,
             ItemSize = new Size(112, 30),
             Padding = new Point(12, 6),
+            // El dibujo entero lo hace DarkTabs (ver Theme.cs); se deja en owner-draw para
+            // que, si Windows llegara a pintar por su cuenta, no escriba las pestañas con
+            // los colores del tema claro.
             DrawMode = TabDrawMode.OwnerDrawFixed,
             // EN VARIAS FILAS. Con ocho pestañas en una sola fila no cabían y Windows ponía
             // dos flechitas para ir pasándolas de una en una: no se veía dónde estaba cada
@@ -331,7 +334,6 @@ internal sealed class OptionsDialog : Form
             Multiline = true,
             Font = new Font("Segoe UI", 9f)
         };
-        _tabs.DrawItem += DrawTab;
         _tabs.HandleCreated += (_, _) => FitTabWidths();
         // Al cambiar el tamaño del cuadro hay que repartir otra vez: si no, vuelve a
         // asomar el hueco sin pintar al ensanchar la ventana.
@@ -1110,24 +1112,6 @@ internal sealed class OptionsDialog : Form
         // Solo se toca si cambia: asignar ItemSize dispara otra vuelta de layout.
         if (_tabs.ItemSize.Width != width || _tabs.ItemSize.Height != 30)
             _tabs.ItemSize = new Size(width, 30);
-    }
-
-    private void DrawTab(object? sender, DrawItemEventArgs e)
-    {
-        var selected = e.Index == _tabs.SelectedIndex;
-        using var background = new SolidBrush(selected ? _palette.Surface : _palette.Canvas);
-        e.Graphics.FillRectangle(background, e.Bounds);
-        using var line = new Pen(_palette.Border);
-        e.Graphics.DrawLine(line, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Right, e.Bounds.Bottom - 1);
-        if (selected)
-        {
-            using var accent = new SolidBrush(_palette.Accent);
-            e.Graphics.FillRectangle(accent, e.Bounds.Left + 6, e.Bounds.Bottom - 3, e.Bounds.Width - 12, 3);
-        }
-        TextRenderer.DrawText(e.Graphics, _tabs.TabPages[e.Index].Text, _tabs.Font,
-            Rectangle.Inflate(e.Bounds, -6, -2), selected ? _palette.Text : _palette.Muted,
-            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix
-            | TextFormatFlags.EndEllipsis);
     }
 
     private TextBox TextBox(string value) => new()

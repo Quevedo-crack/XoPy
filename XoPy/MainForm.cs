@@ -442,7 +442,7 @@ public sealed partial class MainForm : Form
         // cambiar— y se quita el botón de maximizar, que hacía lo mismo de un clic.
         if (compact)
         {
-            MaximumSize = new Size(0, CompactWindowHeight());
+            MaximumSize = CompactMaximum();
             if (MaximizeBox) MaximizeBox = false;
         }
         else
@@ -475,7 +475,7 @@ public sealed partial class MainForm : Form
                     var band = new Rectangle(screen.X + Math.Max(0, (screen.Width - wide) / 2),
                         screen.Y, wide, CompactWindowHeight());
                     MinimumSize = new Size(560, CompactWindowHeight());
-                    MaximumSize = new Size(0, CompactWindowHeight());
+                    MaximumSize = CompactMaximum();
                     WindowState = FormWindowState.Normal;
                     Bounds = ClampToWorkArea(band);
                 }
@@ -489,7 +489,7 @@ public sealed partial class MainForm : Form
                     // El mínimo se ajusta ANTES de mover la ventana: si no, Math.Max con el
                     // mínimo anterior volvía a estirarla y reaparecía el hueco.
                     MinimumSize = new Size(560, height);
-                    MaximumSize = new Size(0, height);
+                    MaximumSize = CompactMaximum();
                     // Una sola asignación de Bounds: cambiar Height y Width por separado
                     // provocaba dos recolocaciones y el típico salto de la ventana.
                     Bounds = ClampToWorkArea(new Rectangle(Left, Top, Math.Max(Width, 560), height));
@@ -523,6 +523,21 @@ public sealed partial class MainForm : Form
                 ? "Lista oculta. Pulsa «Mostrar lista» en la barra para recuperarla."
                 : "Lista visible.");
         }
+    }
+
+    /// <summary>
+    /// Tamaño MÁXIMO de la vista reducida: alto el de la banda y ancho «el que quieras».
+    /// OJO CON EL CERO: en WinForms un MaximumSize con ancho 0 NO significa «sin límite»
+    /// —eso solo vale cuando los dos valores son cero—, sino un ancho máximo de cero, y
+    /// Windows dejaba la ventana en los 136 px que mide un marco con sus botones. Por eso
+    /// aquí se pone un ancho enorme en vez de un cero.
+    /// </summary>
+    private Size CompactMaximum()
+    {
+        var wide = 4096;
+        try { wide = Math.Max(wide, SystemInformation.VirtualScreen.Width * 2); }
+        catch { }
+        return new Size(wide, CompactWindowHeight());
     }
 
     /// <summary>

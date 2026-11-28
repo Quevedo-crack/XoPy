@@ -1225,13 +1225,20 @@ internal sealed class ChoiceButton : Button
 /// </summary>
 internal sealed class DarkTabs : TabControl
 {
-    private const int WmPaint = 0x000F;
     private const int WmEraseBackground = 0x0014;
     private readonly Palette _palette;
 
     public DarkTabs(Palette palette)
     {
         _palette = palette;
+        // QUIÉN PINTA. Repintar DESPUÉS de Windows no servía: quedaba el marco claro del
+        // tema en los dos píxeles de arriba del renglón y en los huecos entre pestañas,
+        // porque esa parte cae DENTRO del rectángulo de cada pestaña y no se puede tapar
+        // sin borrar lo que acaba de dibujar el propio control. Con UserPaint el control
+        // de Windows deja de pintarse —sigue respondiendo al ratón y al teclado igual— y
+        // el renglón entero lo dibujamos aquí, así que no queda un solo píxel blanco.
+        SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint
+            | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
         DoubleBuffered = true;
     }
 
@@ -1240,43 +1247,66 @@ internal sealed class DarkTabs : TabControl
         if (m.Msg == WmEraseBackground)
         {
             // El borrado del fondo lo hacía el sistema con el blanco del tema claro: se
-            // ve como un parpadeo blanco al cambiar de pestaña o al estirar la ventana.
-            try
-            {
-                using var graphics = Graphics.FromHdc(m.WParam);
-                using var brush = new SolidBrush(_palette.Canvas);
-                graphics.FillRectangle(brush, ClientRectangle);
-                m.Result = new IntPtr(1);
-                return;
-            }
-            catch { }
+            // veía como un parpadeo al cambiar de pestaña o al estirar la ventana.
+            m.Result = new IntPtr(1);
+            return;
         }
 
         base.WndProc(ref m);
-        if (m.Msg == WmPaint) PaintFrame();
     }
 
-    /// <summary>
-    /// Tapa lo que ha pintado Windows fuera de la página y fuera de las pestañas: el marco
-    /// y los huecos del renglón de pestañas.
-    /// </summary>
-    private void PaintFrame()
+    protected override void OnSelectedIndexChanged(EventArgs e)
     {
-        try
+        base.OnSelectedIndexChanged(e);
+        Invalidate();
+    }
+
+    protected override void OnPaintBackground(PaintEventArgs e)
+    {
+        using var brush = new SolidBrush(_palette.Canvas);
+        e.Graphics.FillRectangle(brush, e.ClipRectangle);
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        var graphics = e.Graphics;
+        using (var canvas = new SolidBrush(_palette.Canvas)) graphics.FillRectangle(canvas, ClientRectangle);
+        using var border = new Pen(_palette.Border);
+
+        for (var index = 0; index < TabCount; index++)
         {
-            var client = ClientRectangle;
-            var page = DisplayRectangle;
-            if (client.Width <= 0 || client.Height <= 0) return;
+            Rectangle rect;
+            try { rect = GetTabRect(index); }
+            catch { continue; }
+            if (rect.Width <= 2 || rect.Height <= 2) continue;
 
-            using var region = new Region(client);
-            region.Exclude(page);
-            for (var index = 0; index < TabCount; index++) region.Exclude(GetTabRect(index));
+            var selected = index == SelectedIndex;
+            if (selected)
+            {
+                using var fill = new SolidBrush(_palette.Surface);
+                graphics.FillRectangle(fill, rect);
+            }
 
-            using var graphics = CreateGraphics();
-            using var brush = new SolidBrush(_palette.Canvas);
-            graphics.FillRegion(brush, region);
+            graphics.DrawRectangle(border, rect.X, rect.Y, rect.Width - 1, rect.Height - 1);
+            if (selected)
+            {
+                // La franja de color marca la pestaña abierta mejor que el cambio de fondo.
+                using var accent = new SolidBrush(_palette.Accent);
+                graphics.FillRectangle(accent, rect.Left + 6, rect.Bottom - 4, Math.Max(1, rect.Width - 12), 3);
+            }
+
+            var text = index < TabPages.Count ? TabPages[index].Text : string.Empty;
+            TextRenderer.DrawText(graphics, text, Font, Rectangle.Inflate(rect, -6, -2),
+                selected ? _palette.Text : _palette.Muted,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter
+                | TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis);
         }
-        catch { }
+
+        // Raya de separación entre el renglón de pestañas y la página, de lado a lado:
+        // con Multiline hay dos renglones y así la separación queda entera igualmente.
+        var page = DisplayRectangle;
+        var line = page.Top - 1;
+        if (line > 0 && line < ClientRectangle.Bottom) graphics.DrawLine(border, 0, line, ClientRectangle.Right, line);
     }
 }
 
